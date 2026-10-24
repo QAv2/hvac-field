@@ -85,7 +85,7 @@ const calcCases = [
   ['fixed-orifice target 62.5 WB / 85.5 OD (RD-2 bilinear)', calc.foTargetSh(62.5, 85.5), (8.5 + 10.3 + 7.8 + 9.6) / 4, 0.01],
   ['target split 80 DB / 67 WB (RD-3: 18.3)', calc.splitTarget(80, 67), 18.3, 0.01],
   ['fixed-orifice target outside table → formula', calc.foTargetSh(67, 120), (3 * 67 - 80 - 120) / 2 < 5 ? 5 : (3 * 67 - 80 - 120) / 2, 0.01],
-  ['EG 50 % freeze °F', calc.glycolFreeze(50, 'EG'), -32.8, 0.5],
+  ['EG 50 wt % freeze °F (Dow SR-1: −28.9)', calc.glycolFreeze(50, 'EG'), -28.9, 0.5],
   ['oil 400 net stack @ 4.7 % O2 eff (US chart ≈ 83.5)', calc.combustion({ stackF: 470, airF: 70, o2: 4.7 }).eff, 83.5, 1.0],
   ['patmFromElev(5280 ft Denver) psia', calc.patmFromElev(5280), 12.1, 0.1],
   ['Clausius-Clapeyron R-410A 0/100°F → 40°F psig', calc.clausiusPsat(calc.clausiusFit(0, 48.3, 100, 317.6), 40), 118.4, 2.5],

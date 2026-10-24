@@ -47,7 +47,8 @@ node tools/fuzz.mjs                                # odd input: search text, rea
 node tools/offline_check.mjs                       # headless Chromium: precache, offline launch, updates, file://
 node tools/dx.mjs --help                           # terminal CLI diagnostics & physics calculators
 python3 tools/check_pt.py                          # PT tables vs published manufacturer charts
-.venv/bin/python -I tools/bake_pt.py               # re-bake PT and glycol tables (needs CoolProp)
+node tools/physics_check.mjs                       # 44 calculator outputs vs independent published values
+.venv/bin/python -I tools/bake_pt.py               # re-bake PT (needs CoolProp) and glycol tables
 ```
 `build.py` compiles `docs/data/kb.json`, emits the self-contained single-file `docs/field-dx-standalone.html`, and stamps `docs/sw.js` with a content hash so phones pick up a new version on next launch.
 The browser checks need Playwright with Chromium (`npm i -g playwright && npx playwright install chromium`).
@@ -59,6 +60,7 @@ opens the standalone file from `file://` with the network blocked.
 Fault directions follow NIST SP 1087 and TN 1648 and the NIST APAR rules (NISTIR 6964) — US Government works —
 plus public-domain Army manuals (TM 5-642, TM 5-650) and general practice, written in our own words. Refrigerant
 properties from CoolProp (MIT). Charging targets from the California Energy Commission ACM manual (Tables RD-2,
-RD-3). Nothing is copied from proprietary diagnostic apps. Research notes are in `research/`.
+RD-3). Glycol freeze points from the Dow DOWTHERM SR-1 and DOWFROST HD product tables. Nothing is copied from
+proprietary diagnostic apps. Research notes are in `research/`.
 
 The probe link (UEi wireless probes over Bluetooth) is a separate track: `tools/ble_scan.py`, `tools/ble_capture.py`.

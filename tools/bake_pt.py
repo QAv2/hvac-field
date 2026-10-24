@@ -1,14 +1,17 @@
-"""Bake refrigerant pressure-temperature tables and glycol freeze points from CoolProp.
+"""Bake refrigerant pressure-temperature tables from CoolProp, and the glycol freeze-point table.
 
-Usage: .venv/bin/python -I tools/bake_pt.py
+Usage: .venv/bin/python -I tools/bake_pt.py          (both; needs CoolProp)
+       python3 tools/bake_pt.py --glycol-only        (glycol only; no CoolProp needed)
 Writes docs/data/pt.json (saturation psig per whole °F, dew and bubble for blends) and
 docs/data/glycol.json (freeze point vs mass fraction for ethylene and propylene glycol).
 The app interpolates these tables, so it needs no CoolProp at run time.
+
+Glycol freeze points come from the Dow product tables (by weight % glycol), not CoolProp: CoolProp's
+incompressible MEG fit runs up to 4 °F colder than the published table at 40–55 % EG, which would
+overstate freeze protection (see cloud-reports/H1.md).
 """
 import json, math, sys, time
 from pathlib import Path
-import CoolProp
-import CoolProp.CoolProp as CP
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "docs" / "data"
@@ -99,6 +102,9 @@ def table(fluid):
 
 
 def main():
+    global CoolProp, CP
+    import CoolProp
+    import CoolProp.CoolProp as CP
     out = {"meta": {"source": f"CoolProp {CoolProp.__version__}", "generated": time.strftime("%Y-%m-%d"),
                     "t0": TMIN, "step": 1, "units": {"T": "°F", "P": "psig"},
                     "note": "Blends list dew (vapor) and bubble (liquid) pressures. Mixture models marked 'mix' "
@@ -125,19 +131,34 @@ def main():
     DATA.mkdir(parents=True, exist_ok=True)
     (DATA / "pt.json").write_text(json.dumps(out, separators=(",", ":")))
 
-    gly = {"meta": {"source": f"CoolProp {CoolProp.__version__} incompressible MEG/MPG",
-                    "x": "mass fraction %", "freeze": "°F"}, "MEG": [], "MPG": []}
-    for fl in ("MEG", "MPG"):
-        for pct in range(0, 61):
-            if pct == 0:
-                gly[fl].append(32.0)
-                continue
-            tf = CP.PropsSI("T_freeze", "T", 300, "P", 101325, f"INCOMP::{fl}[{pct / 100}]")
-            gly[fl].append(round(F(tf), 1))
-    (DATA / "glycol.json").write_text(json.dumps(gly, separators=(",", ":")))
-    print("glycol 50%:", gly["MEG"][50], "°F (EG)", gly["MPG"][50], "°F (PG)")
+    bake_glycol()
     print("wrote", DATA / "pt.json", (DATA / "pt.json").stat().st_size, "bytes")
 
 
+# Freezing point (°F) every 5 weight % of glycol, 0–60 %, as printed in the Dow product information:
+# "Typical Freezing and Boiling Points of DOWTHERM SR-1 Fluid" (ethylene glycol, Form 180-01312) and
+# "... of DOWFROST HD Fluid" (propylene glycol, Form 180-01315). ASHRAE Fundamentals' glycol tables
+# carry the same figures. Freeze (slush) point, not burst protection.
+DOW_EG = [32.0, 29.4, 26.2, 22.2, 17.9, 12.7, 6.7, -0.2, -8.1, -17.5, -28.9, -42.0, -54.9]
+DOW_PG = [32.0, 29.1, 26.1, 22.9, 19.2, 14.7, 9.2, 2.4, -6.0, -16.1, -28.3, -42.8, -59.9]
+
+
+def bake_glycol():
+    gly = {"meta": {"source": "Dow DOWTHERM SR-1 (EG) and DOWFROST HD (PG) typical freezing points, "
+                              "5 % steps interpolated to 1 %",
+                    "x": "mass fraction %", "freeze": "°F"}, "MEG": [], "MPG": []}
+    for fl, tab in (("MEG", DOW_EG), ("MPG", DOW_PG)):
+        for pct in range(0, 61):
+            i, f = divmod(pct, 5)
+            v = tab[i] if f == 0 else tab[i] + (tab[i + 1] - tab[i]) * f / 5
+            gly[fl].append(round(v, 1))
+    DATA.mkdir(parents=True, exist_ok=True)
+    (DATA / "glycol.json").write_text(json.dumps(gly, separators=(",", ":")))
+    print("glycol 50%:", gly["MEG"][50], "°F (EG)", gly["MPG"][50], "°F (PG)")
+
+
 if __name__ == "__main__":
-    main()
+    if "--glycol-only" in sys.argv:
+        bake_glycol()
+    else:
+        main()
