@@ -110,7 +110,7 @@ systems:
 
   # ---------------- terminal units (kb/terminal.yaml) ----------------
   - id: terminal
-    name: Unit heater, fan coil, baseboard or radiant — the heating unit itself
+    name: Unit heater, fan coil or baseboard
     ok_signs: *ok_signs
     output: heat
     short: Terminal unit
