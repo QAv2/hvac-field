@@ -93,9 +93,8 @@ systems:
     short: Hydronic loop
     icon: drop
     keywords: [hydronic, hot water heat, glycol, glycol loop, heating loop, loop, circulator, circ pump, pump,
-      baseboard, radiator, fan coil, unit heater, convector, radiant, expansion tank, relief valve, air in lines,
-      gurgling, no heat in zone, zone valve, heat exchanger, plate exchanger, waste heat, heat recovery,
-      domestic hot water, dhw, indirect]
+      expansion tank, relief valve, air in lines, gurgling, no heat in zone, zone valve, heat exchanger,
+      plate exchanger, waste heat, heat recovery, domestic hot water, dhw, indirect]
     ok_note: The loop reads normal. Check the heat source (boiler or heat recovery) and the controls calling the
       zone, and compare the load with what the terminal units can deliver.
   - id: steam
@@ -108,6 +107,21 @@ systems:
       steam main, radiator valve, vacuum pump, flash steam]
     ok_note: The steam side reads normal. Check the boiler's pressure control and water level, and the zone
       controls.
+
+  # ---------------- terminal units (kb/terminal.yaml) ----------------
+  - id: terminal
+    name: Unit heater, fan coil, baseboard or radiant — the heating unit itself
+    ok_signs: *ok_signs
+    output: heat
+    short: Terminal unit
+    icon: sun
+    keywords: [unit heater, fan coil, fcu, cabinet heater, cabinet unit heater, cuh, baseboard, fin tube, convector,
+      radiator, radiant, radiant panel, radiant floor, electric heater, electric baseboard, electric unit heater,
+      wall heater, kickspace heater, blowing cold, terminal unit, steam unit heater, hot water unit heater]
+    ok_note: The unit itself reads normal — hot water or steam reaches it, the valve opens, the coil heats evenly
+      and the fan moves air (or the elements draw full current). Compare the unit's rating with the room's heat
+      loss (doors, infiltration, a cold snap, an exhaust fan), check the thermostat setpoint and schedule, and if
+      several units are short, work the loop or boiler in the Hydronic or Steam system.
 
   # ---------------- air handling ----------------
   - id: ahu
