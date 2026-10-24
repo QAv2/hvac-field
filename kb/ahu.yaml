@@ -1,0 +1,3255 @@
+module: ahu
+title: Air handling and ventilation — fans, drives, coils (air and water side), mixing box, economizer, controls,
+  building pressure, heat and energy recovery (HRV / ERV)
+notes: |
+  The temperature logic follows the NIST APAR rule set (NISTIR 6964 Table 3.1), paraphrased: mixed air must sit
+  between return and outdoor air (rules 26/27); with both coils off, supply air equals mixed air plus fan heat
+  (rule 7), in heating it must be at least that (rule 1), and in mechanical cooling it cannot exceed it (rules
+  11/16); outdoor-air fraction = (MAT − RAT)/(OAT − RAT) should match the design minimum fraction when the
+  dampers sit at minimum, about 100 % when they are commanded full open and about 0 % when closed, once return
+  and outdoor differ by 10 °F or more (rules 2/18). A part-open blade position is not an air fraction. APAR's
+  fixed band of 30 points (εf = 0.3) is its worst case at the smallest allowed spread (εt ÷ ΔTmin), so the
+  allowance here shrinks as the return-to-outdoor spread grows. A valve pinned at 100 % with setpoint not met
+  means the coil can't deliver (rules 3/4/13/19), supply off setpoint by more than about 3 °F (εt = 1.7 °C,
+  rule 25), economizer mode vs outdoor temperature (rules 5/8/9/15), heating and cooling at once or heating
+  with the dampers open (rules 21–24), and mode cycling (rule 28). The refrigerant side of a DX coil belongs to
+  the refrigeration modules; this file covers the air side and the water/glycol control of coils.
+  Cold-climate items (snow in the intake, freezestats, glycol strength, stratification) are first-class here
+  because the user runs air handlers against −40 °F outdoor air; everything also fits ordinary US equipment.
+  Makeup-air units (100 % outdoor air) and heat- or energy-recovery ventilators (HRV / ERV) are told apart by
+  the unit-type question: the mixing-box items switch off for them, and the recovery-core causes (frost and
+  defrost, wheel drive, bypass damper, plugged core, condensate, flow balance) switch on for an HRV / ERV.
+  The recovery items are our own field logic, not a published rule set.
+
+context:
+  - id: fan_drive
+    ask: How is the fan driven?
+    hint: Belt and sheaves, or the wheel on the motor shaft (direct drive / plenum fan).
+    systems: [ahu]
+    options:
+      - {id: belt, label: Belt drive}
+      - {id: direct, label: Direct drive}
+  - id: vfd
+    ask: Is there a VFD (variable-frequency drive) on the fan?
+    hint: A drive with a keypad and a frequency readout. Otherwise a starter or contactor runs the motor.
+    systems: [ahu]
+    options:
+      - {id: 'yes', label: 'Yes — VFD'}
+      - {id: 'no', label: 'No — starter or contactor'}
+  - id: oa_type
+    ask: What kind of unit is it — does it mix return air with outdoor air, take 100 % outdoor air, or recover heat
+      from the exhaust?
+    hint: A makeup-air unit (MAU) has no return damper and no mixing box. An HRV or ERV passes outdoor air and
+      exhaust air through a core or wheel without mixing them. The shares are rough, for units where this is
+      not answered.
+    systems: [ahu]
+    options:
+      - id: mixed
+        label: Mixes return and outdoor air
+        p: 0.75
+        words: [mixing box, mixed air, return damper]
+      - id: all_oa
+        label: 100 % outdoor air (makeup air)
+        p: 0.15
+        words: [makeup air, make-up air, mau, 100 percent outdoor air, dedicated outdoor air, doas]
+      - id: hrv
+        label: Heat- or energy-recovery ventilator (HRV / ERV)
+        p: 0.1
+        words: [hrv, erv, heat recovery, energy recovery, recovery ventilator, enthalpy wheel, heat wheel,
+          recovery wheel]
+  - id: economizer
+    ask: Does it have an economizer (outdoor and return dampers that modulate for free cooling)?
+    hint: Modulating outdoor and return dampers that open up for free cooling. A fixed minimum-position damper
+      on its own answers No.
+    systems: [ahu]
+    options:
+      - {id: 'yes', label: 'Yes'}
+      - {id: 'no', label: 'No'}
+  - id: heat_coil
+    ask: What heats the air?
+    hint: Glycol loops — check the fill records or test a sample; ethylene and propylene glycol freeze differently.
+    systems: [ahu]
+    options:
+      - {id: water, label: Hot-water coil}
+      - {id: eg, label: Glycol coil — ethylene glycol}
+      - {id: pg, label: Glycol coil — propylene glycol}
+      - {id: steam, label: Steam coil}
+      - {id: electric, label: Electric heat}
+      - {id: none, label: No heating coil}
+  - id: cool_coil
+    ask: What cools the air?
+    systems: [ahu]
+    options:
+      - {id: chw, label: Chilled-water coil}
+      - {id: dx, label: DX (refrigerant) coil}
+      - {id: none, label: No cooling coil}
+
+features:
+  # ---------------- fan, drive and motor ----------------
+  - id: ahu.fan
+    name: Fan
+    ask: Is the fan running?
+    how: Listen at the motor and watch the shaft or belt from outside the guard, or look through an inspection
+      window or the inlet screen. A motor that runs with the wheel still means the belt (belt drive) or the wheel
+      or coupling (direct drive). To look inside — stop the fan, lock out and tag it at the disconnect (on a VFD
+      also wait out the bus-discharge time and verify zero), let the wheel stop, then open the door.
+    caution: Never open an access door or guard with the fan running — suction can pin the door shut, pressure
+      can throw it open, and a spinning wheel takes a hand or a sleeve. "Power off" is not enough; lock out and
+      tag, and wait for the wheel to stop.
+    systems: [ahu]
+    states:
+      running: Running, wheel turning
+      off: Not running — motor silent
+      motor_only: Motor runs but the wheel isn't turning
+      trips: Starts then trips, or hums and won't start
+    normal: running
+    base: {running: 0.85, off: 0.08, motor_only: 0.03, trips: 0.04}
+    cost: 1
+    phrases:
+      off: [fan not running, fan off, fan dead, supply fan not running, supply fan off, fan wont start, fan won't
+          start, fan not coming on, no fan, blower not running, exhaust fan not running, mau not running, unit off,
+          fan stopped, fan down]
+      motor_only: [motor runs but no air, motor running wheel not turning, belt off, wheel not turning, motor
+          spins fan doesnt, fan not turning motor running, coupling failed, coupling broken, coupling gone,
+          direct drive wheel not turning]
+      trips: [fan trips, trips on overload, overload trips, fan hums, fan humming, fan starts and trips, fan
+          kicks out, starter trips, drive trips, vfd trips, trips out, keeps tripping]
+      running: [fan running, fan is running, fan on]
+  - id: ahu.starter
+    name: Motor starter
+    ask: What is the motor starter doing (with a run command present)?
+    how: Look at the contactor and the overload relay's trip flag, then meter line voltage in and out across each
+      pole.
+    caution: Live voltage — qualified person only, with a properly rated meter and PPE, and the panel door closed
+      where possible. Otherwise lock out and use continuity.
+    systems: [ahu]
+    requires: {vfd: ['no']}
+    ask_if: {ahu.fan: ['off', trips]}
+    states:
+      ok: Pulled in, full voltage out on every pole
+      not_pulling: Not pulled in
+      overload: Overload relay tripped
+      burnt: Pulled in but a pole or fuse is open — voltage lost across it
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      not_pulling: [starter not pulling in, contactor not pulling in, starter not energized, no coil voltage,
+          starter wont pull in, starter won't pull in]
+      overload: [overload tripped, overload relay tripped, ol tripped, overloads tripped, thermal overload,
+          overload reset, heaters tripped]
+      burnt: [burnt contacts, pitted contacts, blown fuse in starter, lost a pole, bad contactor, voltage drop
+          across contactor, burnt pole, pole burnt, welded contacts, welded pole, contactor burnt, contactor
+          pitted, open pole on contactor]
+  - id: ahu.vfd_status
+    name: VFD
+    ask: What does the VFD show?
+    how: Read the keypad or display with the drive door closed. Note any fault text, and whether it shows
+      Hand/Local or Auto and a run command.
+    caution: Keep the drive door closed. To open a drive or touch its terminals, lock out, wait the maker's
+      discharge time (several minutes) and verify zero volts on the DC bus — the capacitors stay charged after
+      power is cut.
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    states:
+      running: Running, following its speed command
+      fault: Showing a fault
+      not_enabled: Powered up but stopped — no run command, in local/Hand, or stop/enable open
+      no_display: Dead — no display at all
+    normal: running
+    cost: 1
+    phrases:
+      fault: [vfd fault, drive fault, vfd faulted, drive faulted, vfd alarm, drive alarm, fault code, vfd error,
+          drive tripped, vfd tripped, fault light]
+      not_enabled: [vfd not running, drive not running, vfd stopped, vfd in local, drive in hand, vfd no run
+          command, drive not enabled, vfd ready not running, vfd in stop, drive idle, vfd shows ready]
+      no_display: [vfd dead, drive dead, vfd blank, no display on vfd, drive no display, vfd no power, drive
+          dark]
+  - id: ahu.vfd_fault
+    name: VFD fault type
+    ask: What kind of fault is the VFD showing?
+    how: Read the fault description, not just the code — every maker names them differently. Note what it was
+      doing when it tripped (starting, slowing, running steady, hot afternoon).
+    caution: Don't keep resetting a drive that tripped on overcurrent or a ground fault — find the cause first.
+      Opening the drive means lockout, the maker's discharge wait and a zero-volt check on the DC bus.
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    ask_if: {ahu.vfd_status: fault}
+    states:
+      none: No fault shown
+      overcurrent: Overcurrent / motor overload
+      line: Undervoltage, phase loss or DC-bus overvoltage
+      ground_fault: Ground fault
+      overtemp: Drive overtemperature
+    normal: none
+    base: {none: 0.9, overcurrent: 0.04, line: 0.03, ground_fault: 0.01, overtemp: 0.02}
+    cost: 1
+    phrases:
+      overcurrent: [overcurrent, over current, oc fault, motor overload fault, overload fault on vfd, current
+          limit, overcurrent trip, oc trip, torque limit]
+      line: [undervoltage, under voltage, uv fault, dc bus low, bus undervoltage, phase loss, input phase loss,
+          overvoltage, over voltage, ov fault, dc bus overvoltage, bus overvoltage, overvoltage on decel,
+          regen fault, power loss fault]
+      ground_fault: [ground fault, gf fault, earth fault, ground fault trip, motor grounded fault]
+      overtemp: [overtemp, over temp, drive overtemperature, heatsink overtemp, oh fault, drive too hot, drive
+          overheating, inverter overheat]
+  - id: ahu.vfd_speed
+    name: VFD speed vs command
+    ask: Does the VFD's output frequency match what the controller is asking for?
+    how: Compare the drive's Hz readout with the speed reference the drive is actually receiving — read it on the
+      keypad. A BAS percent does not always map 0–100 % onto 0–60 Hz, because most drives scale the reference
+      between a minimum and a maximum frequency.
+    caution: Read the keypad with the drive door closed. Opening the drive means lockout, the maker's discharge
+      wait and a zero-volt check on the DC bus.
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    states:
+      matches: Matches the command
+      low: Running below the command (by more than about 5 Hz)
+      fixed: Ignores the command — sits at one speed
+    normal: matches
+    cost: 1
+    phrases:
+      low: [vfd running slow, drive running slow, vfd below command, low frequency, vfd stuck at low speed, vfd
+          wont ramp up, drive won't speed up, max frequency, speed limited, fan slow on vfd]
+      fixed: [vfd ignores command, vfd in hand, drive in local, vfd stuck at one speed, speed reference lost,
+          vfd not following bas, drive fixed speed, no speed reference]
+  - id: ahu.rotation
+    name: Fan rotation
+    ask: Is the wheel turning the right way (arrow on the housing)?
+    how: With every door shut and latched and the guards on, watch the wheel through the inlet screen or an
+      inspection window. Make sure nobody is in the unit, bump the starter (or jog the drive at low speed) once,
+      and compare the direction with the arrow cast into the housing. A centrifugal wheel running backward still
+      blows air — just much less of it.
+    caution: Never reach in or open a door to check rotation. Doors latched, guards on, and nobody inside the
+      unit before you bump the starter or jog the drive.
+    systems: [ahu]
+    states:
+      correct: Correct rotation
+      backward: Running backward
+    normal: correct
+    cost: 1
+    phrases:
+      backward: [fan backwards, fan running backwards, wrong rotation, reverse rotation, rotation reversed,
+          spinning backwards, turning the wrong way, phases swapped, backwards after motor change]
+  - id: ahu.belt
+    name: Belt
+    ask: What condition is the belt in?
+    how: Lock out. Press the belt midway between the sheaves — about 1/64 in. of deflection per inch of span is
+      right. Look for glazing (shiny sides), cracks, frayed cords, and dust under the drive.
+    caution: Stop the fan and lock out before opening the belt guard — a fan can start on a schedule.
+    systems: [ahu]
+    requires: {fan_drive: [belt]}
+    states:
+      ok: Tensioned, in good shape
+      loose: Loose, glazed or stretched — slipping
+      worn: Cracked, frayed, or worn down into the groove
+      broken: Broken or off the sheaves
+    normal: ok
+    cost: 2
+    phrases:
+      loose: [belt slipping, slipping belt, loose belt, belt loose, glazed belt, belt squeal, belt squealing,
+          belt stretched, belt dust, rubber dust, belt chirping, belt smell, burning rubber]
+      worn: [worn belt, belt worn, cracked belt, frayed belt, belt bottomed out, old belt, belt shot]
+      broken: [broken belt, belt broke, belt off, threw the belt, belt snapped, belt missing, belt gone, belt
+          came off]
+  - id: ahu.sheave
+    name: Sheaves and alignment
+    ask: Are the sheaves tight, aligned, and the right size / pitch setting?
+    how: Lock out first. Straightedge across both sheave faces for alignment. Try to rock each sheave on its
+      shaft (key and set screws). On a variable-pitch motor sheave, count the turns open and compare with the
+      record or the balancing report.
+    caution: Lock out before touching a sheave or opening the belt guard. Take RPM with a photo-tach on reflective
+      tape fitted while locked out, never by reaching at a running shaft.
+    systems: [ahu]
+    requires: {fan_drive: [belt]}
+    states:
+      ok: Tight, aligned, as set
+      misaligned: Misaligned, or loose on its shaft
+      wrong: Pitch or size changed — fan speed no longer what the design calls for
+    normal: ok
+    cost: 2
+    phrases:
+      misaligned: [sheave loose, loose sheave, pulley loose, sheave misaligned, pulleys misaligned, pulley
+          wobble, sheave wobbling, key sheared, set screw loose, pulley walked out]
+      wrong: [wrong sheave, wrong pulley, sheave changed, pitch changed, variable pitch opened, fan rpm wrong,
+          fan speed wrong, pulley too small, pulley too big, drive ratio wrong]
+  - id: ahu.motor_amps
+    name: Fan motor amps vs FLA
+    ask: What does the fan motor draw compared with its nameplate FLA, allowing for the speed it is running at?
+    how: Clamp the highest leg with the fan steady. Compare at full speed with the boxes open, or enter the
+      drive's Hz — a fan the controller has slowed is supposed to read low (on a drive the draw falls roughly
+      with the square of the speed). A motor that runs light with the wheel still points to the belt or the
+      coupling.
+    caution: Live circuit — qualified person only, with a properly rated clamp and PPE. Don't open the panel or
+      the drive to get at the leads if you can read them another way.
+    systems: [ahu]
+    ask_if: {ahu.fan: [running, motor_only, trips]}
+    states:
+      low: Low — under half of what this speed should draw (under 50 % of FLA at full speed)
+      normal: Normal
+      high: High — over FLA
+    cost: 2
+    needs: clamp
+    phrases:
+      high: [motor overamping, high amps on fan motor, fan motor amps high, drawing over fla, motor hot, motor
+          running hot, high current]
+      low: [fan motor amps low, low amps, motor amps low, drawing nothing, light load]
+  - id: ahu.bearings
+    name: Bearings
+    ask: How are the fan and motor bearings — spin, noise, heat?
+    how: Running (guards on, from outside) — listen on the stationary housing with a mechanic's stethoscope and
+      read each housing with an IR thermometer. Compare with the bearing at the other end of the machine, and
+      suspect one that runs much hotter than its twin, is over the maker's limit, or keeps climbing between
+      visits. Then stop, lock out, and spin the wheel by hand — it should coast smoothly and silently.
+    caution: Never put a hand on the bearing or shaft of a running machine. Read it with an IR thermometer from
+      outside the guards, and lock out before you spin anything by hand.
+    systems: [ahu]
+    states:
+      ok: Smooth, quiet, cool
+      rough: Rough, growling or hot
+      seized: Seized — won't turn by hand
+    normal: ok
+    cost: 2
+    phrases:
+      rough: [bad bearing, bearing noise, bearing growl, bearing hot, bearings shot, bearing squeal, bearing
+          rumble, dry bearing, bearing going, grinding noise, grinding]
+      seized: [bearing seized, seized bearing, fan seized, wheel wont turn, wheel won't turn, locked up, frozen
+          bearing, shaft locked]
+  - id: ahu.noise
+    name: Noise or vibration
+    ask: What does it sound or feel like?
+    systems: [ahu]
+    complaint: true
+    chip: state
+    states:
+      normal: No unusual noise or vibration
+      squeal: Squeal or chirp, worst at start
+      rumble: Growl, rumble or grinding
+      vibration: Shaking — vibration you can feel in the housing or duct
+      rattle: Rattle, knock or clatter
+    cost: 1
+    phrases:
+      squeal: [squeal, squealing, squeaking, chirp, screeching at start, belt squeal, squeals on start]
+      rumble: [rumble, growl, growling, grinding, roar, bearing noise, rumbling, grinding sound]
+      vibration: [vibration, vibrating, shaking, shakes, out of balance, wobble, unit vibrates, duct shaking,
+          vibrating fan, excessive vibration]
+      rattle: [rattle, rattling, knocking, clatter, banging, clanking, something loose, loose panel, knock]
+  - id: ahu.wheel
+    name: Fan wheel
+    ask: What does the fan wheel look like — clean, loaded with dirt, or damaged?
+    how: Stop the fan, lock out and tag it, let the wheel stop, then open the fan section. Look at the blades for
+      caked dirt (it comes off in flakes), cracks, bent blades, and a wheel that has walked on its shaft or lost
+      a balance weight.
+    caution: Block the wheel before reaching into the housing — a wheel can turn from airflow or stack effect
+      even with the motor locked out.
+    systems: [ahu]
+    states:
+      clean: Clean and sound
+      dirty: Blades caked with dirt
+      damaged: Damaged, bent, cracked, or loose on the shaft
+    normal: clean
+    cost: 3
+    phrases:
+      dirty: [dirty wheel, dirty blower wheel, wheel caked, dirt on blades, wheel loaded, blower wheel dirty,
+          fan wheel dirty, caked blades]
+      damaged: [wheel damaged, bent blade, cracked wheel, wheel loose on shaft, wheel slipped, blade broken,
+          wheel walked, balance weight missing, wheel rubbing, wheel hitting housing, wheel spun on shaft, hub
+          slipped, set screws backed out, key sheared on wheel, taper lock slipped]
+  - id: ahu.motor
+    name: Fan motor test
+    ask: What do the motor windings read (each lead to lead, each to ground; thermal protector)?
+    how: Lock out and disconnect the leads. Three-phase windings should read equal and low lead-to-lead; any lead
+      to ground should be megohms. A single-phase motor whose protector has opened reads open until it cools.
+      On a VFD, lock out, wait out the bus-discharge time and verify zero, then disconnect the motor leads at
+      the drive's output terminals (T1/T2/T3) before any megger test — never megger through the drive.
+    caution: Verify dead at the motor leads before you touch them — a drive output can be live with the keypad
+      showing stopped. Megger the motor and cable only with the leads off the drive.
+    systems: [ahu]
+    ask_if: {ahu.fan: ['off', trips]}
+    states:
+      ok: Windings balanced, open to ground
+      open: A winding open
+      grounded: Reads to ground
+      overheated: Hot — thermal protector open, reads normal after it cools
+    normal: ok
+    cost: 3
+    needs: meter
+    phrases:
+      open: [open winding, motor open, winding open, motor reads open, burnt winding]
+      grounded: [motor grounded, grounded motor, motor shorted to ground, megger fail, motor megs bad, winding
+          grounded, motor shorted]
+      overheated: [motor hot, motor overheated, thermal protector open, motor too hot to touch, motor cycling on
+          thermal, motor smells hot]
+  - id: ahu.phase
+    name: Three-phase supply
+    ask: Are all three phases present and balanced at the motor or drive terminals?
+    how: Meter each pair (L1–L2, L2–L3, L1–L3) with the unit trying to run. One pair far below the others, or a
+      motor that growls and won't come up to speed, means a lost leg.
+    caution: Live voltage — qualified person only, with a properly rated meter and PPE, and the panel door closed
+      where possible. At a drive's terminals, wait out the bus-discharge time before opening anything.
+    systems: [ahu]
+    ask_if: {gen.power: present}
+    states:
+      ok: All three present and within a few percent
+      phase_loss: One leg missing or far off
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      phase_loss: [single phasing, single phase, lost a leg, lost a phase, phase loss, one leg dead, blown fuse
+          one leg, missing phase, unbalanced phases, phase imbalance, voltage imbalance]
+
+  # ---------------- safeties ----------------
+  - id: ahu.safety
+    name: Safeties in the fan start circuit
+    ask: Is a safety or interlock in the fan start circuit open (other than the freezestat)?
+    how: Follow the start circuit through each device and meter across it — the open one shows voltage across its
+      terminals. Typical devices are the duct smoke detector, high-static and low-static switches, the
+      outdoor/isolation damper end switch, and a dirty-filter or door switch (the firestat and the freezestat sit
+      in the same circuit, but the freezestat has its own check).
+    caution: Live voltage — qualified person only, with a properly rated meter and PPE, and the door closed where
+      possible; otherwise lock out and use continuity. Never jumper a device in the start circuit to get the fan
+      running.
+    systems: [ahu]
+    ask_if: {ahu.fan: ['off']}
+    states:
+      closed: All closed
+      smoke: Duct smoke detector tripped
+      static: High- or low-static switch tripped
+      damper: Damper end switch not made
+      other: Another interlock open (filter, door, remote stop, fire alarm relay)
+    normal: closed
+    cost: 2
+    needs: meter
+    phrases:
+      smoke: [smoke detector tripped, duct detector tripped, duct smoke detector, smoke alarm shut down fan,
+          fire alarm shutdown, smoke detector reset, fire alarm tripped the fan, duct detector]
+      static: [high static switch, high static trip, static switch tripped, low static switch, duct static
+          safety, high pressure switch on duct, static pressure switch tripped, high limit static]
+      damper: [damper end switch, end switch not made, damper proof, damper not proving, isolation damper
+          interlock, end switch open, damper interlock]
+      other: [interlock open, safety open, remote stop, door switch, filter switch tripped, fire relay, safety
+          circuit open, something in the safety circuit]
+  - id: ahu.freezestat
+    name: Freezestat / low limit
+    ask: Has the freezestat (low-temperature limit) tripped?
+    how: Most are manual reset — a button on the stat. Note whether the reset held, or it trips again within
+      minutes. After a freeze trip, inspect the coil for bulged bends and split tubes before restoring flow or
+      restarting the pump; if any are found, isolate the coil and follow the frozen-coil cause. A stat that won't
+      reset has an element still below setpoint — the coil is cold. Don't hold the button or jumper it.
+    caution: A freezestat trip is the unit protecting its coil. Never jumper, tape or hold the stat to keep the
+      fan running; reset it only once the coil is warm and you know why it tripped.
+    systems: [ahu]
+    complaint: true
+    chip: state
+    states:
+      ok: Freezestat not tripped
+      tripped: Found tripped — reset it and it stayed reset
+      retrips: Trips again after reset, or won't reset (element still cold)
+    normal: ok
+    base: {ok: 0.86, tripped: 0.1, retrips: 0.04}
+    cost: 1
+    phrases:
+      tripped: [freezestat tripped, freeze stat tripped, freezestat, freeze stat, low limit tripped, low temp
+          limit, frz stat, freeze protection tripped, low limit, freezestat alarm, freeze alarm, low
+          temperature alarm, tripped on freeze, freeze trip]
+      retrips: [freezestat keeps tripping, freeze stat keeps tripping, keeps tripping on freeze, trips again
+          after reset, retrips freezestat, nuisance freezestat, freezestat trips every morning, low limit keeps
+          tripping, freezestat wont reset, freeze stat wont reset, cant reset freezestat, low limit wont reset,
+          stat wont reset]
+  - id: ahu.fz_setting
+    name: Freezestat setpoint and element
+    ask: Check the freezestat itself — setpoint, element routing and condition?
+    how: Compare its setpoint (usually 35–38 °F — the drawing's figure rules) with the coldest spot you can
+      measure where the element runs. Follow the capillary — one long element zig-zagged across the leaving-air
+      face of the first water (preheat) coil, about 1 ft of element per ft² of face (follow the maker's sheet),
+      without touching the casing or hanging in the outdoor-air stream. It trips on its coldest section, not on
+      an average. A stat in the mixed-air plenum ahead of a preheat coil sits under setpoint every cold day by
+      design and will trip on all of them, so move it. Check the element for kinks and continuity.
+    caution: Don't lower the setpoint, add a delay or jumper the stat to stop a trip — that hides a real cold
+      spot and leaves the coil unprotected.
+    systems: [ahu]
+    ask_if: {ahu.freezestat: [tripped, retrips]}
+    states:
+      ok: Setpoint reasonable, element intact and routed across the leaving face of the coil
+      set_high: Set above its design value, or the element sits ahead of the preheat coil, on cold metal or in
+        the outdoor stream
+      element_bad: Element kinked, broken, lost its charge, or too short — a bulb or short capillary where a long
+        capillary covering the whole face belongs
+    normal: ok
+    cost: 2
+    phrases:
+      set_high: [freezestat set too high, freezestat setpoint, element on cold metal, element touching duct,
+          element in outside air, freezestat set wrong, low limit set high, freezestat in mixed air, stat ahead
+          of preheat coil, freezestat in the wrong place]
+      element_bad: [bad freezestat, freezestat bad, freezestat element broken, kinked element, freezestat lost
+          charge, failed freezestat, no averaging element, wrong freezestat, short element, bulb type
+          freezestat, element too short]
+
+  # ---------------- air path ----------------
+  - id: ahu.filter
+    name: Filters
+    ask: What do the filters look like?
+    caution: Stop the fan and lock out before opening the filter section — a running fan pins the door shut or
+      slams it, and pulls at loose clothing.
+    systems: [ahu]
+    states:
+      ok: Clean enough, seated, dry
+      loaded: Loaded with dirt — pressure drop at or past the filters' final rating
+      bypass: Missing, collapsed, or gaps around them — air bypassing
+      wet: Wet, snow-packed or iced
+    normal: ok
+    cost: 1
+    phrases:
+      loaded: [dirty filters, filters dirty, loaded filters, plugged filters, clogged filters, filters black,
+          filter change overdue, high filter dp, filter pressure drop high, filters need changing, filter alarm,
+          dirty filter switch]
+      bypass: [filters missing, no filters, filter missing, filter collapsed, filter blown out, filter sucked in,
+          gap around filters, filters not seated, air bypassing filters, dirt past filters, filter rack empty,
+          wrong size filters]
+      wet: [wet filters, filters wet, snow in filters, snow on filters, iced filters, frozen filters, filters
+          soaked, snow packed filters, filters full of snow, ice on filters, rain in filters]
+  - id: ahu.static
+    name: Fan static vs design
+    ask: What is the fan's own static pressure rise (discharge minus inlet, across the fan — not the duct static the
+      BAS shows) compared with design?
+    how: Manometer across the fan — inlet side (after filters and coils on a draw-through) to discharge — through
+      the test ports or fittings. High static with low air means a restriction somewhere; low static with low
+      air means the fan isn't producing. Compare with design at full speed with the boxes open, or enter the
+      drive's Hz — a fan the controller has slowed is supposed to read low (about design times the square of the
+      speed ratio). On a VAV system holding a duct-static setpoint it falls less than that, so treat the
+      corrected figure as a floor. A moderate upstream restriction (filters, coil, intake) moves the fan's
+      static rise by only 5–20 % — find it from the ΔP across that item. Static 25 % or more over design with
+      low airflow means a big restriction or a closed damper. A fan handling −40 °F air should read about 1.26
+      times its design static.
+    caution: Use the test ports or fittings. Never open a door on a running fan to place a manometer hose.
+    systems: [ahu]
+    states:
+      low: Low — under 70 % of design for this speed, fan not producing
+      normal: Normal — 70 to 125 % of design for this speed
+      high: High — over 125 % of design for this speed, working against a restriction
+    cost: 3
+    needs: manometer
+    phrases:
+      high: [high static, static high, high static pressure, high duct static, restricted, too much static,
+          duct static high]
+      low: [low static, static low, low static pressure, no static, fan not producing, duct static low, cant
+          make static, can't make static, low duct static]
+  - id: ahu.duct_damper
+    name: Dampers in the air path
+    ask: Are the dampers in the supply and return path open — fire/smoke dampers, isolation dampers, balancing
+      dampers, VAV boxes?
+    how: Check fire/smoke damper indicators and access doors, isolation damper blades, and whether the VAV boxes
+      are all driven to minimum (a VAV system can starve the fan when every box closes).
+    caution: A duct access door sees the same suction or pressure as the unit's doors. Stop the fan and lock out
+      before opening one, and never reach into a duct to reset a fire damper.
+    systems: [ahu]
+    states:
+      open: Open
+      closed: One or more closed or dropped
+    normal: open
+    cost: 2
+    phrases:
+      closed: [fire damper closed, fire damper dropped, smoke damper closed, damper closed in duct, isolation
+          damper closed, dampers closed, vav boxes closed, boxes at minimum, blocked duct, duct damper shut,
+          balancing damper closed, fusible link dropped]
+  - id: ahu.coil_face
+    name: Coil face (air side)
+    ask: What does the air-entering face of the coil look like?
+    caution: Stop the fan and lock out before opening the coil section.
+    systems: [ahu]
+    states:
+      clean: Clean fins
+      dirty: Matted with dirt, lint or dust
+      snow: Snow, frost or ice packed in the fins
+    normal: clean
+    cost: 2
+    phrases:
+      dirty: [dirty coil, coil dirty, matted coil, plugged coil fins, dirty heating coil, dirty cooling coil,
+          coil clogged, coil face dirty, lint on coil, dust on coil, fins plugged]
+      snow: [snow on coil, snow in coil, coil iced on face, frost on coil face, ice on coil, snow packed coil,
+          coil full of snow, rime on coil, coil frosted]
+  - id: ahu.intake
+    name: Outdoor intake
+    ask: Is the outdoor intake clear — hood, louver, bird screen, snow fence?
+    caution: In high wind or blowing snow don't work at the intake alone. Stay clear of the louver face while the
+      fan runs (it pulls hard), and mind your footing on drifts and ice.
+    systems: [ahu]
+    states:
+      clear: Clear
+      blocked: Blocked — snow, ice, debris, or a clogged screen
+    normal: clear
+    cost: 2
+    phrases:
+      blocked: [intake blocked, intake drifted, snow in intake, intake iced, louver iced, louver frozen, screen
+          clogged, bird screen plugged, intake hood blocked, snow drift at intake, intake buried, outside air
+          intake blocked, cottonwood on screen, leaves in intake, intake plugged]
+  - id: ahu.coil_split
+    name: Coil damage (frozen)
+    ask: Are any coil tubes, headers or return bends split or bulged, or wet with water or glycol?
+    how: Stop the fan and lock out, then open the coil section and look at the headers and return bends — a
+      frozen coil bulges the bends and splits tubes near the headers. Wet fins or glycol on the floor of the
+      section tell the same story.
+    caution: Lock out the fan first so the coil isn't fed cold air while it's open, and never open the section on
+      a running fan. A thawing coil can dump its loop, and glycol on the floor is slippery.
+    systems: [ahu]
+    states:
+      'no': Coil intact
+      'yes': Split or bulged tubes — coil frozen
+    normal: 'no'
+    cost: 3
+    phrases:
+      'yes': [frozen coil, coil froze, coil frozen, burst coil, split coil, coil burst, coil leaking glycol,
+          glycol on floor, tubes split, header split, return bends bulged, coil ruptured, froze and split]
+
+  # ---------------- temperatures, mixing box and controls ----------------
+  - id: ahu.sat
+    name: Supply air vs setpoint
+    ask: How does the supply (discharge) air temperature compare with its setpoint?
+    how: Reference thermometer in the supply duct, a few feet past the fan, against the controller's setpoint.
+      Within about 3 °F is holding.
+    systems: [ahu]
+    complaint: true
+    chip: state
+    states:
+      low: Supply air more than 3 °F colder than setpoint
+      ok: Supply air within 3 °F of setpoint
+      high: Supply air more than 3 °F warmer than setpoint
+    normal: ok
+    cost: 2
+    needs: thermometer
+    phrases:
+      low: [supply air too cold, discharge air cold, sat low, sat below setpoint, blowing cold, cold supply air,
+          overcooling, discharge too cold, supply temp low, dat low]
+      high: [supply air too warm, discharge air warm, sat high, sat above setpoint, not making setpoint, cant hold
+          setpoint, can't hold setpoint, supply temp high, warm supply air, dat high, discharge too warm,
+          not reaching setpoint]
+  - id: ahu.mat_range
+    name: Mixed air vs return and outdoor
+    ask: Does the mixed-air temperature sit between the return and outdoor temperatures?
+    how: Mixed air can only be a blend of return and outdoor air, so it must land between them. Traverse the
+      mixed-air plenum with a long probe through the test ports — a single spot can be in a cold or warm
+      stream.
+    caution: Probe from outside through the test ports. Don't open a mixing-box door with the fan running.
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    states:
+      between: Between return and outdoor
+      outside: Outside the pair — colder than both or warmer than both (by more than 3 °F)
+    normal: between
+    cost: 2
+    needs: thermometer
+    phrases:
+      outside: [mixed air colder than outside, mixed air reads wrong, mat below oat, mat above rat, mixed air
+          impossible, mixed air sensor reading low, mat sensor wrong, mixed air out of range]
+  - id: ahu.oa_frac
+    name: Outdoor-air fraction vs expected
+    ask: What outdoor-air fraction is the unit actually taking compared with what it should be taking?
+    how: Fraction = (mixed − return) ÷ (outdoor − return), using return and outdoor temperatures at least 10 °F
+      apart (the wider the spread, the better the reading). Compare with the design minimum fraction when the
+      damper is at minimum, about 100 % when it is commanded full open, and about 0 % when it is closed. A
+      part-open blade position is not an air fraction.
+    caution: Probe from outside through the test ports. Don't open a mixing-box door with the fan running.
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    states:
+      low: Much less outdoor air than expected (short by more than about 10–30 points; the allowance grows as the
+        return–outdoor spread shrinks)
+      ok: About as expected
+      high: Much more outdoor air than expected (over by more than about 10–30 points)
+    normal: ok
+    cost: 3
+    needs: thermometer
+    phrases:
+      low: [not enough outside air, low outdoor air, low oa, no outside air, oa fraction low, short on
+          ventilation, co2 high, high co2, insufficient outdoor air, not getting outside air]
+      high: [too much outside air, too much oa, oa fraction high, excess outdoor air, pulling too much outside
+          air, 100 percent outside air when it shouldnt, mixed air cold]
+  - id: ahu.oa_damper
+    name: Outdoor-air damper vs command
+    ask: Does the outdoor-air damper actually move with its command, and does it seal when it is closed?
+    how: Stop and lock out the fan before you open the mixing-box door — never open it with the fan running.
+      Drive the damper from the BAS or the actuator's manual override and watch the blades through the intake
+      louver or the door, and the actuator shaft. Note where it sits when it won't move, and with it commanded
+      closed look for daylight or a draft along the blade edges and jambs.
+    caution: Never open the mixing-box door with the fan running. Spring-return actuators and damper blades store
+      energy — keep fingers out of the linkage.
+    systems: [ahu]
+    states:
+      tracks: Moves with the command
+      open_stuck: Sits open — won't close on command
+      closed_stuck: Sits closed — won't open on command
+      lagging: Partly follows — blades lag or stop short of the actuator
+      leaks: Shuts on command but leaks — daylight or a draft at the blade edges, frost on the seals
+    normal: tracks
+    cost: 2
+    phrases:
+      open_stuck: [oa damper stuck open, outside air damper stuck open, outdoor damper open, damper stuck open,
+          damper wont close, damper won't close, damper wide open, dampers open in winter, oa damper open]
+      closed_stuck: [oa damper stuck closed, outside air damper closed, damper stuck closed, damper wont open,
+          damper won't open, damper frozen shut, damper iced shut, oa damper closed, dampers frozen]
+      lagging: [damper not fully closing, damper not fully opening, damper blades loose, damper lagging,
+          damper partly open, linkage slipped, damper sloppy, blades not following, damper flopping]
+      leaks: [damper leaking, damper leaks, daylight around damper, daylight at damper blades, cold air leaking
+          past damper, damper not sealing, damper wont seal, draft at damper, frost on damper seals, damper
+          seals worn, outside air leaking in when off, cold air through closed damper]
+  - id: ahu.damper_test
+    name: Damper stroke test
+    ask: With the fan locked out and the damper supported, unhook the linkage — do the blades move freely by hand,
+      and does the actuator stroke on command with a signal at its terminals?
+    how: Lock out the fan first. Meter the control signal (0–10 V, 4–20 mA or 24 V floating) at the actuator
+      while the BAS commands it, then support the damper, unhook the linkage, stroke the actuator and swing the
+      blades by hand.
+    caution: A spring-return actuator and the damper blades store energy. Support the damper before you unhook
+      the linkage, and keep fingers out of the linkage when releasing an override.
+    systems: [ahu]
+    ask_if: {ahu.oa_damper: [open_stuck, closed_stuck, lagging]}
+    states:
+      ok: Blades free, actuator strokes, signal present
+      blades_bound: Blades bound — frozen, iced, jammed, bent or seized pivots
+      actuator_dead: Signal present but the actuator doesn't stroke
+      no_signal: No control signal (or no power) at the actuator
+      linkage: Actuator strokes, blades don't follow — linkage or crank arm slipped
+    normal: ok
+    cost: 3
+    needs: meter
+    phrases:
+      blades_bound: [damper frozen, blades frozen, damper jammed, damper iced, bent blades, damper pivots
+          seized, damper wont move by hand, blades bound, damper seized]
+      actuator_dead: [actuator dead, actuator failed, bad actuator, actuator not moving, actuator stripped,
+          actuator burned out, damper motor dead, actuator hums, actuator wont stroke]
+      no_signal: [no signal to actuator, no control signal, no voltage at actuator, no 24v to actuator, no
+          output from controller, actuator no power, lost signal]
+      linkage: [linkage slipped, linkage loose, crank arm loose, linkage disconnected, set screw slipped on
+          damper shaft, linkage broken, jackshaft loose, linkage off]
+  - id: ahu.ra_damper
+    name: Return-air damper
+    ask: Does the return-air damper move with its command?
+    caution: Stop the fan and lock out before opening the mixing-box door — never open it with the fan running.
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    states:
+      tracks: Moves with the command
+      stuck_closed: Stuck closed — unit pulls nearly all outdoor air
+      stuck_open: Stuck open — short on outdoor air
+    normal: tracks
+    cost: 2
+    phrases:
+      stuck_closed: [return damper closed, return damper stuck closed, ra damper closed, return air damper shut,
+          return damper wont open, return damper won't open, no return air]
+      stuck_open: [return damper stuck open, ra damper stuck open, return damper wont close, return damper won't
+          close, return damper open]
+  - id: ahu.econ_mode
+    name: Economizer mode vs outdoor conditions
+    ask: Is the economizer in the right mode for the outdoor conditions?
+    how: Outdoor air below (supply setpoint − fan heat) should mean dampers open for free cooling with no
+      mechanical cooling. Between that and the changeover (outdoor cooler than return, or under the dry-bulb or
+      enthalpy high limit) the dampers stay at 100 % and mechanical cooling trims — that is correct, not a
+      fault. Above the changeover the unit should be at minimum outdoor air with mechanical cooling. The faults
+      are dampers past minimum with outdoor air above the changeover; minimum outdoor air with mechanical
+      cooling while outdoor air is below it; and dampers past minimum while heating (unless CO₂ demand
+      ventilation is calling for it).
+    systems: [ahu]
+    requires: {economizer: ['yes']}
+    states:
+      ok: Right mode for the conditions
+      econ_when_hot: Dampers open for free cooling while outdoor air is above the changeover
+      mech_when_cool: Mechanical cooling at minimum outdoor air while outdoor air is below the changeover
+      heating_with_econ: Heating while the dampers are open past minimum (and no demand-ventilation call)
+    normal: ok
+    cost: 2
+    phrases:
+      econ_when_hot: [economizer open when hot, economizing when too warm, dampers open in summer, free cooling
+          with hot outside air, economizer wont close, economizer stuck in free cooling, bringing in hot air]
+      mech_when_cool: [not economizing, economizer not opening, compressor running when its cold out, mechanical
+          cooling in cool weather, economizer disabled, economizer locked out, no free cooling, economizer
+          never opens]
+      heating_with_econ: [heating with dampers open, heating and economizer, dampers open while heating,
+          heating with outside air, economizer open in heating]
+  - id: ahu.sim_hc
+    name: Heating and cooling at once
+    ask: Are the heating and cooling both active at the same time (both valves open, or heat and DX together)?
+    systems: [ahu]
+    states:
+      'no': Only one at a time
+      'yes': Both at once
+    normal: 'no'
+    cost: 2
+    phrases:
+      'yes': [heating and cooling at the same time, both valves open, simultaneous heating and cooling, reheat
+          fighting cooling, heating while cooling, both coils active, fighting itself, heat and cool together]
+  - id: ahu.hunting
+    name: Hunting / mode cycling
+    ask: Does the supply temperature or a valve swing back and forth (hunting), or does the unit flip modes
+      several times an hour?
+    systems: [ahu]
+    complaint: true
+    chip: state
+    states:
+      'no': Steady control
+      'yes': Hunting or cycling between modes
+    normal: 'no'
+    cost: 2
+    phrases:
+      'yes': [hunting, valve hunting, temperature swinging, sat swinging, cycling between heating and cooling,
+          mode cycling, oscillating, unstable control, valve slamming open and closed, damper hunting, swings,
+          surging, loop unstable, overshooting]
+  - id: ahu.sensor_check
+    name: Sensor check against a reference
+    ask: Compare the BAS temperature readings with a reference thermometer — which one is off?
+    how: Hold a known-good thermometer at each sensor (supply, mixed, outdoor, return) and compare with the BAS
+      value. More than about 1–1.5 °F off a reference you trust, stuck flat, or reading an impossible value
+      means the sensor. For duct static, compare the transducer's reading with a manometer on the same tap.
+    caution: Reach sensors from outside or through the test ports. Don't open a door on a running fan to hold a
+      thermometer at a sensor.
+    systems: [ahu]
+    states:
+      all_agree: All agree with the reference (within about 1–1.5 °F)
+      sat_off: Supply-air sensor off
+      mat_off: Mixed-air sensor off (or in a stratified stream)
+      oat_off: Outdoor-air sensor off (in the sun, on a warm wall, in an exhaust plume, or iced)
+      rat_off: Return-air sensor off
+      static_off: Duct-static reading disagrees with a manometer at the same tap
+    normal: all_agree
+    cost: 2
+    needs: thermometer
+    phrases:
+      sat_off: [supply sensor bad, sat sensor bad, discharge sensor wrong, supply air sensor drifted, sat sensor
+          reading wrong, bad discharge sensor, supply sensor failed, dat sensor bad]
+      mat_off: [mixed air sensor bad, mat sensor bad, mixed air sensor wrong, mat reads wrong, mixed air sensor
+          failed, mixed air sensor in cold spot]
+      oat_off: [outdoor sensor bad, oat sensor bad, outside air sensor wrong, oat sensor in sun, oat reads high,
+          outdoor sensor iced, outdoor sensor failed, oa sensor bad, outdoor air sensor in sun, outside air
+          sensor in sun, oa sensor in sun, outdoor sensor reads high, outdoor sensor reads warm, outdoor sensor
+          on warm wall, outdoor sensor in exhaust]
+      rat_off: [return sensor bad, rat sensor bad, return air sensor wrong, return sensor failed]
+      static_off: [duct static reading wrong, static sensor bad, static transducer bad, static pressure sensor
+          off, duct static transducer drift, static tubing kinked, static tube pinched, static tube iced, static
+          tube disconnected, static probe wrong place, static reads wrong, static pickup plugged]
+  - id: ahu.heat_dt
+    name: Air rise across the heating coil
+    ask: How much does the air warm across the heating coil, compared with what the valve (or stage) command
+      should give?
+    how: Thermometer before and after the coil. With the valve commanded wide open, expect the design rise; with
+      it commanded closed, expect none.
+    caution: Probe through test holes or ports. Don't open a coil or mixing-box door with the fan running.
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam, electric]}
+    states:
+      none: No rise with heat commanded (under 3 °F)
+      low: Well under what the command should give (less than half)
+      normal: Rise matches the command
+      unwanted: Warming with heat commanded off (over 5 °F)
+    normal: normal
+    cost: 2
+    needs: thermometer
+    phrases:
+      none: [no heat from coil, coil not heating, heating coil cold, no temperature rise, no delta t across
+          heating coil, coil cold, preheat not working, reheat not working, no rise]
+      low: [coil barely warm, low rise across coil, weak heating coil, heating coil not keeping up, low delta t
+          heating, not enough heat from coil, coil lukewarm]
+      unwanted: [coil heating when it shouldnt, heating when valve closed, coil hot with valve closed, reheat
+          stuck on, leaking valve heating, supply warmer than mixed, unwanted heat]
+  - id: ahu.cool_dt
+    name: Air drop across the cooling coil
+    ask: How much does the air cool across the cooling coil, compared with what the command should give?
+    caution: Probe through test holes or ports. Don't open a coil or mixing-box door with the fan running.
+    systems: [ahu]
+    requires: {cool_coil: [chw, dx]}
+    states:
+      none: No drop with cooling commanded (under 3 °F)
+      low: Well under what the command should give (less than half)
+      normal: Drop matches the command
+      unwanted: Cooling with cooling commanded off (over 4 °F)
+    normal: normal
+    cost: 2
+    needs: thermometer
+    phrases:
+      none: [cooling coil not cooling, no cooling from coil, coil warm, no delta t across cooling coil, no drop,
+          cooling coil dead]
+      low: [weak cooling coil, low delta t cooling, cooling coil not keeping up, small drop across coil, coil
+          barely cooling]
+      unwanted: [cooling when valve closed, chilled water leaking through, coil cold with valve closed,
+          overcooling, supply colder than mixed, cooling coil sweating with no call]
+  - id: ahu.hw_supply
+    name: Heat supply at the coil
+    ask: Is hot water, glycol or steam actually arriving at the coil (supply pipe hot)?
+    how: Strap a thermometer on the supply pipe at the coil, upstream of the valve, or read it with an IR
+      thermometer. Don't put a hand on hot-water, glycol or steam piping. A steam coil's supply should read at
+      or above about 212 °F.
+    caution: Hot piping — read it with a thermometer, never with a bare hand. Steam, hot water and glycol scald,
+      and glycol loops run hot and under pressure.
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    states:
+      hot: Hot — 110 °F or more
+      warm: Lukewarm — 80 to 110 °F, plant running low or loop barely circulating
+      cold: Cold — under 80 °F, nothing coming from the plant
+    normal: hot
+    cost: 1
+    phrases:
+      warm: [supply pipe lukewarm, loop barely warm, glycol lukewarm, hot water not hot, low loop temp, loop
+          temperature low, plant running cold, supply warm not hot]
+      cold: [no hot water to coil, supply pipe cold, no glycol flow, loop cold, no steam to coil, pipe cold,
+          plant down, boiler down, pump off, no hot water, no flow to coil, glycol cold]
+  - id: ahu.hw_dt
+    name: Water/glycol ΔT across the coil
+    ask: How does the return pipe compare with the supply pipe at the coil?
+    how: Read both pipes at the coil with a contact or IR thermometer, never with a bare hand. Supply hot and
+      return barely cooler means plenty of flow and little load; return far colder than supply means flow is
+      starved; both the same with no air heating means no heat is being taken. Only meaningful with the valve
+      at least 20 % open and the fan running.
+    caution: Hot piping — read it with a thermometer, never with a bare hand.
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg]}
+    states:
+      normal: Return 10–40 °F cooler than supply (close to the coil's design ΔT)
+      high: Return far colder than supply (over about 40 °F, or well over the design ΔT) — flow starved
+      none: Return as hot as supply (under 3 °F apart) — no heat being taken
+    normal: normal
+    cost: 2
+    phrases:
+      high: [return pipe cold, return cold supply hot, high water delta t, big delta t across coil, return ice
+          cold, low flow through coil, starved flow]
+      none: [no delta t on water, supply and return same temp, water not giving up heat, return as hot as
+          supply, no water delta t]
+  - id: ahu.hv_cmd
+    name: Heating valve vs command
+    ask: What is the heating valve commanded to do, and what is it actually doing?
+    how: Read the command on the BAS (or the signal), then look at the stem and position indicator and read the
+      pipe temperature after the valve with a thermometer. Don't put a hand on the piping.
+    caution: Hot piping — read it with a thermometer, never with a bare hand.
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    states:
+      tracks: Position follows the command, modulating
+      saturated: Commanded 100 % open and setpoint still not met
+      not_moving: Commanded open but it isn't moving
+      leaking: Commanded closed but hot water still passes — pipe after the valve hot
+    normal: tracks
+    cost: 2
+    phrases:
+      saturated: [valve wide open, valve at 100 percent, valve pegged, valve fully open and still cold, heating
+          valve maxed, valve 100 and not making setpoint, valve saturated, calling for full heat]
+      not_moving: [heating valve not opening, valve stuck closed, valve wont open, valve won't open, valve not
+          moving, valve not responding, actuator not moving valve, hot water valve stuck, valve stuck]
+      leaking: [valve leaking through, valve leaking by, valve not closing, valve wont close, valve won't close,
+          valve passing, hot water valve stuck open, valve bypassing, heating valve stuck open, leaking valve]
+  - id: ahu.valve_test
+    name: Valve actuator test
+    ask: With the valve commanded open — is there a signal at the actuator, does the actuator stroke, and does the
+      stem move freely with the actuator off?
+    how: Meter the control signal at the actuator (0–10 V, 4–20 mA, or 24 V floating/spring return). Run the
+      manual override or power the actuator directly and watch the stem. To work the stem by hand, lock out the
+      actuator power first and then pull the actuator.
+    caution: Lock out the actuator power before pulling an actuator — a spring-return valve can swing fully
+      open, and the stem packing can weep hot water or glycol.
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    ask_if: {ahu.hv_cmd: not_moving}
+    states:
+      ok: Signal present, actuator strokes, stem free
+      no_signal: No control signal or power at the actuator
+      actuator_dead: Signal present, actuator doesn't stroke
+      stem_stuck: Actuator strokes but the stem is seized or the valve is jammed
+    normal: ok
+    cost: 3
+    needs: meter
+    phrases:
+      no_signal: [no signal to valve, no output to valve, no voltage at valve actuator, controller not driving
+          valve, no 24v to valve, lost signal to valve, valve has no power]
+      actuator_dead: [valve actuator dead, valve actuator failed, bad valve actuator, actuator burned out,
+          actuator hums, valve motor dead, actuator stripped gears, actuator wont stroke]
+      stem_stuck: [valve stem stuck, stem seized, valve seized, valve stem frozen, stem corroded, valve jammed,
+          stem wont move, valve body stuck]
+  - id: ahu.chw_supply
+    name: Chilled water at the coil
+    ask: Is chilled water arriving cold at the coil (supply pipe cold and sweating)?
+    systems: [ahu]
+    requires: {cool_coil: [chw]}
+    states:
+      cold: Cold
+      warm: Warm — nothing cold coming from the plant
+    normal: cold
+    cost: 1
+    phrases:
+      warm: [no chilled water, chilled water warm, chw warm, chiller down, chiller off, chilled water pump off,
+          chw supply warm, no chw, loop warm, chilled water not cold]
+  - id: ahu.cv_cmd
+    name: Chilled-water valve vs command
+    ask: What is the chilled-water valve commanded to do, and what is it actually doing?
+    systems: [ahu]
+    requires: {cool_coil: [chw]}
+    states:
+      tracks: Position follows the command, modulating
+      saturated: Commanded 100 % open and setpoint still not met
+      not_moving: Commanded open but it isn't moving
+      leaking: Commanded closed but chilled water still passes — pipe after the valve cold
+    normal: tracks
+    cost: 2
+    phrases:
+      saturated: [chilled water valve wide open, chw valve 100 percent, cooling valve pegged, chw valve maxed,
+          cooling valve saturated]
+      not_moving: [chilled water valve not opening, chw valve stuck, cooling valve stuck closed, chw valve wont
+          open, cooling valve not moving, chw valve not responding]
+      leaking: [chilled water valve leaking through, chw valve leaking by, cooling valve wont close, chw valve
+          stuck open, cooling valve passing, chilled water valve not closing]
+  - id: ahu.strainer
+    name: Strainer at the coil
+    ask: Is the strainer ahead of the coil (or the coil itself) plugged?
+    how: Isolate, relieve the pressure, drain the strainer body and pull the screen. Scale, rust and sludge pack
+      the screen first; a strainer with blow-down valves can be checked by the pressure drop across it. A steam
+      coil's strainer holds live steam and condensate — isolate and relieve first.
+    caution: Isolate both sides and relieve pressure before opening a strainer — hot water, glycol and steam
+      scald.
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    states:
+      clear: Clear
+      plugged: Plugged
+    normal: clear
+    cost: 3
+    needs: shutdown
+    phrases:
+      plugged: [plugged strainer, strainer plugged, clogged strainer, dirty strainer, strainer full, strainer
+          packed, screen plugged, y strainer plugged, coil plugged with scale, sludge in coil]
+  - id: ahu.coil_air
+    name: Air in the coil
+    ask: Open the coil's air vent slowly, with a hose to a bucket — what comes out first?
+    how: Vent at the top of the coil or return header. Open the vent slowly with a hose run to a bucket, and wear
+      a face shield on a hot loop. Air hissing out before solid water means an air pocket.
+    caution: A hot loop is under pressure — open the vent slowly, hose to a bucket, face shield on.
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg]}
+    states:
+      water: Solid water or glycol right away
+      air: Air first — coil air-bound
+    normal: water
+    cost: 2
+    phrases:
+      air: [air bound coil, airbound coil, air in coil, air in the coil, coil needs bleeding, air pocket in coil,
+          vent hisses, coil not purged, air locked, air lock in coil, needs venting, air in the loop at the coil]
+  - id: ahu.glycol
+    name: Glycol strength vs the air it sees
+    ask: Is the glycol strong enough for the coldest air the coil sees (or is it plain water)?
+    how: Refractometer on a sample from the coil's vent or drain — open it slowly, hose to a bucket, face shield
+      on, since a hot loop is under pressure — read against the right scale (ethylene or propylene). The freeze
+      point should be at least 9 °F (5 °C) below the coldest air that can reach the coil; glycol makers
+      typically ask for several degrees of margin under the lowest expected temperature. Use the design low or
+      the coldest night on record, whichever is colder — −40 °F at McMurdo is a floor, not a ceiling. A loop
+      with no glycol in it at all is plain water.
+    caution: A hot loop is under pressure — open the vent or drain slowly, hose to a bucket, face shield on.
+    systems: [ahu]
+    requires: {heat_coil: [eg, pg]}
+    states:
+      adequate: Freeze point at least 9 °F (5 °C) under the coldest air the coil sees
+      weak: Too weak — freeze point within 9 °F of the coldest air, or above it
+      none: No glycol at all — plain water in the loop
+    normal: adequate
+    cost: 3
+    needs: refractometer
+    phrases:
+      weak: [glycol weak, weak glycol, glycol diluted, low glycol, glycol percent low, glycol too thin, not
+          enough glycol, glycol concentration low, glycol tests low, mostly water, glycol watered down, freeze
+          point too high]
+      none: [no glycol, plain water coil, water only in the loop, straight water, no antifreeze, no glycol in the
+          loop, water coil no glycol, loop is just water]
+  - id: ahu.strat
+    name: Stratification at the coil
+    ask: Traverse the mixed-air plenum or the coil face with a thermometer — is there a cold layer or stream
+      (more than about 10 °F spread)?
+    caution: Probe from outside through the test ports. Don't open a mixing-box or coil door with the fan
+      running.
+    systems: [ahu]
+    states:
+      even: Even within a few degrees
+      stratified: Stratified — a cold stream or layer
+    normal: even
+    cost: 3
+    needs: thermometer
+    phrases:
+      stratified: [stratification, stratified, cold spot on coil, cold layer, cold stream, poor mixing, air not
+          mixing, cold on one side, bottom of coil cold, outside air not mixing, temperature spread across coil]
+
+  # ---------------- space, building pressure, exhaust ----------------
+  - id: ahu.space
+    name: Space temperature / air quality
+    ask: How is the space it serves?
+    systems: [ahu]
+    complaint: true
+    chip: state
+    states:
+      ok: Space comfortable
+      cold: Space too cold
+      hot: Space too hot
+      stuffy: Space stuffy or stale — poor ventilation
+    normal: ok
+    cost: 1
+    phrases:
+      cold: [space cold, room cold, building cold, zone cold, too cold, cold complaints, cant heat the space,
+          can't heat the space, freezing in here, cold office, cold rooms, cold drafts]
+      hot: [space hot, room hot, building hot, zone hot, too hot, hot complaints, cant cool the space, can't cool
+          the space, overheating space, warm in here, hot office]
+      stuffy: [stuffy, stale air, poor ventilation, no fresh air, high co2, co2 alarm, odors, smells, air
+          quality complaints, humid and stale, stale smell, stagnant air]
+  - id: ahu.building_pressure
+    name: Building / space pressure
+    ask: How is the space pressure — neutral, negative (pulling in) or positive (pushing out)?
+    how: Crack an exterior door and feel the air; a tissue at the gap or a smoke pencil tells the direction. A
+      manometer across the envelope settles it (±0.02 in. w.c. is about neutral).
+    caution: In a strongly negative or positive building a door can slam or pull the handle out of your hand —
+      hold it with both hands and keep fingers clear of the frame.
+    systems: [ahu]
+    complaint: true
+    chip: state
+    states:
+      neutral: About neutral
+      negative: Negative — air pulls in at doors and cracks
+      positive: Positive — air pushes out, doors blow open
+    normal: neutral
+    cost: 1
+    phrases:
+      negative: [building negative, negative pressure, doors hard to open, door hard to open, doors slam, cold
+          drafts at doors, whistling at doors, whistling, air coming in under doors, drafts, infiltration,
+          sucking air in, frost at doors, wind through the building, exhaust pulling]
+      positive: [building positive, positive pressure, doors blow open, door wont close, door won't close,
+          doors pushed open, air blowing out the door, pressurized building, exterior doors hard to close,
+          pushing air out, ice in walls]
+  - id: ahu.exh_fan
+    name: Exhaust vs makeup air
+    ask: Are the exhaust fans serving this space running, and is the makeup/supply air running with them?
+    systems: [ahu]
+    states:
+      balanced: Both running (or both off) as scheduled
+      exh_only: Exhaust running with the makeup/supply unit off or throttled
+      makeup_only: Supply/makeup running with the exhaust fan off
+    normal: balanced
+    cost: 1
+    phrases:
+      exh_only: [exhaust running no makeup, makeup air off, mau off, makeup air unit down, exhaust without
+          makeup, no makeup air, hood running without makeup, exhaust only, supply down exhaust running]
+      makeup_only: [exhaust fan not running, exhaust fan off, exhaust fan dead, exhaust down, no exhaust,
+          bathroom exhaust not working, exhaust fan broken, hood not exhausting, exhaust fan stopped]
+  - id: ahu.cold_oa
+    name: Cold outdoor air
+    ask: Is the outdoor air below about 35 °F?
+    systems: [ahu]
+    chip: state
+    situational: true
+    states:
+      'no': Outdoor air 35 °F or warmer
+      'yes': Outdoor air below about 35 °F
+    normal: 'no'
+    base: {'no': 0.65, 'yes': 0.35}
+    cost: 1
+    phrases:
+      'yes': [cold outside, below freezing, freezing outside, winter, subzero, minus 40, -40, arctic, blowing
+          snow, cold snap, cold weather, very cold out, polar, cold out]
+  - id: ahu.eheat
+    name: Electric heat stages
+    ask: With a call for heat, are the electric heat stages energizing (amps on each stage)?
+    how: Clamp each stage's leads with the stage commanded on. Check the airflow switch or sail switch proves
+      first — electric heat is locked out without airflow.
+    caution: Live heater leads — qualified person only, with a properly rated clamp and PPE. Never jumper the
+      airflow (sail) switch or a high limit to force heat or to test.
+    systems: [ahu]
+    requires: {heat_coil: [electric]}
+    states:
+      all_on: Every stage draws amps when commanded
+      some_off: One or more stages dead
+      none_on: No stage energizes
+    normal: all_on
+    cost: 2
+    needs: clamp
+    phrases:
+      some_off: [one stage not working, stage dead, lost a stage, second stage not coming on, element open,
+          one element dead, heater stage out, partial electric heat]
+      none_on: [electric heat not working, no electric heat, heaters not coming on, strip heat dead, elements
+          not energizing, no amps on heaters, electric heat dead, heat kit not working, airflow switch not
+          making, sail switch open]
+
+  # ---------------- BAS status, capacitor, condensate drain, steam condensate ----------------
+  - id: ahu.fan_status
+    name: BAS fan status vs the fan
+    ask: Does the BAS fan status (run proof) agree with what the fan is actually doing?
+    how: Compare the BAS status point and any fan-failure alarm with the wheel and the motor amps. A run-status
+      point is usually a current switch on a motor lead or a differential-pressure switch across the fan; if it
+      says off while the wheel turns and the motor draws normal amps, the proof device is wrong, not the fan.
+    caution: Live circuit — qualified person only, with a properly rated clamp and PPE. Look at the wheel from
+      outside; never open a door on a running fan.
+    systems: [ahu]
+    states:
+      agrees: Status matches what the fan is doing
+      says_off: BAS says the fan is off or failed, but the wheel is turning
+      says_on: BAS says the fan is running, but the wheel is stopped
+    normal: agrees
+    cost: 2
+    needs: clamp
+    phrases:
+      says_off: [bas says fan off, fan status alarm, fan failure alarm, fan status shows off, fan proof alarm, no
+          fan status, status off but fan running, fan alarm but running, false fan alarm, fan shows stopped on
+          bas, run status wrong]
+      says_on: [bas says fan running, status on but fan stopped, fan proves but not running, status shows
+          running fan off, proof switch stuck]
+  - id: ahu.fan_cap
+    name: Fan motor capacitor
+    ask: On a single-phase fan motor, what does the run or start capacitor test as?
+    how: Lock out, then discharge the capacitor through a resistor before touching it. Meter µF with the leads
+      off — it should be within the tolerance printed on the label (commonly about ±6 %). A bulged, leaking or
+      burnt can fails regardless of its reading. Skip this check on a three-phase motor.
+    caution: A capacitor holds a charge after the power is off. Lock out, then discharge it through a resistor
+      before you touch it.
+    systems: [ahu]
+    ask_if: {ahu.fan: ['off', trips]}
+    states:
+      ok: In range, or this motor has no capacitor
+      low_open: Low µF or open
+      bulged: Bulged, leaking or burnt
+    normal: ok
+    cost: 3
+    needs: meter
+    phrases:
+      low_open: [capacitor weak, weak capacitor, bad capacitor, capacitor open, run capacitor bad, start
+          capacitor bad, capacitor low microfarads, cap bad, fan cap bad, capacitor tests low, capacitor failed]
+      bulged: [capacitor bulged, bulging capacitor, capacitor leaking, capacitor burnt, swollen capacitor,
+          capacitor oil leaking, capacitor popped, blown capacitor, capacitor domed]
+  - id: ahu.drain
+    name: Condensate drain, trap and pan
+    ask: Is the condensate drain flowing — pan, trap and line clear?
+    how: With the fan stopped and locked out, look at the pan and the drain, pour a little water in and watch it
+      go. On a draw-through unit the trap's inlet leg has to be at least the unit's negative static (in. w.c.)
+      plus 1 in., and primed — a trap that is too shallow gets sucked dry and the pan overflows. Look for ice in
+      a drain line that runs through cold space.
+    caution: Stop the fan and lock out before opening the coil section to look at the pan.
+    systems: [ahu]
+    states:
+      free: Draining freely — pan clear, trap primed, line open
+      blocked: Plugged, trap seal lost or too shallow, pan overflowing, or the line frozen
+    normal: free
+    cost: 1
+    phrases:
+      blocked: [drain plugged, clogged drain, drain pan overflowing, pan full, trap dry, trap lost its seal, trap
+          too shallow, drain line frozen, frozen drain, condensate backing up, drain not draining, overflow pan,
+          water in the pan, condensate overflow, condensate line plugged]
+  - id: ahu.steam_condensate
+    name: Steam coil condensate
+    ask: Is the steam coil draining its condensate — trap cycling, return line warm, coil hot top to bottom?
+    how: With the coil running, read the bottom of the coil and the trap outlet with an IR thermometer, and
+      listen for hammering or gurgling. A cold bottom with a hot supply, or a banging coil, means condensate is
+      backing up. Check the vacuum breaker on a modulating steam valve.
+    caution: Steam and condensate scald. Isolate and relieve before opening a trap, strainer or union, and read
+      pipes with a thermometer, never a bare hand.
+    systems: [ahu]
+    requires: {heat_coil: [steam]}
+    states:
+      draining: Draining — trap cycling, coil hot top to bottom
+      backed_up: Backed up — bottom of the coil cold, banging or gurgling, trap or return blocked
+    normal: draining
+    cost: 2
+    phrases:
+      backed_up: [steam coil waterlogged, condensate backed up, steam trap stuck, trap blocked, trap plugged,
+          water hammer at coil, steam coil banging, coil bottom cold, condensate not draining, return line
+          blocked, vacuum breaker stuck]
+
+  # ---------------- heat- and energy-recovery ventilators (HRV / ERV) ----------------
+  - id: ahu.hrv_core
+    name: Recovery core condition
+    ask: What does the heat-recovery core (or wheel) and its filters look like — clean, dirty or plugged, frosted or
+      iced?
+    how: Look at the air passages on both faces of the core and at the filters ahead of it. Frost and ice build on
+      the exhaust side where warm, wet air meets the cold core; lint, dust or grease plugs the passages. Note
+      whether the supply airflow dropped off as the core iced.
+    caution: Stop both fans, lock out and tag, and let any wheel stop before opening the core section. Don't chip
+      or pry at ice with tools — plates and fins cut and crush easily.
+    systems: [ahu]
+    states:
+      clean: Clean — passages open, filters in good shape
+      dirty: Dirty or plugged — loaded filters, or dust, lint or grease in the core
+      frosted: Frosted or iced — frost or ice built up on the core
+    normal: clean
+    cost: 3
+    needs: shutdown
+    phrases:
+      dirty: [dirty core, plugged core, core plugged, core dirty, dirty hrv, dirty erv, hrv filters dirty, erv
+          filters dirty, core clogged, dirty heat wheel, lint in core, grease in core, plugged heat wheel]
+      frosted: [core frosted, core iced, frosted core, ice on core, hrv iced up, hrv frozen, erv frozen, erv iced
+          up, frost on core, core frozen, ice in the hrv, heat exchanger iced, ice on the exhaust side]
+  - id: ahu.hrv_defrost
+    name: HRV/ERV defrost cycle
+    ask: How is the defrost cycle behaving?
+    how: Watch one full cycle if you can. Defrost methods vary (supply fan off with the exhaust running, a
+      recirculation damper, or an electric preheater), but the unit should start one when the core frosts, run
+      it for a few minutes, and return to normal. Note whether it ever starts, and whether it ever finishes.
+    caution: Watch from outside, through the inspection window. Dampers and fans change state on their own during
+      defrost — don't open the core section while the unit is running.
+    systems: [ahu]
+    states:
+      ok: Defrosts when it should and returns to normal
+      stuck: Stuck in defrost — recirculating or throttled for long periods
+      never: Never goes into defrost, even with ice on the core
+    normal: ok
+    cost: 2
+    phrases:
+      stuck: [stuck in defrost, always in defrost, defrost never ends, defrost mode stuck, hrv in defrost all the
+          time, erv stays in defrost, recirculating all the time]
+      never: [no defrost, never defrosts, defrost not working, defrost not starting, defrost cycle never comes
+          on, defrost sensor bad, defrost timer failed, wont defrost, doesnt defrost]
+  - id: ahu.hrv_wheel
+    name: Recovery wheel
+    ask: On a wheel-type unit, is the recovery wheel turning?
+    how: Watch the wheel through the inspection window, or check the wheel motor's rotation indicator or sensor
+      on the controller. A healthy wheel turns slowly and steadily; stopped, jerky or slow points at the drive.
+      A plate core has no wheel — skip this check.
+    caution: Never reach in to feel or turn a wheel. Stop the unit and lock out first, and keep hands clear of
+      the rim and the drive belt.
+    systems: [ahu]
+    states:
+      turning: Turning steadily
+      stopped: Stopped — drive motor silent, or running with the wheel still (belt off or slipping)
+      slow: Slow, jerky or slipping
+    normal: turning
+    cost: 2
+    phrases:
+      stopped: [wheel not turning, wheel stopped, enthalpy wheel stopped, heat wheel not turning, wheel belt
+          broken, wheel belt off, wheel motor dead, recovery wheel stopped, wheel drive failed, no wheel rotation,
+          hrv wheel not turning, hrv wheel stopped, hrv wheel belt off, recovery wheel not turning, heat
+          recovery wheel stopped]
+      slow: [wheel turning slow, wheel jerky, wheel belt slipping, wheel dragging, wheel slow, wheel stuttering]
+  - id: ahu.hrv_bypass
+    name: HRV/ERV bypass or recirculation damper
+    ask: Does the core's bypass (or recirculation) damper go where it is commanded?
+    how: Compare the damper position with the unit's command. In cold weather it should stay closed except during
+      defrost, and in mild weather it opens to skip the core. Look for an iced edge or a slipped linkage.
+    caution: Stop the unit and lock out before opening a door or reaching at the damper — actuators and springs
+      store energy.
+    systems: [ahu]
+    states:
+      tracks: Moves with its command
+      open_stuck: Stuck open or leaking — supply air passes around the core
+      closed_stuck: Stuck closed or iced shut — won't open for defrost or free cooling
+    normal: tracks
+    cost: 2
+    phrases:
+      open_stuck: [bypass damper stuck open, bypass open, bypass leaking, bypass damper open in winter, supply
+          bypassing the core, recirculation damper open]
+      closed_stuck: [bypass damper stuck closed, bypass damper iced, bypass wont open, recirculation damper
+          stuck, bypass damper frozen, defrost damper stuck]
+  - id: ahu.hrv_balance
+    name: HRV/ERV supply vs exhaust airflow
+    ask: How do the supply and exhaust airflows through the core compare?
+    how: Measure both ducts (flow hood, traverse, or the unit's balancing ports and a manometer per the maker's
+      data). They should be close to equal; a ratio far from 1 to 1 starves the core of effectiveness and swings
+      the building pressure. Note which side is low — low supply pulls the building negative, low exhaust pushes
+      it positive.
+    caution: Measure through the test ports or from outside. Don't open a core or filter door with the fans
+      running.
+    systems: [ahu]
+    states:
+      balanced: About equal
+      unbalanced: Well out of balance — supply and exhaust differ by a lot (supply low, or exhaust low)
+    normal: balanced
+    cost: 3
+    needs: manometer
+    phrases:
+      unbalanced: [supply airflow low, hrv supply low, erv supply low, unbalanced hrv, hrv out of balance, more
+          exhaust than supply, exhaust airflow low, hrv exhaust low, erv exhaust low, more supply than exhaust,
+          hrv balance off]
+  - id: ahu.hrv_eff
+    name: Recovery effectiveness
+    ask: How much of the temperature difference is the core recovering?
+    how: With the unit running steady in cold weather, read outdoor air, supply air leaving the core and exhaust
+      air entering the core at the same moment, and enter them in the readings. Effectiveness = (supply leaving
+      the core − outdoor) ÷ (exhaust entering the core − outdoor). Compare with the maker's rating; this check
+      only flags a clearly poor core.
+    caution: Probe through the test ports or from outside. Don't open a core or filter door with the fans running.
+    systems: [ahu]
+    states:
+      low: Low — under about 50 %, well below the rated figure
+      normal: In the normal range
+    normal: normal
+    cost: 3
+    needs: thermometer
+    phrases:
+      low: [low effectiveness, poor heat recovery, hrv not recovering heat, erv not recovering, core efficiency
+          low, supply air arriving cold, no heat recovery, recovery poor]
+
+inputs:
+  - {id: ahu.sat_f, name: Supply air temp, unit: °F, systems: [ahu], probe: air, hint: In the supply duct a few
+      feet past the unit}
+  - {id: ahu.sat_sp_f, name: Supply air setpoint, unit: °F, systems: [ahu], hint: From the controller}
+  - {id: ahu.mat_f, name: Mixed air temp, unit: °F, systems: [ahu], probe: air, hint: Before the coils — traverse
+      the plenum, the box stratifies}
+  - {id: ahu.rat_f, name: Return air temp, unit: °F, systems: [ahu], probe: air}
+  - {id: ahu.oat_f, name: Outdoor air temp, unit: °F, systems: [ahu], probe: air, hint: At the intake, out of the
+      sun}
+  - {id: ahu.min_oa_pct, name: Design minimum outdoor-air fraction (ventilation schedule or balance report), unit: '%',
+      systems: [ahu], hint: The share of the supply air that should be outdoor air at minimum position - not the
+      damper blade position}
+  - {id: ahu.oa_cmd_pct, name: Outdoor damper command now, unit: '%', systems: [ahu], hint: Only a reliable target
+      at 0 % (closed) or 100 % (full open) - leave blank when it's at minimum position}
+  - {id: ahu.filter_dp_inwc, name: Filter pressure drop, unit: in. w.c., systems: [ahu], probe: manometer}
+  - {id: ahu.filter_dp_final, name: Filter final (change-out) rating, unit: in. w.c., systems: [ahu], default: 1.0,
+      hint: From the filter frame or the maker — about 1.0 for pleats, 1.5 for bags}
+  - {id: ahu.fan_sp_inwc, name: Fan static rise, unit: in. w.c., systems: [ahu], probe: manometer, hint: Discharge
+      minus inlet, across the fan only}
+  - {id: ahu.fan_sp_design, name: Design fan static, unit: in. w.c., systems: [ahu], hint: Fan schedule, submittal
+      or balance report}
+  - {id: ahu.fan_amps, name: Fan motor amps, unit: A, systems: [ahu], probe: clamp, hint: Highest leg}
+  - {id: ahu.fan_fla, name: Motor FLA (nameplate), unit: A, systems: [ahu]}
+  - {id: ahu.fan_rise_f, name: Fan temperature rise, unit: °F, systems: [ahu], default: 2, hint: About 0.4 °F per
+      in. w.c. of total pressure divided by fan efficiency - 5 to 6 °F on high-pressure units}
+  - {id: ahu.hc_in_f, name: Air entering heating coil, unit: °F, systems: [ahu], probe: air}
+  - {id: ahu.hc_out_f, name: Air leaving heating coil, unit: °F, systems: [ahu], probe: air}
+  - {id: ahu.hv_cmd_pct, name: Heating valve / stage command, unit: '%', systems: [ahu], hint: Required - read the
+      BAS output}
+  - {id: ahu.hc_rise_design, name: Design air rise across heating coil, unit: °F, systems: [ahu], hint: Required
+      for the low-rise check - from the coil schedule; preheat coils in the Arctic can be 80 °F or more}
+  - {id: ahu.cc_in_f, name: Air entering cooling coil, unit: °F, systems: [ahu], probe: air}
+  - {id: ahu.cc_out_f, name: Air leaving cooling coil, unit: °F, systems: [ahu], probe: air}
+  - {id: ahu.cv_cmd_pct, name: Cooling valve / stage command, unit: '%', systems: [ahu], hint: Required - read the
+      BAS output}
+  - {id: ahu.cc_drop_design, name: Design air drop across cooling coil, unit: °F, systems: [ahu], default: 20}
+  - {id: ahu.hws_f, name: Water/glycol supply at coil, unit: °F, systems: [ahu], probe: pipe, hint: Upstream of
+      the valve}
+  - {id: ahu.hwr_f, name: Water/glycol return from coil, unit: °F, systems: [ahu], probe: pipe}
+  - {id: ahu.hw_dt_design, name: Design water/glycol ΔT across the coil, unit: °F, systems: [ahu], hint: From the
+      coil schedule - leave blank if unknown}
+  - {id: ahu.vfd_hz, name: VFD output frequency, unit: Hz, systems: [ahu]}
+  - {id: ahu.vfd_cmd_hz, name: VFD commanded frequency, unit: Hz, systems: [ahu], hint: Read the drive's own
+      speed-reference parameter (Hz) on its keypad. If you must convert from a BAS percent, Hz = Hz_min + % ×
+      (Hz_max − Hz_min). Also used to correct the amps and static for the speed the fan is asked to run at}
+  - {id: ahu.glycol_pct_meas, name: Glycol concentration, unit: '%', systems: [ahu], probe: refractometer, hint: Read
+      on the scale for the glycol type}
+  - {id: ahu.oat_min_f, name: Coldest air the coil sees, unit: °F, systems: [ahu], hint: Design low or the coldest
+      night on record, whichever is colder - −40 at McMurdo is a floor, not a ceiling}
+  - {id: ahu.hrv_sa_f, name: Supply air leaving the recovery core, unit: °F, systems: [ahu], probe: air, hint: Read
+      at the same moment as the outdoor and exhaust temperatures}
+  - {id: ahu.hrv_ra_f, name: Exhaust air entering the recovery core, unit: °F, systems: [ahu], probe: air}
+
+measures:
+  - id: ahu.sat_dev
+    name: Supply air vs setpoint
+    unit: °F
+    systems: [ahu]
+    value: ahu.sat_f
+    target: ahu.sat_sp_f
+    sets: ahu.sat
+    states:
+      - [low, v < t - 3]
+      - [high, v > t + 3]
+      - [ok, 'true']
+  - id: ahu.mat_check
+    name: Mixed air vs the return/outdoor pair
+    unit: °F
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    let:
+      lo: min(ahu.rat_f, ahu.oat_f)
+      hi: max(ahu.rat_f, ahu.oat_f)
+    value: ahu.mat_f
+    target: (lo + hi) / 2
+    sets: ahu.mat_range
+    states:
+      - [outside, 'v < lo - 3 || v > hi + 3']
+      - [between, 'true']
+  - id: ahu.oa_fraction
+    name: Outdoor-air fraction
+    unit: '%'
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    # tol is the allowance in points: APAR's 3 °F sensor tolerance divided by the return-to-outdoor spread
+    # (never under 10 or over 30). A part-open blade command is only a rough guide to the real fraction, so it
+    # keeps the wide 30-point band. With no design minimum entered and no command, nothing is judged.
+    let:
+      spread: abs(ahu.rat_f - ahu.oat_f)
+      cmd: ahu.oa_cmd_pct ?? ahu.min_oa_pct
+      tol: 'has(ahu.oa_cmd_pct) && ahu.oa_cmd_pct > 0 && ahu.oa_cmd_pct < 100 ? 30 : max(10, min(30, 300 / spread))'
+    value: 'spread >= 10 && has(cmd) ? (ahu.mat_f - ahu.rat_f) / (ahu.oat_f - ahu.rat_f) * 100 : null'
+    target: cmd
+    sets: ahu.oa_frac
+    states:
+      - [high, v > t + tol]
+      - [low, v < t - tol]
+      - [ok, 'true']
+  - id: ahu.filter_dp
+    name: Filter pressure drop vs final rating
+    unit: in. w.c.
+    systems: [ahu]
+    value: ahu.filter_dp_inwc
+    target: ahu.filter_dp_final
+    sets: ahu.filter
+    states:
+      - [loaded, v >= t]
+      - [ok, 'true']
+  - id: ahu.fan_static
+    name: Fan static vs design
+    unit: in. w.c.
+    systems: [ahu]
+    # sp is the commanded speed as a share of 60 Hz (command, not actual Hz, so a drive stuck low still reads
+    # low). A fan makes about speed-squared of its design static.
+    let:
+      sp: max(0.3, min(1, (ahu.vfd_cmd_hz ?? ahu.vfd_hz ?? 60) / 60))
+    value: ahu.fan_sp_inwc
+    target: ahu.fan_sp_design * sp * sp
+    sets: ahu.static
+    states:
+      - [high, v > t * 1.25]
+      - [low, v < t * 0.7]
+      - [normal, 'true']
+  - id: ahu.fan_amps_ratio
+    name: Fan motor amps vs FLA
+    unit: '%'
+    systems: [ahu]
+    # On a drive at constant volts per hertz the amps fall roughly with speed squared, so "low" means under half
+    # of what that speed should draw. At full speed (or with no drive) this is the plain 50 % of FLA.
+    let:
+      sp: max(0.3, min(1, (ahu.vfd_cmd_hz ?? ahu.vfd_hz ?? 60) / 60))
+      pct: ahu.fan_amps / ahu.fan_fla * 100
+    value: pct
+    target: '85 * sp * sp'
+    sets: ahu.motor_amps
+    states:
+      - [high, v > 100]
+      - [low, 'pct / (sp * sp) < 50']
+      - [normal, 'true']
+  - id: ahu.heat_rise
+    name: Air rise across the heating coil
+    unit: °F
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam, electric]}
+    let:
+      cmd: ahu.hv_cmd_pct
+      want: ahu.hc_rise_design * cmd / 100
+    value: 'has(ahu.hv_cmd_pct) ? ahu.hc_out_f - ahu.hc_in_f : null'
+    target: want
+    sets: ahu.heat_dt
+    states:
+      - [unwanted, 'cmd < 5 && v > 5']
+      - [none, 'cmd >= 20 && v < 3']
+      - [low, 'has(ahu.hc_rise_design) && cmd >= 20 && v < 0.5 * want']
+      - [normal, 'has(ahu.hc_rise_design) || cmd < 20']
+  - id: ahu.sat_mat_heat
+    name: Supply vs mixed air with both coils commanded off (fan heat only)
+    unit: °F
+    systems: [ahu]
+    let:
+      hv: ahu.hv_cmd_pct
+      cv: "(ctx.cool_coil ?? 'x') == 'none' ? 0 : ahu.cv_cmd_pct"
+      rise: ahu.fan_rise_f
+    value: 'hv < 5 && cv < 5 ? ahu.sat_f - ahu.mat_f : null'
+    target: rise
+    sets: ahu.heat_dt
+    states:
+      - [unwanted, v > rise + 3]
+      - [normal, 'true']
+  - id: ahu.cool_drop
+    name: Air drop across the cooling coil
+    unit: °F
+    systems: [ahu]
+    requires: {cool_coil: [chw, dx]}
+    let:
+      cmd: ahu.cv_cmd_pct
+      want: ahu.cc_drop_design * cmd / 100
+    value: 'has(ahu.cv_cmd_pct) ? ahu.cc_in_f - ahu.cc_out_f : null'
+    target: want
+    sets: ahu.cool_dt
+    states:
+      - [unwanted, 'cmd < 5 && v > 4']
+      - [none, 'cmd >= 20 && v < 3']
+      - [low, 'cmd >= 20 && v < 0.5 * want']
+      - [normal, 'true']
+  - id: ahu.sat_mat_cool
+    name: Supply colder than mixed air with both coils commanded off
+    unit: °F
+    systems: [ahu]
+    requires: {cool_coil: [chw, dx]}
+    let:
+      hv: "(ctx.heat_coil ?? 'x') == 'none' ? 0 : ahu.hv_cmd_pct"
+      cv: ahu.cv_cmd_pct
+    value: 'hv < 5 && cv < 5 ? ahu.sat_f - ahu.mat_f : null'
+    target: '2'
+    sets: ahu.cool_dt
+    states:
+      - [unwanted, v < -3]
+      - [normal, 'true']
+  - id: ahu.hw_supply_t
+    name: Water/glycol supply temperature at the coil
+    unit: °F
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg]}
+    value: ahu.hws_f
+    sets: ahu.hw_supply
+    states:
+      - [cold, v < 80]
+      - [warm, v < 110]
+      - [hot, 'true']
+  - id: ahu.hw_delta
+    name: Water/glycol ΔT across the coil
+    unit: °F
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg]}
+    let:
+      hi: 'has(ahu.hw_dt_design) ? max(40, 1.5 * ahu.hw_dt_design) : 40'
+    value: 'has(ahu.hv_cmd_pct) && ahu.hv_cmd_pct >= 20 ? ahu.hws_f - ahu.hwr_f : null'
+    target: 'ahu.hw_dt_design ?? 20'
+    sets: ahu.hw_dt
+    states:
+      - [none, v < 3]
+      - [high, v > hi]
+      - [normal, 'true']
+  - id: ahu.vfd_track
+    name: VFD output vs command
+    unit: Hz
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    value: ahu.vfd_hz
+    target: ahu.vfd_cmd_hz
+    sets: ahu.vfd_speed
+    states:
+      - [low, v < t - 5]
+      - [matches, 'true']
+  - id: ahu.glycol_fp
+    name: Glycol freeze point vs the coldest air
+    unit: °F
+    systems: [ahu]
+    requires: {heat_coil: [eg, pg]}
+    let:
+      kind: "(ctx.heat_coil ?? 'eg') == 'pg' ? 'PG' : 'EG'"
+    value: glycol_freeze(ahu.glycol_pct_meas, kind)
+    target: ahu.oat_min_f - 9
+    sets: ahu.glycol
+    states:
+      - [weak, v > t]
+      - [adequate, 'true']
+  - id: ahu.oa_cold
+    name: Outdoor air temperature
+    unit: °F
+    systems: [ahu]
+    value: ahu.oat_f
+    target: '35'
+    sets: ahu.cold_oa
+    states:
+      - ['yes', v < 35]
+      - ['no', 'true']
+  - id: ahu.hrv_effectiveness
+    name: Recovery effectiveness (sensible)
+    unit: '%'
+    systems: [ahu]
+    # (supply leaving the core - outdoor) / (exhaust entering the core - outdoor); only judged with at least 15 F
+    # between exhaust and outdoor air. The rated figure is the maker's - here only a clearly poor core is flagged.
+    value: 'abs(ahu.hrv_ra_f - ahu.oat_f) >= 15 ? (ahu.hrv_sa_f - ahu.oat_f) / (ahu.hrv_ra_f - ahu.oat_f) * 100 : null'
+    sets: ahu.hrv_eff
+    states:
+      - [low, v < 50]
+      - [normal, 'true']
+
+causes:
+  # ======================= fan not running =======================
+  - id: ahu.start_circuit
+    name: No run signal reaching the starter or drive — HOA switch in Off, drive in local/stop, broken wire, bad
+      relay or starter coil
+    systems: [ahu]
+    prior: common
+    keywords: [hoa in off, hand off auto, switch in off, no start signal, start circuit open, relay bad, starter
+      coil open, vfd not getting run command]
+    signs:
+      ahu.freezestat: ok
+      gen.output: none!
+      ahu.fan: off!
+      gen.call: calling
+      gen.power: present
+      gen.control_v: present
+      gen.dead: 'no'
+      ahu.safety: closed
+      ahu.starter: not_pulling
+      ahu.vfd_status: not_enabled
+    confirm: The controller is commanding the fan and every safety reads closed, but the starter coil (or the
+      drive's run terminal) never sees the signal.
+    fix: |
+      Start at the controller's fan output and follow the signal: HOA or local/remote switch, the start relay,
+      each safety, then the starter coil or the drive's run/enable terminals. Fix the break you find — a switch
+      left in Off or a drive left in local after service is the usual answer. If the coil sees voltage and the
+      starter still won't pull in, the coil is open; replace the starter or coil. On a drive, check the
+      run-command source parameter matches how it's wired (terminal vs keypad vs network).
+    safety: Lock out before opening the starter. A VFD's bus capacitors stay charged after power is removed —
+      wait the maker's time (several minutes) and verify with a meter. Tracing the signal is live work —
+      qualified person only, with a properly rated meter and PPE, and the door closed where possible; otherwise
+      lock out and use continuity.
+    refs: [practice]
+  - id: ahu.safety_open
+    name: A safety or interlock in the fan start circuit is open — duct smoke detector, high/low static switch,
+      damper end switch, filter or door switch
+    systems: [ahu]
+    prior: common
+    keywords: [safety tripped, interlock, smoke detector tripped, static switch tripped, end switch, fire alarm
+      shutdown, duct detector]
+    signs:
+      gen.output: none!
+      ahu.fan: off!
+      gen.call: calling
+      gen.control_v: present
+      ahu.safety: {smoke: 0.3, static: 0.3, damper: 0.25, other: 0.12, closed: 0.03}
+      ahu.starter: not_pulling
+      ahu.vfd_status: not_enabled
+      ahu.freezestat: ok
+    confirm: Meter across each device in the start circuit — the open one has voltage across it. Smoke detectors
+      and static switches usually show a trip light or flag.
+    fix: |
+      A tripped safety is a messenger — find out why before resetting. Duct smoke detector: confirm there is no
+      fire or smoke, clean the sampling tube and head, then have it reset through the fire-alarm authority per
+      site procedure (the panel too if it latched) — don't clear a life-safety alarm on your own. High-static
+      switch: something closed downstream — fire/smoke damper, isolation damper, VAV boxes — or the switch is
+      set too close to normal static. Low-static (or airflow) switch: a fan or belt problem upstream. Damper end
+      switch: the damper didn't open — actuator, linkage, frozen blades, or the switch out of adjustment. Door
+      or filter switch: close the door, change the filters. Replace a device only after you have shown that the
+      condition it guards is fine and the contact is still open.
+    safety: Never jumper, tape, bridge or reset-and-walk-away any device in the start circuit — smoke or fire
+      interlock, firestat, freezestat, high- or low-static switch, end switch, airflow switch. Replace a suspect
+      device, don't bypass it; a test jumper only while you stand at the unit, and take it out before you leave.
+      A duct-detector alarm is cleared with the fire-alarm authority per site procedure, after you have
+      confirmed there is no smoke.
+    refs: [practice]
+  - id: ahu.overload_trip
+    name: Motor overload relay tripped — fan overloaded, bearing drag, single-phasing, low voltage, or overload set
+      too low
+    systems: [ahu]
+    requires: {vfd: ['no']}
+    prior: common
+    keywords: [overload tripped, overloads, thermal overload, ol trip, heaters tripped, overload reset]
+    signs:
+      gen.output: none!
+      ahu.fan: off|trips
+      ahu.starter: overload!
+      ahu.motor_amps: high?
+      ahu.bearings: rough?
+      ahu.phase: phase_loss?
+      gen.voltage: low?
+      ahu.motor: ok|overheated
+    confirm: Overload relay flag shows tripped; with it reset the motor draws over FLA, growls on one lost phase, or
+      spins hard by hand.
+    fix: |
+      Before resetting, check the overload's dial or heater size against the motor FLA (a mis-sized overload trips
+      for nothing). Never raise the setting to stop trips (NEC 430.32: no more than 125 % of FLA for a motor
+      marked service factor 1.15 or 40 °C rise, 115 % otherwise) — a motor that needs more than that is
+      overloaded. Check all three phases and the voltage under load. Lock out and spin the wheel — a dragging
+      bearing or a rubbing wheel loads the motor. Check the belt isn't over-tight and the fan isn't moving far
+      more air than design (a forward-curved wheel overloads when the duct is wide open or a panel is off). Trips
+      only in deep cold? Air at −40 °F is about 26 % denser, so the same fan draws about 26 % more power and
+      makes about 26 % more static (worse for a fan in the outdoor-air stream: blow-through unit, exhaust, or
+      preheat down). Compare the amps with FLA at the coldest hour; the fix is a larger motor, lower speed, or
+      restoring preheat — not a higher overload setting. Then reset once and clamp the amps on every leg as it
+      runs.
+    safety: Lock out at the starter and the fan disconnect before touching the starter or spinning the wheel.
+      Metering a live starter is qualified-person work with a rated meter and PPE.
+    refs: [practice]
+  - id: ahu.motor_failed
+    name: Fan motor failed — winding open or grounded, thermal protector open, or seized bearings
+    systems: [ahu]
+    prior: occasional
+    keywords: [bad fan motor, motor burned out, motor failed, blower motor bad, motor grounded, motor open]
+    signs:
+      gen.output: none!
+      ahu.fan: off|trips
+      ahu.motor: {grounded: 0.4, open: 0.3, overheated: 0.22, ok: 0.08}
+      ahu.starter: ok?
+      gen.breaker: {ok: 0.5, tripped: 0.2, retrips: 0.3}
+      gen.burnt_smell: yes?
+      ahu.bearings: seized?
+      ahu.vfd_fault: {ground_fault: 0.3, overcurrent: 0.25, none: 0.4, line: 0.03, overtemp: 0.02}
+    confirm: Voltage reaches the motor terminals but it won't run, and the windings read open, unbalanced or to
+      ground (a VFD ground-fault trip points the same way). A protector that resets after cooling means it's
+      overheating — find why.
+    fix: |
+      Lock out, disconnect the leads and read the windings lead-to-lead and to ground. Replace a motor that reads
+      open, badly unbalanced or grounded — match HP, RPM, frame, voltage, and inverter-duty if it runs on a VFD.
+      Before the new one goes in: check the motor leads for chafe and moisture, and spin the fan shaft so a seized
+      fan bearing doesn't kill the next motor. If the old motor's protector was opening on heat, check voltage,
+      phases, airflow over the motor and the load.
+    safety: Lock out and tag. Verify dead at the motor leads — a drive output can be live with the keypad showing
+      stopped.
+    refs: [practice]
+  - id: ahu.single_phase
+    name: Single-phasing — one leg of the three-phase supply lost (blown fuse, loose lug, bad contact)
+    systems: [ahu]
+    prior: occasional
+    keywords: [single phasing, lost a leg, lost phase, one fuse blown, phase loss]
+    signs:
+      ahu.phase: phase_loss!
+      ahu.fan: trips|off
+      gen.output: none
+      ahu.starter: {overload: 0.4, burnt: 0.3}
+      ahu.vfd_status: fault?
+      ahu.vfd_fault: line?
+      gen.breaker: tripped?
+      gen.intermittent: yes?
+    confirm: One phase pair reads far below the others at the motor or drive input; a running motor growls and
+      trips its overload.
+    fix: |
+      Work back from the motor terminals: fuses in the disconnect and starter (one blown fuse is the classic),
+      then lugs and contacts for heat damage. Replace the fuse set and the burnt parts. Find why the fuse blew —
+      a motor on its way out, a loose connection, or an upstream fault. A drive usually rides through briefly
+      and then faults on undervoltage or phase loss.
+    safety: Lock out before touching lugs; a lost leg can still leave the other two live.
+    refs: [practice]
+  - id: ahu.contactor_bad
+    name: Contactor or starter failed — pitted, burnt or welded pole, loose lug, open fuse
+    systems: [ahu]
+    requires: {vfd: ['no']}
+    prior: occasional
+    keywords: [bad contactor, burnt contactor, pitted contacts, welded contacts, open pole, blown fuse in
+      starter, lost a pole, voltage drop across contactor]
+    signs:
+      ahu.starter: burnt!
+      ahu.fan: trips|off
+      gen.output: none
+      ahu.motor: ok
+      ahu.phase: phase_loss?
+    confirm: The contactor pulls in but a pole drops the voltage — line voltage in and little or none out on one
+      leg, or a fuse reads open — while the motor tests good with its leads off.
+    fix: |
+      Lock out. Inspect the poles and lugs for pitting, heat and a welded set; replace the contactor as a set,
+      check the coil voltage and the amps afterwards, and find why (loose lug, undersized contactor,
+      short-cycling).
+    safety: Lock out and tag; verify dead with a tested meter. A welded pole can leave the motor live with the
+      coil dropped.
+    refs: [practice]
+  - id: ahu.fan_cap_bad
+    name: Fan motor capacitor failed — run or start capacitor weak, open or bulged (a single-phase motor hums,
+      won't start, or starts slowly and runs hot)
+    systems: [ahu]
+    prior: occasional
+    keywords: [fan capacitor bad, motor capacitor, run capacitor, start capacitor, capacitor bulged, motor hums
+      wont start, psc motor capacitor, exhaust fan hums]
+    signs:
+      ahu.fan: trips|off
+      ahu.fan_cap: {low_open: 0.6, bulged: 0.35}
+      ahu.motor: ok
+      ahu.bearings: ok
+      gen.output: none|weak
+    confirm: A single-phase fan motor hums or won't start and spins freely by hand; the capacitor tests well
+      under its label µF (or open) or is bulged or leaking; the motor windings test good.
+    fix: |
+      Lock out and discharge the capacitor through a resistor before touching it. Meter µF with the leads off
+      (within about ±6 % of the label); a bulged or leaking can fails regardless. Replace it with the same µF
+      and an equal or higher voltage rating. Spin the wheel by hand first — a dragging bearing kills
+      capacitors, so a new one in front of a bad bearing won't last.
+    safety: A capacitor holds a charge after the power is off. Lock out, then discharge it through a resistor.
+    refs: [practice]
+  - id: ahu.belt_broken
+    name: Belt broken or thrown — motor runs, fan wheel doesn't turn
+    systems: [ahu]
+    requires: {fan_drive: [belt]}
+    prior: common
+    keywords: [broken belt, threw a belt, belt off, belt snapped, belt gone]
+    signs:
+      gen.output: none!
+      ahu.fan: motor_only!
+      ahu.belt: broken!
+      ahu.motor_amps: low
+      ahu.static: low
+      ahu.sheave: misaligned?
+    confirm: Motor turning, wheel still; belt lying in the fan section or hanging off the sheaves.
+    fix: |
+      Lock out. Fit the right belt (number from the old one or the sheave data), align the sheaves with a
+      straightedge and tension it. Look for why it broke: misaligned or loose sheaves, a seized fan bearing, a
+      sheave with a damaged groove, or a belt that was already worn. Re-tension after the first day of running.
+    safety: Lock out before reaching into the belt guard — a fan can start on a schedule.
+    refs: [practice]
+  - id: ahu.wheel_loose
+    name: Wheel loose on the shaft or coupling failed — motor turns, wheel doesn't (sheared key, set screws
+      backed out, hub or taper-lock slipped, flexible coupling gone)
+    systems: [ahu]
+    prior: occasional
+    keywords: [wheel loose on shaft, wheel spun on shaft, sheared key, set screws backed out, coupling failed,
+      coupling broken, motor runs wheel doesnt turn, direct drive wheel not turning, hub slipped, taper lock
+      slipped]
+    signs:
+      ahu.fan: motor_only!
+      gen.output: none!
+      ahu.motor_amps: low
+      ahu.wheel: damaged?
+      ahu.noise: rattle?
+    confirm: The motor runs and draws light amps, but the wheel stands still or turns far slower than the motor
+      shaft — a sheared key, backed-out set screws, a slipped hub or taper-lock, or a cracked or missing
+      coupling.
+    fix: |
+      Lock out and block the wheel. Check the key, set screws or taper-lock and the hub bore; set the wheel at
+      the right position in the inlet cone with a new key and thread-locker on the set screws, torqued to the
+      maker's value. Replace a spun hub or shaft. On a flexible-coupling drive replace the coupling and check
+      the shaft alignment. Don't bump the motor to test it while the wheel is loose or the coupling is off — a
+      free wheel can spin up from airflow and loose parts can fly.
+    safety: Lock out and block the wheel before reaching in.
+    refs: [practice]
+  - id: ahu.vfd_dead
+    name: VFD dead — no display (input fuses, disconnect, failed power section)
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    prior: occasional
+    keywords: [vfd dead, drive dead, vfd blank, drive no power]
+    signs:
+      ahu.vfd_status: no_display!
+      gen.output: none!
+      ahu.fan: off!
+      gen.power: {present: 0.6, missing: 0.4}
+      gen.breaker: {ok: 0.55, tripped: 0.4, retrips: 0.05}
+      gen.dead: yes?
+    confirm: No display with line voltage at the drive's input terminals — the drive or its input fuses.
+      No voltage at the input — the disconnect, breaker or feeder.
+    fix: |
+      Check the disconnect and breaker, then meter the drive's input terminals on all three phases. With input
+      present and a dark keypad, check the drive's internal input fuses and the keypad cable (a loose cable
+      looks like a dead drive). A drive that has lost its power section is replaced — size by motor amps, not
+      HP, and match the voltage.
+    safety: The DC bus holds a lethal charge after power is cut — wait the maker's time and verify across the bus
+      terminals before touching anything inside.
+    refs: [practice]
+  - id: ahu.vfd_overcurrent
+    name: VFD overcurrent or motor-overload fault — mechanical overload, belt over-tight, bearings, wheel rubbing,
+      acceleration too fast, motor data wrong, or a failing motor
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    prior: common
+    keywords: [overcurrent fault, drive overcurrent, motor overload fault, oc trip, current limit trip]
+    signs:
+      ahu.vfd_status: fault!
+      ahu.vfd_fault: overcurrent!
+      ahu.fan: trips|off
+      gen.output: none|weak
+      ahu.motor_amps: high?
+      ahu.bearings: rough?
+      ahu.motor: {ok: 0.6, grounded: 0.2, overheated: 0.15, open: 0.05}
+      gen.recent_work: yes?
+    confirm: The fault log shows overcurrent or overload; the motor draws over FLA when it does run, or trips on
+      every start.
+    fix: |
+      Lock out and spin the wheel — a dragging bearing, a rubbing wheel or an over-tight belt loads the motor.
+      Check the motor nameplate data entered in the drive (FLA, voltage, RPM) and the overload setting. Trips
+      only on starting: lengthen the acceleration time. Tripped at start on an idle fan that is spinning (wind
+      or stack effect through a backdraft damper)? Enable the drive's catch-a-spinning-load (flying start) or
+      DC-brake-before-start, and fix the backdraft damper. Trips at full speed with a free wheel: the fan may be
+      moving far more air than design (open duct, missing panel, dampers wide open) — read the amps against FLA.
+      Trips only in deep cold? Air at −40 °F is about 26 % denser, so the same fan draws about 26 % more power
+      and makes about 26 % more static (worse for a fan in the outdoor-air stream: blow-through unit, exhaust,
+      or preheat down). Compare the amps with FLA at the coldest hour; the fix is a larger motor, lower speed or
+      max Hz, or restoring preheat — don't raise the overload setting. If nothing mechanical turns up, test the
+      motor and its cable: lock out, wait out the bus-discharge time and verify zero, disconnect the motor leads
+      at the drive's output (T1/T2/T3), then megger the motor and the cable separately. Never megger through
+      the drive. A motor breaking down also trips on current.
+    safety: Lock out and wait for the drive's bus to discharge before working in the drive or on the motor leads.
+    refs: [practice]
+  - id: ahu.vfd_line
+    name: VFD line-side fault — undervoltage or phase loss (dips, a blown fuse, generator transfer), or DC-bus
+      overvoltage (line high, or deceleration too fast for a big wheel)
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    prior: occasional
+    keywords: [undervoltage fault, phase loss fault, dc bus overvoltage, overvoltage on decel, regen trip, power
+      dip trips drive]
+    signs:
+      ahu.vfd_status: fault!
+      ahu.vfd_fault: line!
+      gen.voltage: low|high
+      ahu.phase: phase_loss?
+      gen.after_outage: yes?
+      gen.intermittent: yes
+      ahu.fan: trips|off
+      gen.output: none|weak
+    confirm: Fault log shows undervoltage, phase loss or bus overvoltage; the trips line up with power events,
+      generator transfers, or with the fan being commanded to slow down or stop.
+    fix: |
+      Undervoltage or phase loss: meter all three input phases under load and check the input fuses; if the
+      supply itself dips (generator loading, utility), report it and consider the drive's ride-through and
+      auto-restart settings. Bus overvoltage while slowing: the wheel is driving the motor as a generator —
+      lengthen the deceleration time, enable coast-to-stop, or add a braking resistor if the maker allows. Bus
+      overvoltage at steady speed: the line is high — check the supply voltage and transformer taps. Tripped at
+      start on an idle fan that is spinning (wind or stack effect through a backdraft damper)? Enable the
+      drive's catch-a-spinning-load (flying start) or DC-brake-before-start, and fix the backdraft damper.
+    safety: Metering the drive's input is live work — qualified person, properly rated meter and PPE. Before
+      opening the drive or touching its terminals, lock out, wait out the bus-discharge time and verify zero.
+    refs: [practice]
+  - id: ahu.vfd_overtemp
+    name: VFD overtemperature — heatsink fins clogged, drive cooling fan dead, enclosure filter plugged, or the
+      room too hot
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    prior: occasional
+    keywords: [drive overtemp, vfd overheating, heatsink dirty, drive fan dead, drive hot]
+    signs:
+      ahu.vfd_status: fault!
+      ahu.vfd_fault: overtemp!
+      gen.intermittent: yes
+      ahu.fan: trips
+      gen.output: none|weak
+    confirm: Fault log shows overtemperature; the heatsink is packed with dust or the drive's own fan is dead;
+      trips come on hot afternoons or after long running.
+    fix: |
+      Power down and let the bus discharge. Blow out the heatsink fins and the enclosure filters, replace the
+      drive's cooling fan if it's slow or dead, and clear anything stacked against the vents. If the room or
+      enclosure runs hot, add ventilation or move the drive. Check the drive isn't running a motor larger than
+      its rating.
+    safety: Wait for the bus capacitors to discharge before opening the drive.
+    refs: [practice]
+  - id: ahu.vfd_speed_limited
+    name: VFD running below command — in Hand/local at a low speed, maximum-frequency or limit parameter set low,
+      current limit folding back, or the speed reference lost or scaled wrong
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    prior: occasional
+    keywords: [vfd slow, drive wont speed up, max frequency, speed limited, vfd in hand, lost speed reference]
+    signs:
+      ahu.vfd_speed: {low: 0.55, fixed: 0.4, matches: 0.05}
+      gen.output: weak!
+      ahu.static: low
+      ahu.motor_amps: low?
+      ahu.vfd_status: running
+      gen.recent_work: yes?
+      ahu.filter: ok?
+    confirm: The BAS commands a speed the drive doesn't reach, or the drive sits at one speed no matter what the
+      BAS asks.
+    fix: |
+      Check Hand/Auto on the keypad and whether the reference source is the terminal, keypad or network the BAS
+      actually uses. Compare the maximum frequency, upper limit and reference scaling parameters with the
+      design values for this fan (don't assume 0–100 % is 0–60 Hz; many drives scale between a minimum and a
+      maximum frequency). Meter the speed reference at the terminals (0–10 V or 4–20 mA) while the BAS changes
+      it. A drive folding back in current limit has a load problem — see the overcurrent cause.
+    safety: The terminals and parameters are on a drive with charged capacitors. Before opening it, lock out,
+      wait out the bus-discharge time and verify zero. Reading the keypad needs none of that.
+    refs: [practice]
+  - id: ahu.fan_status_sensor
+    name: Fan status (run proof) wrong — current switch or differential-pressure switch out of adjustment, or its
+      wiring faulted, so the BAS thinks the fan is off (or running) when it is not
+    systems: [ahu]
+    prior: occasional
+    keywords: [fan status alarm, false fan failure, fan proof switch, current switch, status switch, run status
+      wrong, fan alarm but running, bas thinks fan is off]
+    signs:
+      ahu.fan_status: {says_off: 0.75, says_on: 0.2}
+      ahu.fan: running
+      ahu.motor_amps: normal
+      gen.output: normal?
+    confirm: The wheel turns and the motor draws normal amps while the BAS shows the fan off or failed (or the
+      reverse); heating or other equipment may be locked out because it believes there is no airflow.
+    fix: |
+      Compare the BAS status with the wheel and the motor amps. Adjust a current switch to trip between the idle
+      and running amps (and check the lead passes through the sensor the right number of times), set a
+      differential-pressure switch between the off and running readings, and check the status wiring and the BAS
+      input. Once the status is right, clear any lockout it caused.
+    safety: Setting a current switch means working near live leads — qualified person, rated meter and PPE.
+    refs: [practice]
+
+  # ======================= low airflow =======================
+  - id: ahu.belt_slipping
+    name: Belt slipping or worn — loose, glazed, stretched, wrong size, or oiled
+    systems: [ahu]
+    requires: {fan_drive: [belt]}
+    prior: very_common
+    keywords: [slipping belt, loose belt, glazed belt, belt squeal, belt worn]
+    signs:
+      gen.output: weak!
+      ahu.belt: {loose: 0.55, worn: 0.4, ok: 0.03, broken: 0.02}
+      ahu.noise: squeal?
+      ahu.static: low
+      ahu.motor_amps: low
+      ahu.fan: running
+      ahu.rotation: correct
+      gen.burnt_smell: yes?
+    confirm: Low static with low amps on a motor that runs fine; the belt deflects too far, shows glazed sides,
+      cracks or black dust under the drive, and squeals on start.
+    fix: |
+      Lock out. Replace a glazed, cracked or bottomed-out belt (match the number; replace matched sets together).
+      Align the sheaves and tension to the maker's deflection, then re-tension after a day's run — new belts
+      stretch. Check the sheave grooves for wear (a worn groove eats belts) and look for oil on the belt from a
+      leaking bearing.
+    safety: Lock out before reaching into the belt guard.
+    refs: [practice]
+  - id: ahu.sheave_wrong
+    name: Fan speed set wrong — variable-pitch sheave opened or closed too far, wrong replacement sheave, or a
+      sheave loose or misaligned on its shaft
+    systems: [ahu]
+    requires: {fan_drive: [belt]}
+    prior: occasional
+    keywords: [wrong sheave, pulley changed, fan rpm wrong, loose sheave, sheave wobble]
+    signs:
+      ahu.sheave: {wrong: 0.55, misaligned: 0.4, ok: 0.05}
+      gen.output: weak
+      gen.recent_work: yes
+      ahu.static: low|high
+      ahu.motor_amps: low|high
+      ahu.noise: rattle|squeal?
+      ahu.belt: ok|worn
+    confirm: Fan RPM (photo-tach on reflective tape fitted while locked out) doesn't match the balance report or
+      design; a sheave rocks on its shaft or the belt runs off-center.
+    fix: |
+      Lock out. Tighten a loose sheave (key, set screws, bushing) and align both with a straightedge. Compare the
+      fan RPM with the design or balance report; set the variable-pitch sheave or fit the right fixed sheave to
+      get there. Never set the speed above the fan's maximum RPM (fan nameplate or submittal) — a wheel over its
+      limit can fly apart. Power rises with the cube of speed, so 10 % faster is about 33 % more load: set it to
+      the balance report, then clamp the amps against FLA.
+    safety: Lock out the fan at its disconnect before opening the belt guard or working at the sheaves. Never
+      reach at a running shaft with a tach.
+    refs: [practice]
+  - id: ahu.rotation_backward
+    name: Fan running backward — phase leads swapped after motor, starter or drive work
+    systems: [ahu]
+    prior: occasional
+    keywords: [fan backwards, wrong rotation, reversed rotation, phases swapped]
+    signs:
+      ahu.rotation: backward!
+      gen.recent_work: yes!
+      gen.output: weak!
+      ahu.static: low
+      ahu.motor_amps: low|normal
+      ahu.fan: running
+    confirm: The wheel turns against the arrow on the housing; the fan moves some air but far below design with
+      low static.
+    fix: |
+      Lock out and swap any two motor leads (at the motor or the starter — on a VFD, at the drive's output
+      terminals, or use the drive's rotation parameter). Confirm the arrow, then check amps and static. A
+      centrifugal wheel still blows air backward, so trust the arrow, not the airflow.
+    safety: Lock out; verify dead before swapping leads. On a drive, wait out the bus-discharge time and verify
+      zero at the output terminals first (or use the drive's rotation parameter and leave the leads alone).
+    refs: [practice]
+  - id: ahu.filters_loaded
+    name: Filters loaded — high pressure drop starving the fan
+    systems: [ahu]
+    prior: very_common
+    keywords: [dirty filters, change filters, filters plugged, filter dp high]
+    signs:
+      ahu.filter: loaded!
+      gen.output: weak
+      ahu.static: high?
+      ahu.motor_amps: low?
+      ahu.coil_face: clean?
+    confirm: Filter pressure drop at or past its final rating; filters dark and bowed; amps low and the fan's
+      own static rise at or somewhat above design (a loaded filter bank moves it only 5–20 %).
+    fix: |
+      Change the filters (whole bank, right size and MERV). Reset the dirty-filter switch or alarm. If they load
+      fast, look for the source — construction dust, a return pulling from a dirty space, snow or moisture
+      caking them — and fix the filter rack seal so dirt doesn't bypass the next set.
+    safety: Stop the fan and lock out before opening the filter section — a running fan pins or throws the door
+      and pulls at loose clothing.
+    refs: [practice]
+  - id: ahu.snow_ingestion
+    name: Snow or rain drawn in through the intake — filters wet, iced or packed, coil face plugged
+    systems: [ahu]
+    prior: common
+    keywords: [snow in the unit, snow in filters, blowing snow, snow ingestion, rain in unit, filters iced]
+    signs:
+      ahu.fan: off?
+      ahu.filter: wet!
+      ahu.coil_face: snow
+      ahu.intake: blocked?
+      ahu.cold_oa: 'yes'
+      gen.output: weak
+      ahu.static: high?
+      ahu.freezestat: tripped?
+      gen.water_leak: yes?
+    confirm: Filters wet, frozen or packed with snow; snow or rime on the coil face; water on the floor of the
+      mixing section after a blow.
+    fix: |
+      Stop the fan and lock out first. Pull the loaded filters and dry-clear the coil face (soft brush or
+      vacuum). Don't put water on a coil face or louver at below-freezing temperatures — it refreezes in the
+      fins and blades and makes ice underfoot. Thaw ice with warm air (a heater or a heat gun on low, held back
+      from seals, insulation and filters) with the fan locked out and the outdoor-air damper closed — never a
+      torch or open flame. Dry the section and check the drain. Then slow the intake air so snow drops out
+      before the filters: a snow hood or louver with a bottom drain, lower intake velocity, a snow baffle or
+      settling plenum, and a drain in the mixing box. In a storm go to minimum outdoor air only if the building
+      stays at or above neutral pressure; never put a makeup unit on recirculation while exhaust fans or
+      fuel-fired equipment are running.
+    safety: A freezestat tripped by snow on the coil is doing its job — don't bypass it. Stop the fan and lock
+      out before opening the filter, coil or mixing section; a running fan pins or throws the door and pulls at
+      loose clothing.
+    refs: [practice]
+  - id: ahu.coil_dirty
+    name: Coil fins matted with dirt on the air side — filters bypassing, missing or long overdue
+    systems: [ahu]
+    prior: occasional
+    keywords: [dirty coil, matted coil, coil plugged, clean the coil]
+    signs:
+      ahu.coil_face: dirty!
+      ahu.filter: {bypass: 0.45, ok: 0.3, loaded: 0.2, wet: 0.05}
+      gen.output: weak
+      ahu.static: high?
+      ahu.heat_dt: normal|low
+      ahu.cool_dt: normal|low
+      ahu.motor_amps: low?
+    confirm: Entering face of the coil matted; filters missing, undersized or gapped so dirt got past them.
+    fix: |
+      Clean the coil with coil cleaner and low-pressure water from the leaving side toward the entering side,
+      straighten fins, and clear the drain pan. Fix the reason: fill gaps in the filter rack, use the right
+      filter size, replace missing or collapsed filters, and set a change interval.
+    safety: Stop the fan and lock out before opening the coil section. Open the drain first, and keep wash water
+      and cleaner off motors, drives, controls and wiring (cover them).
+    refs: [practice]
+  - id: ahu.intake_blocked
+    name: Outdoor intake blocked — snow drift, ice on the louver or screen, debris, or a clogged hood screen
+    systems: [ahu]
+    prior: common
+    keywords: [intake drifted, intake iced, louver frozen, screen plugged, snow at intake]
+    signs:
+      ahu.fan: off?
+      ahu.intake: blocked!
+      ahu.oa_frac: low
+      gen.output: weak?
+      ahu.space: stuffy?
+      ahu.building_pressure: negative?
+      ahu.cold_oa: yes?
+      ahu.oa_damper: tracks
+      ahu.static: high?
+    confirm: Intake hood, louver or screen drifted over, iced, or packed with debris; outdoor-air fraction low with
+      the damper open.
+    fix: |
+      Dry-clear first (soft brush, vacuum; scrape from outside the louver). Don't put water on a louver, damper
+      or coil face at below-freezing temperatures — it refreezes inside the blades, drains and fins (a worse
+      plug) and makes ice underfoot. Thaw with warm air (heater or heat gun on low, held back from seals,
+      insulation and filters) with the fan locked out and the outdoor-air damper closed — no open flame. Check
+      louver drains and the bird screen. Where it keeps happening: a snow fence or hood extension, a heated
+      louver, a larger screen, or relocating the intake out of the drift line. A 100 % outdoor-air unit starves
+      completely when its intake blocks — check its freezestat and coil afterward. In a storm go to minimum
+      outdoor air only if the building stays at or above neutral pressure; never put a makeup unit on
+      recirculation while exhaust fans or fuel-fired equipment are running.
+    safety: Work at the intake with a second person, fall protection near roof edges, and the fan locked out — a
+      running fan pulls hard at a louver, and drifts and ice are slippery. Keep a heat gun clear of seals,
+      insulation and filters (fire risk).
+    refs: [practice]
+  - id: ahu.duct_damper_closed
+    name: A damper in the air path is closed — fire/smoke damper dropped, isolation or balancing damper shut, VAV
+      boxes all at minimum
+    systems: [ahu]
+    prior: occasional
+    keywords: [fire damper closed, smoke damper dropped, isolation damper shut, boxes closed, duct blocked]
+    signs:
+      ahu.duct_damper: closed!
+      ahu.static: high!
+      gen.output: weak|none
+      ahu.safety: static?
+      ahu.motor_amps: low
+      ahu.filter: ok?
+    confirm: Fan static far above design with clean filters and coils; a fire damper indicator shows closed, an
+      isolation damper is shut, or every VAV box is at minimum.
+    fix: |
+      Find the closed damper: fire/smoke damper access doors (after confirming there was no fire event, fit a
+      new fusible link of the same temperature rating — a melted link is replaced, not reset; reset a smoke
+      damper only after the fire-alarm panel is cleared by the authorized person), isolation and balancing
+      dampers (someone may have shut one), and the VAV boxes' damper commands. On VAV systems, check the duct
+      static setpoint and that the boxes can open; the high-static switch is there to protect the duct when
+      they can't.
+    safety: Never prop or wire a fire damper open.
+    refs: [practice]
+  - id: ahu.wheel_dirty
+    name: Fan wheel loaded with dirt or damaged — blades caked, wheel slipped on the shaft, bent blades
+    systems: [ahu]
+    prior: uncommon
+    keywords: [dirty blower wheel, wheel caked, wheel slipped, bent blades]
+    signs:
+      ahu.fan: {running: 0.8, motor_only: 0.12}
+      ahu.wheel: {dirty: 0.6, damaged: 0.35, clean: 0.05}
+      gen.output: weak
+      ahu.static: low
+      ahu.noise: {vibration: 0.35, rattle: 0.25, normal: 0.3, squeal: 0.05, rumble: 0.05}
+      ahu.motor_amps: low?
+      ahu.belt: ok?
+      ahu.filter: ok?
+    confirm: Low static and low amps with a good belt and correct rotation; the wheel is caked, or it has walked
+      on the shaft and the blades no longer line up with the inlet cone.
+    fix: |
+      Lock out. Clean the blades (dirt comes off in flakes — bag it), check every blade for cracks and bends, and
+      check the wheel's hub set screws and position in the inlet cone. A damaged or badly out-of-balance wheel
+      is replaced; the fan is re-balanced after a cleaning if it vibrates.
+    safety: Lock out and block the wheel before working inside the housing.
+    refs: [practice]
+
+  # ======================= noise and vibration =======================
+  - id: ahu.bearing_failing
+    name: Fan or motor bearing failing — dry, worn, or misaligned
+    systems: [ahu]
+    prior: common
+    keywords: [bad bearing, bearing noise, bearing hot, bearings shot]
+    signs:
+      ahu.bearings: rough!
+      ahu.noise: rumble!
+      ahu.motor_amps: high?
+      gen.burnt_smell: yes?
+      ahu.fan: running|trips
+      gen.output: normal?
+    confirm: Growl or rumble that follows the shaft speed, a housing running much hotter than its twin at the
+      other end of the machine (read with an IR thermometer from outside the guard) or over the maker's limit, or
+      a shaft that feels rough when spun by hand, locked out, with the belt off.
+    fix: |
+      Lock out. Pillow-block fan bearings: check the set screws and locking collars, grease per the schedule (don't
+      over-grease sealed bearings), and replace a bearing that growls or runs hot — in pairs, with the shaft
+      checked for wear. Motor bearings: replace the motor or have it re-bearinged. Check sheave alignment and
+      belt tension afterward; a tight belt loads the bearings. Repeated failures on a drive-fed motor: fit a
+      shaft-grounding ring or an insulated bearing and check the drive's grounding. Use the maker's
+      low-temperature grease and don't mix thickener types — stiff grease at −40 °F raises start amps and noise.
+    safety: Lock out before putting a hand on the shaft.
+    refs: [practice]
+  - id: ahu.imbalance
+    name: Fan vibration — wheel out of balance (dirt build-up, lost weight, damaged blade), loose on the shaft, or
+      sheaves misaligned
+    systems: [ahu]
+    prior: occasional
+    keywords: [vibration, out of balance, wheel unbalanced, shaking fan, sheave misaligned]
+    signs:
+      ahu.noise: vibration!
+      ahu.wheel: {damaged: 0.4, dirty: 0.3, clean: 0.3}
+      ahu.sheave: misaligned?
+      ahu.bearings: ok|rough
+      gen.output: normal
+      ahu.fan: running
+    confirm: Vibration you can feel in the housing that rises with speed; dirt or a missing balance weight on the
+      wheel, a sheave off-line, or the wheel loose on the shaft.
+    fix: |
+      Lock out. Clean the wheel, look for a missing clip weight or a damaged blade, check hub set screws and the
+      position in the inlet cone, and align the sheaves. Check the isolators and flexible connections aren't
+      bottomed out or bypassed. If it still shakes with a clean, tight wheel, have it balanced in place — running
+      it unbalanced destroys the bearings. Vibration only in one speed band on a drive? Set the drive's skip
+      frequencies around it.
+    refs: [practice]
+
+  # ======================= heating coils =======================
+  - id: ahu.hv_not_opening
+    name: Heating valve not opening — actuator dead, no control signal, or stem stuck
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    prior: common
+    keywords: [heating valve stuck, valve not opening, bad valve actuator, no heat valve closed, preheat valve
+      failed, reheat valve stuck]
+    signs:
+      ahu.fan: off?
+      ahu.hv_cmd: not_moving!
+      ahu.valve_test: {actuator_dead: 0.4, stem_stuck: 0.3, no_signal: 0.25, ok: 0.05}
+      ahu.heat_dt: none|low
+      ahu.sat: low
+      ahu.space: cold
+      ahu.hw_supply: hot
+      ahu.hw_dt: high?
+      ahu.freezestat: tripped?
+      gen.output: normal?
+    confirm: Hot supply at the valve, controller commanding it open, stem not moving, and the pipe after the valve
+      cold. The actuator test says which part.
+    fix: |
+      On a preheat coil facing cold air, protect the coil first: stop the supply fan, drive the outdoor-air
+      damper closed (or isolate the intake if it is stuck open), and force the heating valve open with its manual
+      override or by powering the actuator directly. If the coil is plain water and heat will not be back soon,
+      drain it. Then meter the signal at the actuator. No signal: controller output, wiring, or the actuator's
+      own power — fix upstream. Signal present and no stroke: replace the actuator (match the signal type,
+      stroke, torque and fail position — a preheat valve should fail open). Actuator strokes but the stem
+      doesn't: free or replace the valve; a stem that has sat closed all summer corrodes. On a spring-return
+      actuator, confirm it drives the right way. Reset the freezestat only after the coil is warm, and look the
+      coil over for bulged bends and split tubes before restoring flow.
+    refs: [nistir-6964, practice]
+  - id: ahu.no_hot_water
+    name: No hot water or glycol reaching the coil — plant down, loop pump off, loop valve closed, or loop
+      temperature too low
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    prior: common
+    keywords: [no hot water, loop cold, boiler down, pump off, no glycol flow, no steam, plant down]
+    signs:
+      ahu.fan: off?
+      ahu.hw_supply: {cold: 0.55, warm: 0.4, hot: 0.05}
+      ahu.hv_cmd: saturated
+      ahu.heat_dt: none|low
+      ahu.sat: low
+      ahu.space: cold
+      ahu.hw_dt: none?
+      ahu.freezestat: tripped?
+      ahu.coil_air: water?
+    confirm: Valve wide open with setpoint not met and the supply pipe cold or lukewarm — the coil is doing what it
+      can with what it's given.
+    fix: |
+      If this coil faces outdoor air, protect it first: stop the supply fan, drive the outdoor-air damper closed
+      (or isolate the intake if it is stuck open — wind-driven air through an open or leaking damper still
+      freezes a coil with the fan off), and keep the heating valve open. A plain-water coil (no glycol) freezes
+      anyway when the loop stops; if heat will not be back soon, drain it. This unit is fine; go to the plant:
+      boiler or heat exchanger firing, loop pump running and turning the right way, loop isolation and balancing
+      valves open, loop temperature and any reset schedule (a reset curve set too low starves preheat coils in
+      deep cold). Air in the loop or a dead zone pump shows the same way. Keep the fan off until heat is back,
+      and look the coil over for bulged bends and split tubes before restarting the pump or reopening valves.
+    refs: [nistir-6964, practice]
+  - id: ahu.coil_airbound
+    name: Coil air-bound — air trapped at the top of the coil (failed vent, low loop pressure, after a drain-down)
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg]}
+    prior: occasional
+    keywords: [air bound coil, air in coil, coil needs bleeding, air lock]
+    signs:
+      ahu.coil_air: air!
+      ahu.hw_supply: hot
+      ahu.hw_dt: high
+      ahu.heat_dt: low|none
+      ahu.hv_cmd: saturated|tracks
+      ahu.sat: low
+      gen.recent_work: yes?
+      ahu.space: cold?
+    confirm: Hot supply, cold return, air hissing from the coil vent before water.
+    fix: |
+      Vent the coil at its high point — open the vent slowly, hose to a bucket, face shield on a hot loop —
+      until solid water or glycol runs, and again after an hour of running. Check the loop fill pressure (air
+      gets in when the top of the system drops below atmospheric) and the automatic vents. Coils at the top of a
+      system or after a drain-down may need venting a few times. Top up glycol strength if you added water.
+    safety: A hot loop is under pressure and scalds — open the vent slowly, hose to a bucket, face shield on.
+    refs: [practice]
+  - id: ahu.strainer_plugged
+    name: Strainer or coil tubes plugged — flow starved by dirt, scale or sludge
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    prior: occasional
+    keywords: [plugged strainer, clogged strainer, coil plugged, sludge, scale in coil]
+    signs:
+      ahu.strainer: plugged!
+      ahu.hw_dt: high!
+      ahu.hw_supply: hot
+      ahu.heat_dt: low
+      ahu.hv_cmd: saturated
+      ahu.coil_air: water
+      ahu.sat: low
+      ahu.space: cold?
+    confirm: Hot supply, return far colder than it should be, valve wide open, solid water at the vent — and a
+      strainer screen packed with debris.
+    fix: |
+      Isolate, drain the strainer and clean or replace the screen. If the screen is clean and flow is still
+      starved, back-flush the coil. Look for the source of the dirt (new piping, a corroding loop, old glycol
+      breaking down) and check the glycol's inhibitor and pH.
+    safety: Isolate both sides and relieve pressure before opening a strainer; hot glycol scalds. A steam coil's
+      strainer holds live steam and condensate — isolate and relieve first.
+    refs: [practice]
+  - id: ahu.steam_trap
+    name: Steam coil waterlogged — trap stuck closed or plugged, condensate return blocked or backed up (a coil
+      that holds condensate heats poorly, hammers and freezes)
+    systems: [ahu]
+    requires: {heat_coil: [steam]}
+    prior: occasional
+    keywords: [steam trap failed, trap stuck closed, condensate backed up, waterlogged coil, steam coil hammer,
+      condensate return blocked, vacuum breaker stuck]
+    signs:
+      ahu.steam_condensate: backed_up!
+      ahu.heat_dt: low|none
+      ahu.hw_supply: hot
+      gen.water_leak: yes?
+      ahu.freezestat: tripped?
+    confirm: Steam supply hot at the valve, but the bottom of the coil is cold, the coil bangs or gurgles, and the
+      air rise is poor — the trap, strainer or return line is holding condensate in the coil.
+    fix: |
+      Isolate and relieve the steam and condensate sides before working on traps or strainers. Check the trap
+      (cold and not cycling means stuck closed or plugged), its strainer, the condensate return line and any
+      check valve or lift, and the vacuum breaker on a modulating steam valve — without one the coil can pull to
+      vacuum at low load and hold condensate. A waterlogged coil in cold air freezes and splits: look it over
+      before restoring steam.
+    safety: Steam and condensate scald. Isolate and relieve before opening a trap, strainer or union.
+    refs: [practice]
+  - id: ahu.hv_leaking
+    name: Heating valve leaking through — seat worn, actuator not closing fully, or a three-way valve piped wrong
+    systems: [ahu]
+    requires: {heat_coil: [water, eg, pg, steam]}
+    prior: occasional
+    keywords: [valve leaking by, valve passing, valve wont close, overheating from reheat, reheat stuck on]
+    signs:
+      ahu.hv_cmd: leaking!
+      ahu.heat_dt: unwanted!
+      ahu.sat: high
+      ahu.sim_hc: yes?
+      ahu.space: hot?
+      gen.runs_constantly: yes?
+    confirm: Valve commanded closed, pipe after it hot, and the air warms across the coil with no call — supply
+      air above setpoint, often with the cooling coil working against it.
+    fix: |
+      Confirm the actuator reaches the fully closed stop (stroke and signal span). If it does and the valve still
+      passes, the seat or plug is worn — rebuild or replace the valve (check the close-off rating against the
+      pump head). On a three-way valve, check the ports are piped to the arrows. Clean a bypass or check valve
+      that is letting hot water around.
+    refs: [nistir-6964, practice]
+  - id: ahu.coil_frozen
+    name: Coil frozen and split — tubes, headers or return bends burst (water or glycol release when it thaws)
+    systems: [ahu]
+    prior: occasional
+    keywords: [frozen coil, burst coil, coil split, coil froze, glycol everywhere]
+    signs:
+      ahu.fan: off?
+      ahu.coil_split: yes!
+      gen.water_leak: 'yes'
+      ahu.freezestat: tripped|retrips
+      ahu.cold_oa: 'yes'
+      ahu.heat_dt: none|low
+      ahu.hw_supply: {cold: 0.4, warm: 0.3, hot: 0.3}
+      ahu.glycol: weak?
+      ahu.oa_damper: open_stuck?
+      ahu.space: cold?
+    confirm: Bulged return bends, split tubes near the headers, water or glycol on the floor of the coil section —
+      usually found after a freezestat trip, a plant outage or a damper failure.
+    fix: |
+      Isolate the coil on both sides before it thaws and be ready for the release — a split coil dumps the loop
+      as the ice melts. Thaw gently (warm air, never a torch). Plug or replace the coil; one split means its
+      neighbors were stressed too. Any torch work only after the coil is isolated, drained, flushed and purged,
+      with the site's hot-work permit and a fire watch. Pressure-test with water, or low-pressure nitrogen
+      behind a barrier, to the coil's test rating, never with shop air in a closed section. Then fix what let it
+      freeze: damper that stayed open, valve or pump that failed, glycol too weak (or no glycol in a water
+      coil), stratification, or a sequence that opened the dampers before the coil was warm.
+    safety: Isolate and relieve the coil; glycol on the floor is slippery and a hot loop scalds. Lock out the fan so
+      the coil isn't fed cold air while it's open.
+    refs: [practice]
+  - id: ahu.water_coil_freeze
+    name: Plain-water coil in air that goes below freezing — no glycol, so only flow and the freezestat stand
+      between the coil and a split (one plant, pump or valve hiccup freezes it)
+    systems: [ahu]
+    requires: {heat_coil: [water]}
+    prior: occasional
+    keywords: [water coil freezing, no glycol in coil, plain water coil, water coil outdoor air, coil froze no
+      glycol, hot water preheat coil freeze]
+    signs:
+      ahu.glycol: none!
+      ahu.cold_oa: yes!
+      ahu.freezestat: tripped|retrips
+      ahu.hw_supply: {cold: 0.4, warm: 0.3, hot: 0.3}
+      ahu.coil_split: yes?
+      ahu.fan: off?
+    confirm: A hot-water coil with no glycol in it faces air that goes below freezing; the freezestat has
+      tripped, or the coil is split, after a plant, pump or valve hiccup — nothing in the loop but water.
+    fix: |
+      Protect the coil first as for any freeze trip (fan off, outdoor damper closed, heating valve forced open)
+      and look it over for bulged bends and split tubes before restoring flow. A water coil in air that goes
+      below freezing is protected only by flow and the freezestat: add glycol sized for the coldest air, or write
+      a drain-down step into the shutdown procedure and keep the freezestat, damper and valve interlocks proven.
+      Until then, treat any plant, pump or valve outage as a freeze emergency for this coil.
+    safety: Isolate and relieve the coil before opening it; a thawing coil can dump its loop. Lock out the fan so
+      the coil isn't fed cold air while it's open.
+    refs: [practice]
+  - id: ahu.electric_heat
+    name: Electric heat not energizing — airflow switch not made, stage contactor or relay, element open, fuse or
+      high-limit open
+    systems: [ahu]
+    requires: {heat_coil: [electric]}
+    prior: common
+    keywords: [electric heat not working, strip heat, heat kit, elements dead, airflow switch, sail switch]
+    signs:
+      ahu.eheat: {none_on: 0.55, some_off: 0.4, all_on: 0.05}
+      ahu.heat_dt: none|low!
+      ahu.sat: low
+      ahu.space: cold
+      gen.output: {normal: 0.6, weak: 0.35, none: 0.05}
+    confirm: Call for heat present, little or no amp draw on the stages, no rise across the heater.
+    fix: |
+      Confirm airflow first — the airflow or sail switch must make before any stage can energize, and weak airflow
+      keeps it open. Then follow each dead stage: control signal to the stage relay or SCR, contactor pulling in,
+      fuses, the high-limit and the manual-reset limit, and the element's resistance (an open element reads
+      infinite). Replace open elements and tripped one-shot limits; find why a limit tripped (airflow, dirty
+      filters, element sagging onto the frame).
+    safety: Lock out — heater circuits are line voltage and often fed from a separate disconnect. Never jumper
+      the airflow (sail) switch or a high limit to force heat or to test; those two keep the elements from
+      igniting the duct.
+    refs: [practice]
+
+  # ======================= cooling coils (air and water side) =======================
+  - id: ahu.cv_not_opening
+    name: Chilled-water valve not opening — actuator dead, no control signal, or stem stuck
+    systems: [ahu]
+    requires: {cool_coil: [chw]}
+    prior: common
+    keywords: [chilled water valve stuck, chw valve not opening, cooling valve actuator bad]
+    signs:
+      ahu.cv_cmd: not_moving!
+      ahu.chw_supply: cold
+      ahu.cool_dt: none|low
+      ahu.sat: high
+      ahu.space: hot
+    confirm: Cold chilled water at the valve, controller commanding it open, stem not moving, pipe after the valve
+      warm.
+    fix: |
+      Meter the signal at the actuator; no signal means the controller output or wiring. With signal and no
+      stroke, replace the actuator (signal type, stroke, torque, fail position). If the actuator strokes and the
+      stem doesn't, free or replace the valve.
+    refs: [nistir-6964, practice]
+  - id: ahu.no_chw
+    name: No chilled water reaching the coil — chiller off, pump down, loop valve closed, or loop too warm
+    systems: [ahu]
+    requires: {cool_coil: [chw]}
+    prior: common
+    keywords: [no chilled water, chiller down, chw pump off, loop warm]
+    signs:
+      ahu.chw_supply: warm!
+      ahu.cv_cmd: saturated
+      ahu.cool_dt: none|low
+      ahu.sat: high
+      ahu.space: hot
+    confirm: Valve wide open with setpoint not met and the supply pipe warm — the plant isn't delivering.
+    fix: Go to the plant — chiller status and alarms, chilled-water pump, loop isolation valves, and the chilled-
+      water setpoint or reset. The air handler is doing what it can.
+    refs: [nistir-6964, practice]
+  - id: ahu.cv_leaking
+    name: Chilled-water valve leaking through — overcooling, reheat fighting it
+    systems: [ahu]
+    requires: {cool_coil: [chw]}
+    prior: occasional
+    keywords: [chw valve leaking by, cooling valve passing, overcooling, chilled water leaking through]
+    signs:
+      ahu.cv_cmd: leaking!
+      ahu.cool_dt: unwanted!
+      ahu.sat: low
+      ahu.sim_hc: yes?
+      ahu.space: cold?
+      gen.runs_constantly: yes?
+    confirm: Valve commanded closed, pipe after it cold and sweating, air cooled across the coil with no call;
+      heating runs to make up for it.
+    fix: Confirm the actuator reaches the closed stop and the signal span is right; if it does, rebuild or replace
+      the valve (check the close-off rating). On a three-way valve, check the piping against the port arrows.
+    refs: [nistir-6964, practice]
+  - id: ahu.dx_side
+    name: DX cooling coil not cooling — a refrigerant-side fault (diagnose it under A/C cooling)
+    systems: [ahu]
+    requires: {cool_coil: [dx]}
+    prior: common
+    keywords: [dx coil not cooling, compressor problem, refrigerant side, rtu not cooling]
+    signs:
+      ahu.cool_dt: {none: 0.55, low: 0.4, normal: 0.05}
+      ahu.sat: high
+      ahu.space: hot
+      ahu.coil_face: clean
+      ahu.filter: ok
+      gen.output: normal
+    confirm: Airflow, filters and coil face are fine, yet the air barely cools across the DX coil with cooling
+      commanded.
+    fix: |
+      The air side is cleared. Switch this app to the A/C cooling system and diagnose there: compressor and
+      condenser fan running, charge, metering device, condenser coil, pressures and superheat. Make sure the
+      cooling call actually reaches the condensing unit first.
+    refs: [practice]
+  - id: ahu.drain_pan
+    name: Condensate drain, trap or pan problem — drain plugged, trap seal lost or too shallow for the fan's
+      negative static, or the drain line frozen
+    systems: [ahu]
+    requires: {cool_coil: [chw, dx]}
+    prior: common
+    keywords: [condensate overflow, drain pan overflow, plugged condensate drain, trap dry, trap too shallow,
+      frozen drain line, water dripping from air handler, water leak at coil]
+    signs:
+      ahu.drain: blocked!
+      gen.water_leak: yes!
+      ahu.cold_oa: 'no'
+      ahu.cool_dt: normal
+    confirm: Water in the drain pan or on the floor under the cooling coil section while the coil cools normally;
+      the drain is plugged, the trap has no water seal (or is too shallow for the fan's suction), or the line is
+      iced.
+    fix: |
+      Clear the drain (pour water in and watch it go). The trap's inlet leg must be at least the unit's negative
+      static in inches plus 1 in. — prime it; a trap that is too shallow is sucked dry and the pan overflows.
+      Insulate or heat-trace any drain line that runs through cold space.
+    safety: Stop the fan and lock out before opening the coil section. Standing water in a pan is a slip hazard
+      and a mold risk — clean and dry it.
+    refs: [practice]
+
+  # ======================= mixing box and economizer =======================
+  - id: ahu.oa_damper_open
+    name: Outdoor-air damper stuck open — blades jammed, spring return failed, or a manual override left in
+    systems: [ahu]
+    prior: common
+    keywords: [oa damper stuck open, outside air damper open, damper wont close, too much outside air, mixed air
+      cold]
+    signs:
+      ahu.fan: off?
+      ahu.oa_damper: open_stuck!
+      ahu.damper_test: {blades_bound: 0.5, linkage: 0.2, actuator_dead: 0.15, no_signal: 0.1, ok: 0.05}
+      ahu.oa_frac: high!
+      ahu.freezestat: tripped|retrips
+      ahu.cold_oa: 'yes'
+      ahu.sat: low?
+      ahu.hv_cmd: saturated?
+      ahu.space: cold?
+      ahu.econ_mode: heating_with_econ?
+      ahu.building_pressure: positive?
+    confirm: Damper commanded closed or to minimum but the blades sit open; outdoor-air fraction far above the
+      command; in cold weather the freezestat trips and the heating valve pins at 100 %.
+    fix: |
+      First protect the coil: stop the supply fan, drive the outdoor-air damper closed (or isolate the intake if
+      it is stuck open), and force the heating valve open with its manual override or by powering the actuator
+      directly. If the coil is plain water and heat will not be back soon, drain it. Then release the
+      actuator's manual override if someone set it. With the fan locked out, support the damper, unhook the
+      linkage and swing the blades by hand: bound blades need the ice, dirt or bent blade dealt with and the
+      pivots freed; a spring-return actuator that no longer returns is replaced. Check the end stops so
+      "closed" really closes, and the blade seals. Reset the freezestat only once the coil is warm and the
+      damper is closed, and look the coil over for bulged bends and split tubes before restoring flow.
+    safety: Stop the fan and lock out before opening the mixing section — a running fan pins or throws the door.
+      Spring-return actuators and damper blades store energy; support the damper before unhooking the linkage
+      and keep fingers out of the linkage when releasing an override.
+    refs: [nistir-6964, practice]
+  - id: ahu.oa_damper_closed
+    name: Outdoor-air damper stuck closed — frozen or iced shut, blades jammed, or spring-returned with no power
+    systems: [ahu]
+    prior: common
+    keywords: [oa damper stuck closed, damper frozen shut, damper wont open, no outside air, stale air]
+    signs:
+      ahu.fan: off?
+      ahu.oa_damper: closed_stuck!
+      ahu.damper_test: {blades_bound: 0.55, actuator_dead: 0.2, no_signal: 0.15, linkage: 0.05, ok: 0.05}
+      ahu.oa_frac: low!
+      ahu.space: stuffy
+      ahu.building_pressure: negative?
+      ahu.safety: damper?
+      ahu.econ_mode: mech_when_cool?
+      ahu.cold_oa: yes?
+    confirm: Damper commanded open but the blades stay shut; outdoor-air fraction near zero; the damper end switch
+      may keep the fan from starting.
+    fix: |
+      With the fan locked out, support the damper, unhook the linkage and try the blades by hand. Frozen or
+      iced: dry-clear first, then thaw with warm air (heater or heat gun on low, held back from seals,
+      insulation and filters; no flame) — don't put water on a louver or damper at below-freezing temperatures,
+      because it refreezes inside the blades. Dry, and look at why moisture got there — snow in the intake, a
+      leaking louver drain. Jammed: clear debris, free the pivots, straighten or replace bent blades. Blades
+      free but the actuator doesn't drive: see the actuator cause. Check the damper's power and signal are
+      enabled by the sequence (some stay closed until the coil is warm — that's correct).
+    safety: Stop the fan and lock out before opening the mixing section. Support the damper before unhooking the
+      linkage — spring-return actuators and blades store energy. Keep a heat gun clear of seals, insulation and
+      filters.
+    refs: [nistir-6964, practice]
+  - id: ahu.oa_damper_leaks
+    name: Outdoor-air damper leaks when closed — worn or iced blade and jamb seals, warped blades, actuator not
+      closing hard enough (cold air pours into the mixing box with the fan off and cold-soaks the coil)
+    systems: [ahu]
+    prior: common
+    keywords: [damper leaking, damper not sealing, daylight at damper, cold air through closed damper,
+      freezestat trips every morning, freezestat trips at start up, cold soak, damper seals worn, drafty damper]
+    signs:
+      ahu.oa_damper: leaks!
+      ahu.cold_oa: yes!
+      ahu.freezestat: {retrips: 0.5, tripped: 0.4, ok: 0.1}
+      ahu.fan: off?
+      gen.intermittent: yes?
+      ahu.hw_supply: hot
+      ahu.glycol: adequate
+    confirm: The damper shuts on command but daylight or a draft shows along the blade edges and jambs, or frost
+      sits on the seals; the coil cold-soaks while the fan is off and the freezestat trips at start-up.
+    fix: |
+      Check the blade and jamb seals and the actuator's closed-position torque (it must compress the seals);
+      replace seals or blades; add a tight-shutoff low-leak damper ahead of the old one; confirm the spring
+      return closes on power loss; keep the coil circulating through shutdowns.
+    safety: Stop the fan and lock out before opening the mixing section. Support the damper before unhooking the
+      linkage — actuators and spring returns store energy.
+    refs: [practice]
+  - id: ahu.damper_actuator
+    name: Damper actuator failed, no control signal, or linkage slipped — blades don't follow the command
+    systems: [ahu]
+    prior: common
+    keywords: [damper actuator dead, bad damper actuator, linkage slipped, crank arm loose, no signal to damper,
+      damper motor]
+    signs:
+      ahu.fan: off?
+      ahu.oa_damper: {lagging: 0.55, closed_stuck: 0.25, open_stuck: 0.17, tracks: 0.03}
+      ahu.damper_test: {actuator_dead: 0.55, linkage: 0.25, no_signal: 0.17, ok: 0.02, blades_bound: 0.01}
+      ahu.oa_frac: low|high
+      ahu.freezestat: tripped?
+      ahu.safety: damper?
+      gen.recent_work: yes?
+    confirm: Blades swing freely by hand, but the actuator doesn't stroke on command (or strokes while the blades
+      stay put because the linkage or crank arm has slipped).
+    fix: |
+      Meter the signal and power at the actuator while the BAS commands it. No signal: the controller output,
+      wiring or the actuator's transformer. Signal present, no stroke: replace the actuator — match signal type,
+      torque for the damper area, fail-safe direction (outdoor dampers normally fail closed), and the stroke.
+      Actuator moves but blades don't: tighten the crank arm and set screws on the jackshaft, replace a worn
+      linkage rod, and re-stroke so the blades reach both stops. Check the end switch makes when open.
+    safety: Stop the fan and lock out before opening the mixing section — never open the door with the fan
+      running. Support the damper before unhooking the linkage; actuators and spring returns store energy.
+    refs: [practice]
+  - id: ahu.ra_damper_stuck
+    name: Return-air damper stuck — closed (unit pulls nearly all outdoor air) or open (short on outdoor air)
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    prior: occasional
+    keywords: [return damper stuck, ra damper closed, return damper wont close, no return air]
+    signs:
+      ahu.fan: off?
+      ahu.ra_damper: {stuck_closed: 0.55, stuck_open: 0.4, tracks: 0.05}
+      ahu.oa_frac: high|low
+      ahu.oa_damper: tracks
+      ahu.freezestat: tripped?
+      ahu.building_pressure: positive|negative?
+      ahu.cold_oa: yes?
+    confirm: Outdoor damper tracks its command but the return damper doesn't; the outdoor-air fraction is far from
+      the command in the direction the return damper forces.
+    fix: |
+      Same drill as the outdoor damper: manual override, linkage, blades by hand, actuator and signal. On linked
+      outdoor/return dampers, check the linkage geometry so one closes as the other opens. A return damper
+      stuck closed in cold weather is a freeze risk — fix it before restoring the fan to automatic.
+    refs: [nistir-6964, practice]
+  - id: ahu.mat_sensor
+    name: Mixed-air sensor wrong — failed, drifted, or a single-point sensor sitting in a stratified stream
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    prior: occasional
+    keywords: [mixed air sensor bad, mat sensor, mixed air reads wrong, mixed air sensor location]
+    signs:
+      ahu.fan: off?
+      ahu.mat_range: outside?
+      ahu.sensor_check: mat_off!
+      ahu.strat: stratified?
+      ahu.oa_frac: low|high?
+      ahu.hunting: yes?
+      ahu.freezestat: tripped?
+      ahu.oa_damper: tracks
+    confirm: The BAS mixed-air value falls outside the return/outdoor pair (a blend can't), or disagrees with a
+      traverse of the plenum by more than a few degrees.
+    fix: |
+      Check the sensor's resistance against its curve at a known temperature and its wiring. If it reads right at
+      its tip but the plenum is stratified, the problem is placement — install an averaging mixed-air sensor
+      across the full plenum (serpentine, not straight), away from the outdoor stream. A wrong mixed-air value
+      drives the economizer and preheat wrong, so fix it before tuning anything else.
+    refs: [nistir-6964, practice]
+  - id: ahu.sat_sensor
+    name: Supply-air sensor failed or drifted — the controller chases a wrong reading
+    systems: [ahu]
+    prior: occasional
+    keywords: [supply sensor bad, discharge sensor, sat sensor drifted, bad dat sensor]
+    signs:
+      ahu.sensor_check: sat_off!
+      ahu.sat: low|high
+      ahu.space: cold|hot
+      ahu.hv_cmd: saturated?
+      ahu.hunting: yes?
+      ahu.sim_hc: 'no'
+    confirm: The BAS shows supply air at setpoint while a reference thermometer in the duct says otherwise (or the
+      BAS value sits flat or impossible).
+    fix: |
+      Check the sensor's resistance at a known temperature against its curve, its wiring and the controller's
+      input type and offset. Replace a drifted or failed sensor and mount it where the air is mixed (several
+      diameters past the fan or coil, not against the duct wall). Clear any software offset someone added to
+      hide the drift.
+    refs: [nistir-6964, practice]
+  - id: ahu.oat_sensor
+    name: Outdoor- or return-air sensor wrong — in the sun, on a warm wall or in an exhaust plume, iced, failed,
+      or carrying a software offset (preheat and freeze logic act on a wrong temperature)
+    systems: [ahu]
+    prior: occasional
+    keywords: [outdoor sensor bad, oat sensor wrong, outside air sensor in sun, oat reads warm, outdoor air
+      sensor offset, preheat not enabling, preheat wont start, return sensor bad, outdoor sensor exhaust plume]
+    signs:
+      ahu.sensor_check: {oat_off: 0.7, rat_off: 0.25}
+      ahu.freezestat: tripped?
+      ahu.cold_oa: yes?
+      ahu.hw_supply: hot
+    confirm: A reference thermometer in the shade at the intake disagrees with the BAS outdoor (or return)
+      temperature by more than a degree or so — the sensor sits in the sun, on a warm wall, in an exhaust plume,
+      is iced, or has failed — and the preheat enable, lockout or freeze-staging logic is acting on the wrong
+      number.
+    fix: |
+      Compare with a reference in the shade at the intake; relocate the sensor away from sun, exhaust and
+      building heat; check the preheat enable and lockout setpoints and any offset someone added in the BAS.
+      Replace a drifted or failed sensor and trend it against the reference.
+    refs: [nistir-6964, practice]
+  - id: ahu.econ_logic
+    name: Economizer changeover wrong — outdoor sensor off (sun, ice, failed), changeover setpoint or enthalpy
+      logic set wrong, or the sequence backwards
+    systems: [ahu]
+    requires: {economizer: ['yes']}
+    prior: occasional
+    keywords: [economizer not working, economizer changeover, free cooling not working, economizer stuck,
+      changeover setpoint, enthalpy sensor]
+    signs:
+      ahu.econ_mode: {econ_when_hot: 0.55, mech_when_cool: 0.4, heating_with_econ: 0.02, ok: 0.03}
+      ahu.sensor_check: {oat_off: 0.4, all_agree: 0.5, sat_off: 0.03, mat_off: 0.04, rat_off: 0.03}
+      ahu.oa_damper: tracks
+      ahu.sat: high?
+      ahu.space: hot?
+      gen.runs_constantly: yes?
+    confirm: The dampers follow their command, but the command is wrong for the outdoor conditions — free cooling
+      with warm outdoor air, or compressors or chilled water running when the outdoor air could do the job.
+    fix: |
+      Compare the outdoor sensor with a reference in the shade; relocate it out of the sun and away from exhaust,
+      or replace it. Check the changeover: dry-bulb high limit (commonly 70–75 °F today; 55–65 °F is the old
+      figure) or differential logic (outdoor warmer than return) and its sensors, the lockout for heating, and
+      that the sequence opens the dampers before adding mechanical cooling. A unit heating with the dampers open
+      past minimum (and no CO₂ demand ventilation calling for it) has the same logic wrong the other way.
+    refs: [nistir-6964, practice]
+  - id: ahu.min_oa_wrong
+    name: Minimum outdoor air set wrong — too low (stale air, negative building) or too high (freezestat trips,
+      heat can't keep up)
+    systems: [ahu]
+    requires: {oa_type: [mixed]}
+    prior: occasional
+    keywords: [minimum outside air, min oa setting, min position, not enough ventilation, too much min oa]
+    signs:
+      ahu.fan: off?
+      ahu.oa_frac: {low: 0.55, high: 0.4, ok: 0.05}
+      ahu.oa_damper: tracks!
+      ahu.intake: clear
+      ahu.space: stuffy|cold
+      ahu.building_pressure: negative?
+      ahu.freezestat: tripped?
+      gen.recent_work: yes?
+      ahu.econ_mode: ok
+    confirm: Dampers track their command and the intake is clear, yet the measured outdoor-air fraction at minimum
+      position is far from the design minimum.
+    fix: |
+      Compare the measured fraction with the design minimum fraction (ventilation schedule or balance report),
+      not with the blade position. Measure the outdoor-air fraction at minimum position (mixed, return and
+      outdoor temperatures, or a flow station) and set the minimum position until it matches the design
+      ventilation rate. Blade position is not airflow — a 20 % blade angle isn't 20 % air. On units with a
+      separate minimum damper or a flow-controlled minimum, check its setpoint and sensor. Record the new
+      position. In deep cold, make sure the preheat coil can carry the minimum you set.
+    refs: [nistir-6964, practice]
+  - id: ahu.stratification
+    name: Mixed-air stratification — a cold outdoor-air stream reaching the coil or freezestat unmixed (poor mixing
+      box, outdoor and return air entering side by side, low velocity at reduced fan speed)
+    systems: [ahu]
+    prior: occasional
+    keywords: [stratification, cold stream, poor mixing, cold spot on coil, bottom of coil freezing]
+    signs:
+      ahu.fan: off?
+      ahu.strat: stratified!
+      ahu.freezestat: {retrips: 0.5, tripped: 0.4, ok: 0.1}
+      ahu.cold_oa: yes!
+      ahu.mat_range: outside?
+      ahu.sensor_check: mat_off?
+      ahu.hw_supply: hot
+      ahu.heat_dt: normal
+      ahu.oa_damper: tracks
+      ahu.glycol: adequate
+    confirm: A traverse of the plenum or coil face shows a cold stream or layer far below the average mixed-air
+      temperature; the coil average looks fine while one part sits near freezing.
+    fix: |
+      Give the air somewhere to mix: baffles or a mixing plate, opposed-blade dampers arranged so the outdoor and
+      return streams collide, more distance or a turn before the coil, or a mixing-box retrofit. On VFD units,
+      raise the minimum fan speed in cold weather — mixing dies at low velocity. Move the freezestat capillary
+      so it covers the whole leaving face (it trips on the coldest foot, so more coverage means more
+      protection); use an averaging element only for the mixed-air control sensor. Keep the preheat coil's valve
+      open in deep cold instead of letting it throttle.
+    refs: [nistir-6964, practice]
+  - id: ahu.glycol_weak
+    name: Glycol too weak for the air it sees — diluted by make-up water or filled short
+    systems: [ahu]
+    requires: {heat_coil: [eg, pg]}
+    prior: occasional
+    keywords: [weak glycol, glycol diluted, low glycol percent, glycol freeze point, glycol test]
+    signs:
+      ahu.fan: off?
+      ahu.glycol: weak!
+      ahu.cold_oa: 'yes'
+      ahu.freezestat: tripped?
+      ahu.coil_split: yes?
+      gen.recent_work: yes?
+      ahu.hw_supply: hot|warm
+    confirm: Refractometer reading gives a freeze point above (or within a few degrees of) the coldest air the coil
+      can see.
+    fix: |
+      Find the dilution: an automatic make-up feeder on a glycol loop, water added after a leak or a drain-down.
+      Bring the concentration up with the same glycol type and inhibitor package to a freeze point at least
+      9 °F (5 °C) below the design low (burst protection needs less, but a coil that loses flow in −40 °F air
+      takes the air's temperature, so size for the freeze point). Re-test after mixing. Check the inhibitor and
+      pH while you're at it — old glycol turns acidic.
+    refs: [coolprop, practice]
+  - id: ahu.sequence_error
+    name: Control sequence wrong — dampers open before the coil is warm, no warm-up or preheat enable, freezestat
+      not driving the valve open, a point left in override, or a bad program change
+    systems: [ahu]
+    prior: occasional
+    keywords: [sequence of operation, bas override, point overridden, program change, morning warm up, startup
+      sequence, dampers open at start]
+    signs:
+      ahu.fan: off?
+      ahu.freezestat: {tripped: 0.55, retrips: 0.4, ok: 0.05}
+      gen.recent_work: 'yes'
+      ahu.econ_mode: heating_with_econ?
+      ahu.sim_hc: yes?
+      ahu.hunting: yes?
+      ahu.oa_damper: tracks
+      ahu.hv_cmd: tracks
+      ahu.hw_supply: hot
+      ahu.strat: even
+      ahu.glycol: adequate
+      ahu.fz_setting: ok
+    confirm: Hardware all checks out — dampers, valve, plant, glycol, freezestat — and it still trips or
+      misbehaves, usually at start-up or after a controls change; the BAS shows points in override or a
+      sequence that opens dampers cold.
+    fix: |
+      Walk the sequence on the BAS against the design: at start the heating valve should open and prove a warm
+      coil before the outdoor damper leaves closed; the freezestat should drive the valve open and the damper
+      closed when it trips; morning warm-up should run on return air; the preheat setpoint should suit the
+      outdoor temperature. Clear overrides left from testing, restore the schedule, and check the last program
+      change. Trend the start-up once to prove it.
+    refs: [nistir-6964, practice]
+  - id: ahu.freezestat_nuisance
+    name: Freezestat nuisance trip — set above its design value, element touching cold metal, sitting ahead of
+      the preheat coil or hanging in the outdoor stream, element damaged, or a short bulb-type stat on a wide
+      coil
+    systems: [ahu]
+    prior: common
+    keywords: [nuisance trip, freezestat set wrong, bad freezestat, freezestat element, false freeze trip]
+    signs:
+      ahu.fan: off?
+      ahu.freezestat: {tripped: 0.6, retrips: 0.35, ok: 0.05}
+      ahu.fz_setting: {set_high: 0.6, element_bad: 0.35, ok: 0.05}
+      ahu.strat: even
+      ahu.heat_dt: normal
+      ahu.hw_supply: hot
+      ahu.oa_damper: tracks
+      ahu.coil_split: 'no'
+      ahu.cold_oa: yes?
+    confirm: Coil warm, plant fine, dampers tracking, no cold stream on a traverse — yet it trips; the element rests
+      on the casing or in the outdoor stream, is kinked, or the setpoint is above what the mixed air normally
+      runs.
+    fix: |
+      If the stat is set above its design value, bring it back to the design setting (commonly 35–38 °F — use
+      the drawing's figure) and route one long capillary zig-zagged across the leaving-air face of the first
+      water (preheat) coil on standoffs, never touching metal, never in the outdoor stream, never in the
+      mixed-air plenum ahead of a preheat coil. Replace a kinked or leaking element (it's a filled capillary — a
+      kink is a dead spot). Where a bulb or short stat is used on a wide coil, fit a long capillary type that
+      covers the face. Never lower the setpoint below the design value (35 °F unless the drawing says
+      otherwise), add a time delay, or jumper the stat to stop a trip. A trip that survives a correct setting
+      and routing is real: find the cold air (stratification, a leaking damper, valve or plant, weak glycol).
+    refs: [practice]
+
+  # ======================= controls =======================
+  - id: ahu.loop_hunting
+    name: Control loop hunting — gains or deadband wrong, oversized valve, noisy sensor, or two loops fighting
+    systems: [ahu]
+    prior: occasional
+    keywords: [hunting, loop tuning, pid tuning, valve hunting, temperature swinging, unstable loop]
+    signs:
+      ahu.hunting: yes!
+      ahu.sat: low|high
+      ahu.sensor_check: all_agree
+      ahu.hv_cmd: tracks
+      ahu.sim_hc: yes?
+      gen.recent_work: yes?
+    confirm: Trend shows supply temperature and valve or damper position swinging in a steady rhythm; sensors agree
+      with a reference and the valve follows its command.
+    fix: |
+      Trend the loop for an hour. Slow it down: reduce the proportional gain, lengthen the integral time, widen
+      the deadband, or add a ramp on setpoint changes. A valve that is far too big for the load hunts near
+      closed — add a smaller valve in parallel or change the valve. Make sure two loops don't fight (supply
+      temperature vs. static, or a preheat loop vs. the main coil) by staggering their setpoints.
+    refs: [nistir-6964, practice]
+  - id: ahu.static_loop
+    name: Duct-static control wrong — static sensor or tubing faulted (pinched, iced, leaking or disconnected
+      tube, transducer out of zero, probe in the wrong place) or a bad setpoint or reset, so the drive follows a
+      wrong command
+    systems: [ahu]
+    requires: {vfd: ['yes']}
+    prior: occasional
+    keywords: [duct static sensor, static transducer, static tubing, static pickup, static setpoint, static
+      reset, fan full speed, fan running flat out, fan wont slow down, fan crawling on static]
+    signs:
+      ahu.vfd_speed: matches!
+      ahu.sensor_check: static_off!
+      ahu.static: low|high
+      gen.output: weak|normal
+      ahu.safety: static?
+    confirm: The drive follows its speed command exactly, but the duct-static reading disagrees with a
+      manometer on the same tap, or the tubing is kinked, iced, leaking or disconnected — so the fan runs flat
+      out (noise, doors, high-static trips) or crawls (weak air).
+    fix: |
+      Zero the transducer with both ports open; compare it with a manometer on the same tap; check the tubing end
+      to end for kinks, water and ice, leaks and a probe pointing against the flow; check the setpoint and reset
+      limits. In the cold, condensate in a sensing line that runs through an unheated space freezes — slope the
+      tubing to drain and keep it warm.
+    refs: [practice]
+  - id: ahu.sim_hc_sequence
+    name: Simultaneous heating and cooling from the sequence — setpoints overlapping, no deadband, reheat fighting
+      the cooling coil, or both valves commanded at once
+    systems: [ahu]
+    prior: occasional
+    keywords: [simultaneous heating and cooling, fighting, both valves open, no deadband, overlapping setpoints,
+      reheat fighting]
+    signs:
+      ahu.sim_hc: yes!
+      ahu.hv_cmd: tracks
+      ahu.cv_cmd: tracks
+      ahu.heat_dt: normal
+      ahu.cool_dt: normal
+      gen.runs_constantly: yes?
+      ahu.hunting: yes?
+      ahu.econ_mode: heating_with_econ?
+    confirm: Both valves (or heat and DX) commanded on at the same time, each doing what it's told — the sequence
+      asks for it.
+    fix: |
+      Give the loops a deadband: heating setpoint a few degrees below the cooling setpoint, and a single output
+      sequenced heat–economizer–cool so only one acts at a time. Check reheat boxes aren't heating while the
+      supply is being cooled below what the zones need (raise the supply setpoint or add reset). Clear overrides
+      and check that both outputs aren't mapped to the same loop.
+    refs: [nistir-6964, practice]
+
+  # ======================= building pressure, exhaust and makeup air =======================
+  - id: ahu.makeup_short
+    name: Exhaust running without enough makeup air — makeup or supply unit down or throttled, intake iced,
+      outdoor damper closed; the space goes negative
+    systems: [ahu]
+    prior: common
+    keywords: [negative building, makeup air, mau down, exhaust without makeup, doors hard to open, drafts,
+      whistling doors]
+    signs:
+      ahu.building_pressure: negative!
+      ahu.exh_fan: exh_only!
+      ahu.space: cold?
+      ahu.intake: blocked?
+      ahu.oa_frac: low?
+    confirm: Exhaust fans running while the makeup or supply unit is off, tripped, or taking far less outdoor air
+      than the exhaust removes; doors pull hard, cold air whistles in at cracks.
+    fix: |
+      Get the makeup or supply unit running at its design outdoor air (its own fan, freezestat, filters and
+      intake first), and interlock the exhaust to it so exhaust can't run without makeup. Check that the makeup
+      unit's damper and intake pass the design flow. In cold climates a negative building pulls frost into walls
+      and makes doors a hazard — treat it as urgent. A strongly negative building (doors hard to open, whistling
+      at cracks) can also backdraft fuel-fired appliances: check CO at the boiler and generator rooms, and shut
+      the exhaust fans off or open a door or makeup path until makeup air is restored.
+    safety: A negative building can pull flue gas back down the vents of boilers, furnaces, water heaters and
+      generators — carbon monoxide. Check CO before anyone works in those rooms.
+    refs: [practice]
+  - id: ahu.positive_pressure
+    name: Building over-pressurized — exhaust fan down, or supply, return and relief out of balance (relief or
+      return damper stuck, return fan tracking wrong)
+    systems: [ahu]
+    prior: occasional
+    keywords: [positive building, doors blow open, exhaust fan down, relief damper, return fan tracking, building
+      pressurized]
+    signs:
+      ahu.building_pressure: positive!
+      ahu.exh_fan: {makeup_only: 0.5, balanced: 0.45, exh_only: 0.05}
+      ahu.space: stuffy?
+      ahu.ra_damper: stuck_closed|stuck_open?
+      ahu.oa_frac: high?
+    confirm: Doors push open, air blows out at cracks; an exhaust fan is off, or the relief/return path is stuck
+      while the outdoor damper brings in more than leaves.
+    fix: |
+      Exhaust fan off: motor, belt, interlock, schedule, or its backdraft/isolation damper frozen shut — restore it.
+      Exhaust running: check the relief or exhaust damper opens with the outdoor damper, the return fan's
+      tracking or building-pressure control, and whether the outdoor air was raised above what the exhaust
+      removes. Balance supply vs. exhaust to a slight positive (about +0.02 in. w.c.) and no more.
+    refs: [practice]
+
+  # ======================= heat- and energy-recovery ventilators (HRV / ERV) =======================
+  - id: ahu.hrv_frosted
+    name: Recovery core frosted or iced — defrost not working (defrost sensor or timer failed, recirculation or
+      bypass damper stuck or iced, exhaust restricted, condensate drain frozen)
+    systems: [ahu]
+    requires: {oa_type: [hrv]}
+    prior: common
+    keywords: [hrv frozen, erv frozen, core iced, core frosted, frosted core, defrost not working, no defrost,
+      hrv iced up, ice on the core, exhaust side iced]
+    signs:
+      ahu.sat: low?
+      ahu.hrv_core: frosted!
+      ahu.cold_oa: yes!
+      ahu.hrv_defrost: never|stuck
+      ahu.hrv_eff: low
+      gen.output: weak
+      ahu.freezestat: tripped?
+    confirm: Ice on the core's exhaust face in cold weather; supply airflow dropping off and the supply arriving
+      colder; the defrost never starts, never finishes, or the damper that should open for it doesn't move.
+    fix: |
+      Confirm what starts the defrost (sensor, timer or pressure switch) and whether the recirculation or bypass
+      damper strokes when it is commanded. Thaw the core with warm air and the supply fan off — no tools on the
+      fins — and clear the drain, then fix what stopped the defrost: a failed defrost sensor or timer, a damper
+      that does not stroke or is iced, an exhaust path that is restricted (filters, a frozen exhaust hood or
+      grille), or a drain that froze. Don't keep running a frosted core in the cold — the ice restricts airflow
+      and can crush the core.
+    safety: Stop both fans and lock out before opening the core section.
+    refs: [practice]
+  - id: ahu.hrv_wheel_stopped
+    name: Recovery wheel not turning — drive belt off or worn, wheel motor or drive failed, or the rotation
+      sensor wrong
+    systems: [ahu]
+    requires: {oa_type: [hrv]}
+    prior: common
+    keywords: [wheel not turning, wheel stopped, enthalpy wheel stopped, heat wheel not turning, wheel belt
+      broken, wheel belt off, wheel motor dead, rotation sensor, wheel drive failed]
+    signs:
+      ahu.hrv_wheel: {stopped: 0.7, slow: 0.25, turning: 0.05}
+      ahu.hrv_eff: low!
+      ahu.fan: running
+      gen.output: normal?
+      ahu.hrv_core: clean?
+      ahu.sat: low?
+      ahu.space: cold?
+    confirm: The supply and exhaust fans run and the airflow is normal, but the wheel stands still (or the belt
+      lies off) and the supply air leaves the unit near the outdoor temperature.
+    fix: |
+      Lock out both fans. Check the drive belt (a stretched, cracked or off belt is the usual failure — replace
+      it), the pulley and the wheel motor; the wheel should turn freely by hand. Check the rotation sensor or
+      controller signal that tells the BAS the wheel is turning, and the wheel seals for drag. Restart and watch
+      the wheel through a full turn.
+    safety: Lock out both fans and keep hands clear of the rim and the belt.
+    refs: [practice]
+  - id: ahu.hrv_core_plugged
+    name: Recovery filters or core plugged — dirt, lint or grease restricting one or both airstreams
+    systems: [ahu]
+    requires: {oa_type: [hrv]}
+    prior: common
+    keywords: [dirty hrv, dirty erv, plugged core, core plugged, hrv filters dirty, erv filters, core clogged,
+      dirty heat wheel, grease in core, lint in core]
+    signs:
+      ahu.hrv_core: dirty!
+      ahu.static: high
+      ahu.hrv_eff: low
+      ahu.filter: loaded?
+      gen.output: weak
+    confirm: Filters dark and bowed, or dust, lint or grease packed in the core's passages; the fans struggle,
+      airflow is down and the recovery is poor.
+    fix: |
+      Replace or clean the filters on both airstreams (the exhaust side loads first in kitchens and shops).
+      Clean the core only the way the maker allows — many enthalpy wheels and membrane cores can't take water,
+      solvents or a pressure washer — and fix what loaded it (missing filters, a dirty return, grease).
+    safety: Stop both fans and lock out before opening the core section.
+    refs: [practice]
+  - id: ahu.hrv_bypass_stuck
+    name: Recovery bypass or recirculation damper stuck — open or leaking (supply passes around the core) or
+      closed or iced shut (no defrost, no free cooling)
+    systems: [ahu]
+    requires: {oa_type: [hrv]}
+    prior: occasional
+    keywords: [bypass damper stuck, hrv bypass, recirculation damper stuck, bypass damper open, bypass damper
+      iced, erv bypass actuator]
+    signs:
+      ahu.hrv_bypass: {open_stuck: 0.5, closed_stuck: 0.45, tracks: 0.05}
+      ahu.hrv_eff: low?
+      ahu.hrv_core: frosted?
+      ahu.sat: low?
+    confirm: The bypass or recirculation damper does not go where the controller sends it — stuck open in cold
+      weather (cold supply, poor recovery) or stuck closed (the core frosts because defrost can't open it).
+    fix: |
+      Drive the damper from the controller and watch it stroke. Clear ice or debris from the blades and seals,
+      free the linkage, replace a failed actuator (match torque, signal and fail position), and check the end
+      stops so closed really closes. Confirm the bypass and defrost logic is using a good outdoor sensor.
+    safety: Stop the unit and lock out before reaching at the damper; actuators and springs store energy.
+    refs: [practice]
+  - id: ahu.hrv_condensate
+    name: Recovery condensate or defrost water not draining — drain or trap plugged, drain line frozen, pan
+      cracked, or the unit out of level
+    systems: [ahu]
+    requires: {oa_type: [hrv]}
+    prior: occasional
+    keywords: [hrv leaking water, erv dripping, hrv drain frozen, erv drain plugged, condensate pan hrv, defrost
+      water on the floor]
+    signs:
+      ahu.drain: blocked!
+      gen.water_leak: yes!
+      ahu.cold_oa: yes?
+    confirm: Water on the floor under the recovery core, or in its pan, in cold weather — the drain or trap is
+      plugged or iced, the pan is cracked, or the unit is out of level — and a frozen drain also keeps the core
+      iced.
+    fix: |
+      Clear the drain, trap and pan (pour water in and watch it go). Check the trap seal is deep enough for the
+      unit's pressure, the drain slopes away, the pan isn't cracked and the unit is level. A drain line through
+      cold space needs heat trace or insulation. Thaw a frozen line with warm air, not an open flame.
+    safety: Stop both fans and lock out before opening the core section. Standing water is a slip hazard.
+    refs: [practice]
+  - id: ahu.hrv_imbalance
+    name: Supply and exhaust airflows out of balance — fan speed or damper setting changed, or one filter or duct
+      restricted
+    systems: [ahu]
+    requires: {oa_type: [hrv]}
+    prior: occasional
+    keywords: [hrv out of balance, erv unbalanced, supply exhaust imbalance, hrv balance, building pressure hrv]
+    signs:
+      ahu.hrv_balance: unbalanced!
+      ahu.building_pressure: negative|positive
+      ahu.hrv_eff: normal
+      gen.recent_work: yes?
+    confirm: Measured supply and exhaust airflows differ a lot; the building runs negative (supply low) or
+      positive (exhaust low) and the core is clean and turning.
+    fix: |
+      Measure both airflows at the ducts and compare with the balance report. Look for what changed: fan speed or
+      damper settings, a loaded filter or plugged grille on one side, a kinked flex duct, a stuck balancing
+      damper. Reset to the balance report (supply and exhaust close to equal, the building slightly positive if
+      the design says so) and recheck the building pressure.
+    safety: Stop both fans and lock out before opening a filter or core door.
+    refs: [practice]

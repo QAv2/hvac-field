@@ -1,0 +1,226 @@
+module: systems
+title: Systems, context questions and references (shared by every module)
+
+systems:
+  # ---------------- refrigeration & A/C (vapor compression) ----------------
+  - id: vc
+    name: Refrigeration & A/C
+    abstract: true
+  - id: vc.ac
+    parent: vc
+    name: A/C or heat pump — cooling
+    output: cooling
+    short: A/C cooling
+    icon: snow
+    keywords: [air conditioner, ac, a/c, central air, split system, mini split, ductless, rooftop, rtu, packaged unit,
+      condensing unit, heat pump cooling, cooling, ptac, window unit, server room unit, crac]
+    ok_note: Charge, airflow and pressures read normal. Check the thermostat or controller settings, duct leaks or
+      closed registers, the indoor heat load, and whether the unit is simply undersized for the space.
+  - id: vc.hp
+    parent: vc
+    name: Heat pump — heating mode
+    output: heat
+    short: Heat pump heat
+    icon: sun
+    keywords: [heat pump heating, heat pump heat, defrost, reversing valve, aux heat, auxiliary heat, emergency heat,
+      strip heat, outdoor coil iced, heat pump frozen, cold air from vents]
+    ok_note: The refrigerant side reads normal for heating. Check the thermostat staging (aux heat lockout), duct
+      losses, and whether the outdoor temperature is below the unit's balance point.
+  - id: vc.walkin
+    parent: vc
+    name: Walk-in cooler or freezer
+    output: cooling
+    short: Walk-in
+    icon: box
+    keywords: [walk in, walk-in, cooler, freezer, box, cold room, reefer, meat locker, unit cooler, galley cooler,
+      galley freezer, cold storage, evaporator, condensing unit]
+    ok_note: The refrigeration circuit reads normal. Check door use and gaskets, warm product loaded recently,
+      the controller setpoint and probe, and the defrost schedule.
+  - id: vc.reachin
+    parent: vc
+    name: Reach-in, prep table or display case
+    output: cooling
+    short: Reach-in
+    icon: fridge
+    keywords: [reach in, reach-in, undercounter, under counter, prep table, sandwich unit, salad unit, display case,
+      merchandiser, beverage cooler, self contained, self-contained, refrigerator, fridge, glass door]
+    ok_note: The sealed system reads normal. Check door use and gaskets, loading (blocked air paths), the controller
+      setpoint and probe placement, and the room temperature around the condenser.
+  - id: vc.ice
+    parent: vc
+    name: Ice machine
+    output: ice
+    short: Ice machine
+    icon: ice
+    keywords: [ice machine, ice maker, icemaker, ice bin, harvest, ice thickness, ice bridge, slow ice, no ice,
+      cube, flake ice, nugget ice]
+    ok_note: The refrigeration side reads normal. Check water supply and filters, water temperature, scale, the
+      ice thickness setting, and the room temperature.
+
+  # ---------------- oil-fired heating ----------------
+  - id: fuel
+    name: Oil-fired heating
+    abstract: true
+  - id: fuel.boiler
+    parent: fuel
+    name: Boiler & oil burner
+    output: heat
+    short: Oil boiler
+    icon: flame
+    keywords: [boiler, oil boiler, burner, oil burner, gun burner, lockout, reset button, primary control, cad cell,
+      nozzle, igniter, ignitor, electrodes, flame, soot, smoke, puffback, aquastat, low water cutoff, lwco,
+      pressuretrol, steam boiler, hot water boiler, fuel oil, an8, jp8, jp-8, diesel, arctic diesel]
+    ok_note: The burner and boiler read normal. Check the call for heat and the distribution side (pumps, zone
+      valves, air in the loop), and whether the load exceeds the boiler's rating.
+  - id: fuel.furnace
+    parent: fuel
+    name: Oil-fired warm-air furnace
+    output: heat
+    short: Oil furnace
+    icon: flame
+    keywords: [furnace, oil furnace, warm air furnace, forced air, blower, limit switch, fan limit, heat exchanger,
+      hot air heater]
+    ok_note: The burner and furnace read normal. Check the call for heat, the filter and ducts, and the blower.
+
+  # ---------------- water & steam distribution ----------------
+  - id: hydronic
+    name: Hot-water & glycol loop
+    output: heat
+    short: Hydronic loop
+    icon: drop
+    keywords: [hydronic, hot water heat, glycol, glycol loop, heating loop, loop, circulator, circ pump, pump,
+      baseboard, radiator, fan coil, unit heater, convector, radiant, expansion tank, relief valve, air in lines,
+      gurgling, no heat in zone, zone valve, heat exchanger, plate exchanger, waste heat, heat recovery,
+      domestic hot water, dhw, indirect]
+    ok_note: The loop reads normal. Check the heat source (boiler or heat recovery) and the controls calling the
+      zone, and compare the load with what the terminal units can deliver.
+  - id: steam
+    name: Steam heat & condensate
+    output: heat
+    short: Steam
+    icon: steam
+    keywords: [steam, steam heat, steam trap, trap, condensate, condensate pump, water hammer, banging pipes,
+      steam main, radiator valve, vacuum pump, flash steam]
+    ok_note: The steam side reads normal. Check the boiler's pressure control and water level, and the zone
+      controls.
+
+  # ---------------- air handling ----------------
+  - id: ahu
+    name: Air handler & ventilation
+    output: air
+    short: Air handler
+    icon: fan
+    keywords: [air handler, air handling unit, ahu, fan, supply fan, exhaust fan, return fan, belt, sheave, damper,
+      economizer, outside air, outdoor air, filter, coil, heating coil, preheat, freezestat, freeze stat,
+      low limit, vfd, drive, makeup air, ventilation, mau, hrv, erv, static pressure, airflow]
+    ok_note: The air handler reads normal. Check the control sequence and setpoints, the zone loads, and the
+      plant that feeds its coils.
+
+context:
+  # ---------- refrigeration ----------
+  - id: refrigerant
+    kind: refrigerant
+    ask: Which refrigerant?
+    hint: On the nameplate or the compressor sticker.
+    systems: [vc]
+  - id: metering
+    ask: What meters the refrigerant into the evaporator?
+    hint: A TXV has a sensing bulb strapped to the suction line. A piston sits in a brass fitting at the coil
+      inlet. A cap tube is a long thin tube, usually in reach-ins.
+    systems: [vc]
+    options:
+      - {id: txv, label: TXV (expansion valve with a bulb), words: [txv, tev, expansion valve]}
+      - {id: eev, label: Electronic expansion valve, words: [eev, electronic expansion valve]}
+      - {id: fixed, label: Piston / fixed orifice, words: [piston, fixed orifice]}
+      - {id: captube, label: Cap tube, words: [cap tube, capillary]}
+  - id: receiver
+    ask: Is there a receiver tank with a sight glass?
+    hint: Common on walk-ins and commercial units; rare on home A/C.
+    systems: [vc]
+    options: [{id: 'yes', label: 'Yes'}, {id: 'no', label: 'No'}]
+  - id: app
+    ask: What temperature does it run at?
+    systems: [vc]
+    options:
+      - {id: ac, label: 'Comfort A/C (coil ~40 °F)', systems: [vc.ac, vc.hp]}
+      - {id: mt, label: 'Cooler / medium temp (box 33–40 °F)', systems: [vc.walkin, vc.reachin, vc.ice], words: [cooler, medium temp, produce cooler, dairy cooler, beverage cooler]}
+      - {id: lt, label: 'Freezer / low temp (box below 10 °F)', systems: [vc.walkin, vc.reachin, vc.ice], words: [freezer, low temp, ice cream, frozen food]}
+    defaults: {vc.ac: ac, vc.hp: ac}
+  - id: sh_location
+    ask: Where are you reading the suction line temperature?
+    hint: Superheat targets differ. At the evaporator outlet (next to the TXV bulb) it should be small; at the
+      condensing unit it is larger.
+    systems: [vc]
+    options:
+      - {id: evap, label: At the evaporator outlet}
+      - {id: comp, label: At the condensing unit / compressor}
+    defaults: {vc.ac: comp}
+  - id: condenser
+    ask: How does the condenser reject heat?
+    systems: [vc]
+    options:
+      - {id: air, label: Air-cooled (fan and coil)}
+      - {id: water, label: Water or glycol-cooled, words: [water cooled, glycol cooled, water-cooled]}
+    defaults: {vc.ac: air, vc.hp: air}
+  - id: ac_eff
+    ask: How efficient is the outdoor unit?
+    hint: Sets the expected gap between condensing temperature and outdoor air.
+    systems: [vc.ac, vc.hp]
+    options:
+      - {id: standard, label: 'Standard (older, 10–14 SEER)'}
+      - {id: high, label: 'High efficiency (15+ SEER, big coil)'}
+  - id: hpc
+    ask: Does it have cold-weather head pressure control?
+    hint: A flooding valve (headmaster) near the receiver, fan-cycling switches, or a variable-speed condenser fan.
+      Outdoor condensers in cold places almost always do.
+    systems: [vc.walkin, vc.reachin, vc.ice]
+    options:
+      - {id: flooding, label: Flooding valve (headmaster)}
+      - {id: fan_cycling, label: Fan cycling}
+      - {id: vfd, label: Variable-speed condenser fans}
+      - {id: none, label: None}
+  - id: defrost
+    ask: How does the evaporator defrost?
+    systems: [vc.walkin, vc.reachin]
+    options:
+      - {id: off_cycle, label: Off-cycle / air (coolers)}
+      - {id: electric, label: Electric heaters}
+      - {id: hot_gas, label: Hot gas}
+
+refs:
+  - id: nist-sp1087
+    title: Kim, Yoon, Payne & Domanski, Cooling Mode Fault Detection and Diagnosis Method for a Residential Heat Pump,
+      NIST SP 1087 (2008)
+    url: https://nvlpubs.nist.gov/nistpubs/Legacy/SP/nistspecialpublication1087.pdf
+    rights: US Government work (public domain in the US)
+  - id: nist-tn1648
+    title: Payne, Domanski & Yoon, Heating Mode Performance Measurements for a Residential Heat Pump with Single-Faults
+      Imposed, NIST TN 1648 (2009)
+    url: https://nvlpubs.nist.gov/nistpubs/TechnicalNotes/NIST.TN.1648_2009.pdf
+    rights: US Government work (public domain in the US)
+  - id: nistir-6964
+    title: Castro et al., Results from Simulation and Laboratory Testing of Air Handling Unit and Variable Air Volume
+      Box Diagnostic Tools (APAR rules), NISTIR 6964 (2003)
+    url: https://nvlpubs.nist.gov/nistpubs/Legacy/IR/nistir6964.pdf
+    rights: US Government work (public domain in the US)
+  - id: tm-5-642
+    title: US Army TM 5-642, Small Heating Systems (1990)
+    url: https://armypubs.army.mil
+    rights: US Government work ("public property and not subject to copyright")
+  - id: tm-5-650
+    title: US Army TM 5-650, Repairs and Utilities — Central Boiler Plants (1989)
+    url: https://armypubs.army.mil
+    rights: Approved for public release; distribution unlimited
+  - id: coolprop
+    title: Bell, Wronski, Quoilin & Lemort, CoolProp thermophysical property library (pressure–temperature tables)
+    url: http://www.coolprop.org
+    rights: MIT license
+  - id: ashrae-psychro
+    title: Psychrometric equations (Hyland–Wexler saturation pressure; wet-bulb relation) as published in ASHRAE
+      Fundamentals
+    url: https://www.ashrae.org
+    rights: Physical equations (facts); our own implementation
+  - id: practice
+    title: General field practice — common technician knowledge, written in our own words
+    url: ''
+    rights: Our own text

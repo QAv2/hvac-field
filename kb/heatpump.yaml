@@ -1,0 +1,2095 @@
+module: heatpump
+title: Heat pumps (heating mode) & inverter / ductless mini-splits
+notes: |
+  Covers heat pumps operating in heating mode (system vc.hp — where the indoor coil is the condenser
+  and the outdoor coil is the evaporator) plus inverter / ductless mini-split faults that apply in
+  both cooling and heating ([vc.ac, vc.hp]). Heating-mode refrigerant and airflow signatures follow
+  NIST TN 1648 (Payne, Domanski & Yoon, 2009) single-fault slope tables. Core vapor-compression
+  causes live in vc-core.yaml and are shared automatically.
+
+  Conventions this module relies on (read before editing a cause):
+  - On vc.hp the shared vc.* features keep their heating-mode meaning. vc.evap_fan and vc.evap_dirty are the
+    INDOOR blower and coil. vc.cond_fan, vc.cond_dirty and vc.cond_airpath are the OUTDOOR fan, coil and air
+    path. vc.evap_sat is the outdoor coil (the heating evaporator) and vc.cond_sat is the indoor coil (the
+    heating condenser).
+  - vc.evap_sat and vc.cond_sat are set on vc.hp ONLY by hp.evap_td_heating and hp.cond_heating. The cooling
+    measures in vc-core no longer run on vc.hp, and vc.hp has no second head-side feature to double count.
+  - Gauges in heating: the big vapor service port carries hot DISCHARGE gas. Read suction only at a true
+    suction access port (compressor or accumulator suction line). If the unit has none, use the pipe-temperature
+    checks (hp.rv_suction_rise, suction line against outdoor air) and leave the low hose off the vapor valve.
+  - Reversing-valve polarity is context, not a brand rule. The rv_energized question (wiring diagram, or a
+    meter on the coil leads in both modes) decides which O/B causes apply. The hp.rv_coil_24v states are
+    written for either polarity: "absent when needed" and "present when off".
+  - Many ductless 4-way coils are line voltage switched by a relay on the outdoor board, not 24 V. The 24 V
+    checks are gated to ducted / variable-speed ducted units and the ductless units get their own check.
+  - No brand fault-code tables live here. Codes differ by maker, so the checks ask for the code or blink
+    pattern and send the tech to that maker's service manual.
+  - Anything that exists only on ducted or variable-speed ducted equipment (O/B thermostat, defrost control
+    board with TEST pins, strip heat, check-valve pairs) carries requires: {hp_unit: [ducted, inverter]}.
+    A wall head has none of those.
+
+context:
+  - id: hp_unit
+    ask: What type of system is it?
+    hint: A conventional ducted split or packaged unit, a variable-speed (inverter) ducted system, or a ductless
+      mini-split / multi-zone. Inverter boards and electronic expansion valves come with the last two. Flare
+      joints, wall heads, condensate pumps and branch boxes come only with the ductless one. Strip heat,
+      defrost boards and O/B thermostats belong to the ducted ones.
+    systems: [vc.ac, vc.hp]
+    options:
+      - id: ducted
+        label: Conventional ducted split or packaged
+        p: 0.6
+        words: [ducted, air handler, strip heat, aux heat, auxiliary heat, emergency heat, sequencer, package unit,
+          packaged unit, rooftop]
+      - id: inverter
+        label: Variable-speed (inverter) ducted
+        p: 0.1
+        words: [variable speed, communicating, inverter ducted]
+      - id: minisplit
+        label: Ductless mini-split / multi-zone (inverter)
+        p: 0.3
+        words: [mini split, minisplit, mini-split, ductless, wall head, cassette, multi split, multi-zone, branch box]
+
+  - id: rv_energized
+    ask: Which mode energizes the reversing-valve coil?
+    hint: Meter the coil leads in cooling and in heating, or read the wiring diagram. Most US ducted splits
+      energize it in cooling (thermostat terminal O). B-type units, and many ductless heads, energize it in
+      heating. Go by the diagram or the meter, never by the brand name.
+    systems: [vc.hp]
+    options:
+      - {id: cool, label: Energized in cooling (O), p: 0.8, words: [o type, o valve, energized in cooling]}
+      - {id: heat, label: Energized in heating (B), p: 0.2, words: [b type, b valve, energized in heating]}
+
+features:
+  # ---------------- heating-mode temperatures & pressures ----------------
+  - id: hp.heat_rise
+    name: Indoor air temperature rise (heating)
+    ask: How much does the air warm up across the indoor unit (supply minus return)?
+    how: |
+      Measure return air entering the indoor unit and supply air leaving the plenum (or the wall head's louver),
+      with the auxiliary electric heat strips off unless you are testing the strips. Take the reading 10 or more
+      minutes into the run, never during a defrost cycle, and on a ductless head not during the
+      cold-air-prevention delay after start-up. A ducted heat pump typically delivers about 15–30 °F, less in
+      deep cold. Ductless heads at low or medium fan speed run hotter, so a rise of 35–55 °F is normal there.
+    systems: [vc.hp]
+    states:
+      low: Low (under 12 °F, or blowing cold air)
+      normal: Normal (12–38 °F ducted, up to about 55 °F ductless)
+      high: High (over 38 °F ducted, over 55 °F ductless — scorching supply air)
+    normal: normal
+    cost: 2
+    needs: thermometer
+    phrases:
+      low: [blowing cold air, cold air from vents, lukewarm air, low heat rise, low temperature rise, barely warm,
+        no temperature rise, supply air cold, blowing cool air]
+      high: [supply air very hot, overheating supply air, high heat rise, high temperature rise, scorching air]
+      normal: [normal heat rise, good temperature rise]
+
+  - id: hp.rv_suction_rise
+    name: 4-way valve suction-path rise
+    ask: How much warmer is the valve's center tube (to the compressor) than the tube arriving from the active evaporator coil?
+    how: |
+      After 5–10 minutes of running, clamp pipe probes about 6 in. from the 4-way reversing valve on the cold
+      vapor tube arriving from the active evaporator (in heating, the outdoor-coil connection) and on the
+      center tube of the valve, which goes to the compressor. More than 3 °F of pickup on the compressor side
+      means hot discharge gas is leaking across the slide inside the valve. This is a pipe-temperature check,
+      so it works on a unit with no true suction port. In heating the big vapor service port is discharge, so
+      never put the low hose on it.
+    systems: [vc.ac, vc.hp]
+    states:
+      normal: 3 °F or less (tight seal)
+      high: More than 3 °F warmer on the compressor side (internal bypass)
+    normal: normal
+    cost: 2
+    needs: thermometer
+    phrases:
+      high: [reversing valve hot gas bypass, 4 way valve leaking through, suction temperature rise across reversing
+        valve, high delta t on reversing valve, 4-way valve bypass, reversing valve suction rise]
+
+  # ---------------- reversing valve (4-way valve) ----------------
+  - id: hp.mode_actual
+    name: Actual operating mode on heat call
+    ask: When calling for heat, is the unit actually heating the indoor coil or running backwards in cooling?
+    how: |
+      Feel the large vapor line at the indoor unit and check the air leaving the outdoor unit: in heating mode
+      the big line going indoors is hot discharge gas and the outdoor unit blows cold air. If the indoor coil
+      gets cold and sweats while the outdoor unit blows warm air, it is stuck in cooling. On a wall head the same
+      story shows as cool supply air with the outdoor fan blowing warm air.
+    systems: [vc.hp]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      heating: Heating the indoor coil (even if weak)
+      cooling_in_heat: Running in cooling on a heat call (cold indoor coil, warm outdoor air)
+    normal: heating
+    phrases:
+      cooling_in_heat: [cooling in heat mode, running in cooling on heat call, blowing cold air in heat mode,
+        air conditioning in heat mode, heats in cool and cools in heat, stuck in cooling, outdoor unit blowing warm
+        in heat]
+
+  - id: hp.rv_coil_24v
+    name: 24 V at reversing-valve solenoid
+    ask: Is 24 V on the reversing-valve coil leads when the mode called needs the coil energized, and off when it should not be?
+    how: |
+      Meter right at the two wires going to the solenoid coil, with the unit on the call you are testing. A valve
+      that is energized in cooling (thermostat O) should read 24 V on a cooling call and 0 V on a heat call. A
+      valve energized in heating (B) is the opposite. If you do not know which kind it is, read the wiring
+      diagram or meter the leads on both calls, then judge the call that is giving trouble. Read it against what
+      the valve needs, not against a fixed expectation.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      as_required: Right for the mode called (24 V when the valve should be energized, 0 V when it should not)
+      absent_when_needed: No 24 V when the mode called needs the coil energized
+      present_when_off: 24 V on the coil when the mode called needs it de-energized
+    normal: as_required
+    cost: 2
+    needs: meter
+    phrases:
+      absent_when_needed: [no 24v at reversing valve, no voltage on o wire, no voltage on b wire, reversing valve not
+        getting 24v, o terminal dead, b terminal dead, no voltage at reversing valve coil, no 24 volts at reversing
+        valve, no 24 volts on the reversing valve coil, reversing valve coil has no voltage]
+      present_when_off: [24v on reversing valve in heat, voltage on o wire in heat call, o shorted to r, reversing valve
+        energized when it should be off, 24 volts on valve in heat, voltage on o in heating]
+
+  - id: hp.rv_coil_line_v
+    name: Line voltage at the ductless 4-way valve coil
+    ask: On the heat call, is the 4-way valve coil getting its voltage from the outdoor board in the mode that should energize it?
+    how: |
+      Many ductless 4-way coils are line voltage, switched by a relay on the outdoor board, not 24 V, and the
+      head has no O or B terminal. Check the coil's marking and the maker's wiring diagram first, since the
+      voltage and the mode that energizes the coil depend on the model. With power on and the call made, meter
+      at the board's coil connector (or the coil's own plug) and compare with what the diagram calls for in the
+      mode you are testing.
+    caution: Live line voltage at the outdoor board. Use a CAT III meter and insulated probes, work one-handed,
+      and stay clear of the inverter section, whose DC bus stays charged after the breaker is off.
+    systems: [vc.hp]
+    requires: {hp_unit: [minisplit]}
+    states:
+      as_required: Voltage on the coil in the mode that energizes it, none when it should be off
+      absent_when_needed: No voltage at the coil connector in the mode that should energize it
+    normal: as_required
+    cost: 2
+    needs: meter
+    phrases:
+      absent_when_needed: [no voltage at 4 way valve, 4 way valve not energized, no power to reversing valve coil on
+        mini split, board relay not switching 4 way valve, no line voltage at reversing valve]
+
+  - id: hp.rv_coil_ohms
+    name: Reversing-valve solenoid coil resistance & magnetism
+    ask: How does the reversing-valve solenoid coil test (resistance, and magnetic pull if it is a 24 V coil)?
+    how: |
+      With power off and locked out, disconnect the coil leads and ohm the coil, then compare with the figure on
+      the coil or in the maker's data. A 24 V coil reads tens of ohms; a line-voltage coil, as on many ductless
+      units, reads far higher, so the 24 V figure is the wrong yardstick there. On a 24 V coil you can also apply
+      24 V and check that it pulls a steel screwdriver tip at the center stem. Skip the pull test on a
+      line-voltage coil (24 V does nothing to it), and never put line voltage on a 24 V coil.
+    systems: [vc.hp]
+    states:
+      ok: Resistance matches the coil's marking or the maker's data, and a 24 V coil pulls a screwdriver
+      open: Open (∞ Ω), burned, or a 24 V coil with no magnetic pull when energized
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      open: [reversing valve coil open, bad solenoid coil, burned reversing valve coil, no magnetism on solenoid,
+        4 way coil open]
+
+  - id: hp.rv_shift
+    name: Reversing-valve mechanical shift test
+    ask: Does the reversing valve hiss and shift when its coil is switched with the compressor running?
+    how: |
+      First make sure the valve has what it needs to move: a correct charge and a real pressure difference across
+      it, which means the compressor must be pumping. A valve will not shift without that, whatever the coil does.
+      Then, with the compressor running, energize and de-energize the coil (a ducted valve from the thermostat call;
+      a ductless one by changing mode at the head) and gently tap the valve body with a rubber mallet, never a steel
+      hammer. A healthy valve shifts with an audible whoosh.
+    systems: [vc.hp]
+    states:
+      shifts: Hisses and shifts cleanly
+      no_shift: Coil is energized and clicks, but the valve slide never shifts (mechanically stuck)
+    normal: shifts
+    cost: 2
+    phrases:
+      no_shift: [reversing valve stuck, 4 way valve stuck, valve wont shift, won't shift, tapping reversing valve,
+        pilot capillary plugged]
+
+  - id: hp.stat_ob_config
+    name: Thermostat O/B polarity setting
+    ask: Is the thermostat's O/B reversing-valve terminal configured to match the valve (energize in cooling, O, or in heating, B)?
+    how: |
+      Open the thermostat installer setup menu and look at the reversing-valve setting. It must match the valve:
+      O when the valve coil is energized in cooling, B when it is energized in heating. Confirm which one the
+      valve is from the wiring diagram, or by metering the coil leads in both modes. Do not go by the brand name.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      ok: Configured to match the valve (O or B)
+      reversed: Configured backwards (O on a B valve, or B on an O valve)
+    normal: ok
+    cost: 1
+    phrases:
+      reversed: [o b set wrong, thermostat set to o instead of b, set to b instead of o, reversing valve polarity
+        wrong, new thermostat cools in heat, o/b backwards]
+
+  # ---------------- defrost system ----------------
+  - id: hp.outdoor_coil_ice
+    name: Outdoor coil ice buildup
+    ask: What does the outdoor coil look like in heating mode?
+    systems: [vc.hp]
+    complaint: true
+    cost: 1
+    states:
+      none: Clear (or light uniform frost between defrost cycles)
+      partial_or_band: Ice band along the bottom pan or unmelted patches after defrost
+      encased: Encased in a solid block of ice
+    normal: none
+    phrases:
+      encased: [outdoor unit iced up, outdoor coil frozen, heat pump block of ice, outside unit frozen solid,
+        encased in ice, outdoor coil iced over, heat pump iced up]
+      partial_or_band: [ice at bottom of outdoor coil, bottom of coil frozen, half defrosted, ice ring around bottom]
+
+  - id: hp.defrost_sensor
+    name: Defrost coil sensor / termination thermostat
+    ask: How does the outdoor defrost coil sensor or snap-disc thermostat test (and the outdoor ambient sensor, if the board has one)?
+    how: |
+      A snap-disc defrost klixon clipped to the outdoor liquid/distributor tube should be closed (0 Ω)
+      below ~30 °F and open above ~55–70 °F. An NTC defrost thermistor should match its resistance-vs-temp
+      table when checked against actual tube temperature. A demand-defrost board also reads an outdoor
+      ambient sensor and compares coil to ambient, so check that sensor the same way. A drifted ambient sensor
+      causes both missed and nuisance defrost.
+    systems: [vc.hp]
+    states:
+      ok: Matches coil temperature (closed when icy, opens when warm)
+      open_or_drifted: Stays open or reads warm on a freezing coil
+      stuck_closed_or_loose: Stuck closed on a hot clear coil, or unclipped/hanging loose
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      open_or_drifted: [defrost thermostat open, bad defrost sensor, defrost sensor drifted, klixon wont close,
+        ambient sensor drifted, outdoor ambient sensor bad]
+      stuck_closed_or_loose: [defrost sensor stuck closed, defrost thermostat stuck closed, sensor fell off coil,
+        defrost sensor loose]
+
+  - id: hp.defrost_test_pins
+    name: Forced defrost test at board
+    ask: With the coil verified iced or below 30 °F, what happens when you jump the defrost board's TEST / speed-up pins with the unit running in heat?
+    how: |
+      Do this only with the coil verified iced or below about 30 °F. With the compressor running in heating
+      mode, short the TEST pins on the outdoor defrost board. If nothing starts and you suspect the sensor, also
+      jumper the DFT/sensor terminals. Take the sensor jumper off as soon as defrost starts: leaving it in
+      forces the full time-out. On a warm coil the sensor does not call for defrost, so even a healthy board
+      only enters defrost with the sensor jumpered, and the result proves nothing about the sensor.
+    caution: Never force defrost on a warm, running system. It spikes the head pressure. Check the coil is iced
+      or below 30 °F first.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      normal: Enters defrost normally with the sensor connected
+      no_response: Nothing happens even with the coil sensor jumped (board dead)
+      starts_when_sensor_jumped: Only enters defrost once you jumper the coil sensor (coil verified iced or below 30 °F)
+    normal: normal
+    cost: 2
+    needs: tools
+    phrases:
+      no_response: [defrost board dead, wont go into defrost on test pins, bad defrost board, defrost relay burned]
+      starts_when_sensor_jumped: [defrost works when sensor jumped, jumping dft starts defrost]
+
+  - id: hp.defrost_behavior
+    name: Defrost cycle behavior
+    ask: What does the outdoor unit actually do when it should be defrosting?
+    systems: [vc.hp]
+    states:
+      normal_defrost: Shifts to cooling, stops outdoor fan, melts coil, and terminates cleanly
+      not_in_defrost: Never initiates a defrost cycle
+      fan_stops_no_hot_gas: Outdoor fan stops and W2 calls, but the 4-way valve never moves to the cooling position that sends hot gas to the outdoor coil
+      fan_runs_in_defrost: Shifts into defrost, but outdoor fan keeps running at full speed
+      runs_too_long: Stays in defrost on a steaming clear coil until 10-minute timer or high-pressure trip
+      nuisance_dry_coil: Goes into defrost repeatedly in cold dry weather with no frost on the coil
+    normal: normal_defrost
+    cost: 2
+    phrases:
+      not_in_defrost: [never goes into defrost, wont defrost, not defrosting]
+      fan_stops_no_hot_gas: [no hot gas in defrost, reversing valve doesnt shift in defrost, fan stops but ice
+        doesnt melt]
+      fan_runs_in_defrost: [outdoor fan runs during defrost, fan stays on in defrost, fan relay welded on defrost board]
+      runs_too_long: [defrost runs too long, stuck in defrost, steams for 10 minutes, trips high pressure at end of
+        defrost]
+      nuisance_dry_coil: [defrosting dry coil, nuisance defrost, defrosts every 30 minutes with no ice]
+
+  - id: hp.basepan_ice
+    name: Outdoor basepan drainage & pan heater
+    ask: Is meltwater draining freely from the outdoor basepan, or is a solid shelf of ice building up in the bottom pan?
+    systems: [vc.hp]
+    states:
+      clear: Basepan drain holes open and draining
+      solid_bottom: Drain holes plugged with ice/leaves or basepan heater failed — solid ice shelf in pan
+    normal: clear
+    cost: 1
+    phrases:
+      solid_bottom: [basepan frozen, drain holes frozen, bottom pan full of ice, basepan heater dead, ice cracking
+        bottom of coil, fan blade hitting ice in pan]
+
+  - id: hp.defrost_cold_air
+    name: Cold blow from vents during defrost
+    ask: Does the unit blow cold air from the supply vents for several minutes whenever it goes into defrost?
+    how: |
+      Count this only when the air handler has electric strip heat wired to the defrost output (W2). With no
+      strips, or strips that are not wired to the defrost board, cool air during a short defrost is normal and
+      is not a fault.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': Supply air stays warm or tempered during defrost
+      'yes': Blows cold air into the space during every defrost cycle
+    normal: 'no'
+    phrases:
+      'yes': [cold air during defrost, blows cold when defrosting, freezing air during defrost, no tempering heat
+        in defrost]
+
+  # ---------------- auxiliary / emergency electric strip heat ----------------
+  - id: hp.stat_staging
+    name: Thermostat heat-pump mode and lockout settings
+    ask: Is the thermostat in Emergency Heat, or set so the compressor is locked out at today's outdoor temperature?
+    how: |
+      Look for EM HEAT / E-HEAT on the thermostat display, then check the installer menu: compressor lockout
+      (the lowest outdoor temperature the compressor may run at), the aux-heat lockout (highest outdoor
+      temperature the strips may run at) and the stage delays. With Emergency Heat on, or a compressor lockout
+      above today's outdoor temperature, the compressor stays off and the strips do all the work.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    cost: 1
+    states:
+      ok: Heat-pump heat is enabled at this outdoor temperature
+      em_heat: Emergency Heat selected (compressor off, strips only)
+      comp_lockout: Compressor lockout set above today's outdoor temperature
+    normal: ok
+    phrases:
+      em_heat: [emergency heat on, em heat, e heat, thermostat on emergency heat, em heat light on, strip heat only,
+        aux heat only, stuck in emergency heat]
+      comp_lockout: [compressor lockout, compressor locked out, heat pump lockout temperature, compressor locked out
+        in cold, heat pump disabled below, minimum outdoor temperature setting]
+
+  - id: hp.w2_defrost_call
+    name: Aux / defrost heat call (W / W2) at air handler
+    ask: Is 24 V AC reaching the indoor air handler's W / W2 terminal when auxiliary or defrost heat is called?
+    how: |
+      This only means something while a W / W2 call is active: during defrost, second-stage heat or Emergency
+      Heat. Meter W1/W2 to C at the air handler control strip then. If 24 V is absent, either the outdoor defrost
+      board's W out wire is open or disconnected, or an outdoor ambient lockout is holding the call off. Both
+      read 0 V at the air handler, so to tell them apart meter upstream (at the board's W out terminal or the
+      thermostat) while the call is active.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      present_at_air_handler: 24 V present at air handler W / W2 terminal
+      missing_at_air_handler: Outdoor board or thermostat calls, but W/W2 wire is open or disconnected to air handler
+      blocked_by_lockout: Held off by an outdoor lockout thermostat or balance-point setting set too low
+    normal: present_at_air_handler
+    cost: 2
+    needs: meter
+    phrases:
+      missing_at_air_handler: [w2 wire not connected, broken w2 wire, no 24v on w2 at air handler, defrost w wire open]
+      blocked_by_lockout: [aux heat locked out, balance point lockout set too low, outdoor thermostat locking out strips]
+
+  - id: hp.strip_amps
+    name: Electric heat strip current
+    ask: What current do the electric auxiliary heat strips draw when called?
+    how: |
+      Clamp ONE conductor (L1 or L2) of each heater circuit, never both together: a clamp around both
+      conductors of one circuit reads about 0 A because the fields cancel. Call full heat (Emergency Heat) so
+      every stage is on, and give it time, because during the first 30–90 seconds the sequencers have not all
+      closed. A 5 kW bank at 240 V draws about 20.8 A and 10 kW draws about 41.7 A. Current falls with voltage,
+      so the same 5 kW bank draws about 18 A on a 208 V supply. Also check that current drops to 0 A when the
+      call is off.
+    caution: Live line voltage in the heater compartment. Clamp only the insulated conductor, keep hands clear
+      of the heater rack and terminals, and lock out before moving any wire.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      normal: About the rated amps for the voltage actually applied (about 20.8 A per 5 kW at 240 V)
+      low: Partial amps (one bank or element out)
+      zero: Zero amps on the heater leads
+    normal: normal
+    cost: 2
+    needs: clamp
+    phrases:
+      zero: [strips drawing 0 amps, no amp draw on heat strips, aux heat not pulling amps, emergency heat no amps]
+      low: [half amps on heat strips, one strip bank out, low heater amps]
+
+  - id: hp.strip_breaker
+    name: Air-handler strip-heat breaker / disconnect
+    ask: Is the dedicated high-amp breaker or pull-out disconnect for the electric heat strips on and supplying 208/240 V?
+    how: |
+      Many air handlers have two separate circuits or cabinet breakers: one feeds the blower and 24 V
+      transformer, and a second 30–60 A breaker feeds the electric strip banks. Meter L1–L2 right at
+      the heater breaker lugs.
+    caution: Live line voltage at the breaker lugs. Use a CAT III meter and insulated probes, and lock out before
+      removing any cover you do not have to.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      ok: On, full 208/240 V at heater lugs
+      off_or_tripped: Off, tripped, or open pull-out on the heater circuit
+    normal: ok
+    cost: 1
+    phrases:
+      off_or_tripped: [strip breaker tripped, heater breaker off, second breaker on air handler off, aux heat
+        breaker tripped]
+
+  - id: hp.sequencer_state
+    name: Heat strip sequencer / relay
+    ask: How does the electric heat sequencer or contactor behave?
+    how: |
+      With 24 V applied to the sequencer's bottom control terminals (bimetal heater), wait 30–60 seconds
+      and meter line voltage across the load contacts (should close to 0 V drop). With 24 V removed for
+      2 minutes, load contacts must open completely.
+    caution: Live line voltage across the load contacts. Use a CAT III meter and insulated probes, and keep hands
+      off the heater rack.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      ok: Closes within 60 s of 24 V call, opens when call is removed
+      open_with_call: 24 V on sequencer coil for >60 s, but load contacts stay open
+      welded_or_grounded: Contacts welded closed with no 24 V call (or element shorted to grounded frame)
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      open_with_call: [bad sequencer, heat sequencer failed, sequencer wont close, strip relay open]
+      welded_or_grounded: [sequencer stuck closed, welded sequencer, heat strips stuck on, strips stay on with fan
+        off, grounded heating element]
+
+  - id: hp.strip_limits
+    name: Strip-heat thermal high-limit & fusible link
+    ask: Are the thermal high-limit disc switch and the one-shot fusible link on the heater rack closed?
+    how: |
+      Lock out power and check continuity across each snap-disc thermal limit and ceramic fusible link
+      mounted on the heater frame (or meter across them under call — an open safety shows full line
+      voltage across its terminals).
+    caution: Metering across a limit under call means live line voltage. Use a CAT III meter and insulated probes,
+      or lock out and check continuity instead.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      closed: Closed (intact)
+      open: High-limit switch open or fusible link blown
+    normal: closed
+    cost: 2
+    needs: meter
+    phrases:
+      open: [fusible link blown, heat strip high limit open, thermal limit open on heater kit, open thermal fuse]
+
+  - id: hp.element_ohms
+    name: Heating element coil resistance
+    ask: With power locked out and leads lifted, what do the nichrome heating element coils read?
+    how: |
+      Each 5 kW 240 V nichrome coil reads about 11–12 Ω end-to-end and ∞ Ω to the metal frame. Visually
+      inspect the ceramic insulators for a snapped or sagging coil wire.
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      ok: 10–15 Ω per 5 kW coil and open to ground
+      open: Open circuit (∞ Ω — broken nichrome wire)
+    normal: ok
+    cost: 3
+    needs: meter
+    phrases:
+      open: [open heating element, broken nichrome wire, burned out heat strip coil, element reads open]
+
+  # ---------------- heating-mode refrigerant & airflow checks ----------------
+  - id: hp.cooling_mode_ok
+    situational: true
+    name: Pressures when switched to cooling mode
+    ask: Only if the outdoor air is above about 55 °F, after a shutdown and restart in cooling, do pressures and superheat/subcooling read normal?
+    how: |
+      Only when the outdoor air is above about 55 °F (or the maker's limit for running in cooling). Shut the unit
+      down and wait about 5 minutes for the pressures to equalize, then restart it in cooling, let it run 10–15
+      minutes and read pressures, superheat and subcooling. Below that outdoor temperature skip this check:
+      cooling at low ambient reads abnormal on any unit, so the answer proves nothing. Switching the mode with the
+      compressor running slams the reversing valve. If it runs normally in cooling but starves or misbehaves in
+      heating, suspect a directional check valve or the outdoor heating metering device. Most heating-only faults
+      (ice, defrost, strips, lockout, balance point) also cool fine, so a "cools fine" answer does not point to
+      one cause. In heating the big vapor service port is discharge, so keep the low hose off it.
+    caution: Do not run the unit in cooling below about 55 °F outdoor (liquid slugging, an iced indoor coil,
+      low-pressure trips). Always shut down and let the pressures equalize before switching modes.
+    systems: [vc.hp]
+    states:
+      'no': Fault is present in both modes (or not a directional fault)
+      'yes': Cools normally — fault happens only in heating mode
+    normal: 'no'
+    cost: 4
+    phrases:
+      'yes': [works fine in cooling, cools fine but wont heat, pressures normal in cooling only, only happens in
+        heating mode]
+
+  - id: hp.check_valve_test
+    name: Directional check valves & heating metering device
+    ask: What do you find at the indoor bypass check valve and the outdoor heating metering device?
+    how: |
+      In heating mode, liquid leaves the indoor coil through a check valve that bypasses the indoor
+      cooling orifice/TXV, and enters the outdoor coil through the outdoor heating TXV/orifice while the
+      outdoor check valve closes. Check for a temperature drop or frost across the indoor metering
+      assembly (means indoor check valve stuck closed) or frost/starving vs flooding at the outdoor
+      bi-flow/check assembly. Take suction readings at a true suction port, never at the big vapor valve
+      (discharge in heating).
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    states:
+      ok: Indoor check valve open, outdoor heating metering device feeding properly
+      outdoor_heating_restricted: Outdoor heating TXV or piston starving / stuck closed in heating
+      indoor_bypass_stuck: Indoor check valve stuck closed in heating (temperature drop or frost across the indoor metering assembly)
+      outdoor_bypass_leaking: Outdoor check valve leaking through in heating (flooding outdoor coil)
+    normal: ok
+    cost: 3
+    needs: thermometer
+    phrases:
+      outdoor_heating_restricted: [heating txv stuck, outdoor txv starving, outdoor piston plugged in heat, bi flow
+        txv stuck in heating]
+      indoor_bypass_stuck: [indoor check valve stuck closed, check valve at indoor coil stuck, liquid backing up in
+        indoor coil]
+      outdoor_bypass_leaking: [outdoor check valve leaking, check valve bypassing in heat, flooding in heating mode
+        only]
+
+  - id: hp.outdoor_airflow_heating
+    name: Outdoor coil air path (heating evaporator)
+    ask: Is the outdoor coil's air path clear of drifted snow, freezing-rain shell, leaves, or a tarp, and is the coil face clean?
+    how: |
+      In heating mode the outdoor coil is the evaporator extracting heat from outdoor air. Inspect all
+      sides and under the hood for drifted snow, an ice shell from freezing rain, matted leaves, or a
+      winter cover left on, then look at the coil face itself for a mat of cottonwood, grass clippings or dirt.
+    systems: [vc.hp]
+    states:
+      clear: Clear airflow through outdoor coil
+      blocked_snow_or_debris: Blocked by snow, glaze, leaves, a cover, or a matted/dirty coil face
+    normal: clear
+    cost: 1
+    phrases:
+      blocked_snow_or_debris: [outdoor unit buried in snow, snow drift on heat pump, freezing rain on outdoor coil,
+        leaves blocking outdoor coil, cover left on heat pump, matted outdoor coil, cottonwood on outdoor coil,
+        outdoor coil clogged with dirt, grass clippings on outdoor coil]
+
+  - id: hp.outdoor_below_balance
+    situational: true
+    name: Outdoor temperature vs thermal balance point
+    ask: Is the outdoor ambient temperature below the heat pump's thermal balance point?
+    how: |
+      The balance point is building plus unit, so a tech rarely knows it. Use this test: is it colder outside than
+      the outdoor temperature at which this unit alone last held setpoint? Below that point building heat loss
+      exceeds the compressor's heating capacity even when the refrigerant circuit is healthy, so auxiliary heat must
+      stage on to hold setpoint. Standard heat pumps balance out at roughly 25–35 °F; cold-climate units hold on
+      to a lower outdoor temperature.
+    systems: [vc.hp]
+    states:
+      'no': Outdoor air is above the balance point
+      'yes': Deep cold — outdoor air is below the unit's balance point
+    normal: 'no'
+    cost: 1
+    phrases:
+      'yes': [below balance point, extreme cold outside, subzero outside, too cold for heat pump alone, deep freeze]
+
+  # ---------------- inverter & ductless mini-split checks ----------------
+  - id: hp.inverter_code
+    name: Mini-split / inverter fault code
+    ask: What fault code or LED blink pattern is the mini-split or inverter unit displaying? Then look up what it means in that maker's service manual.
+    how: |
+      Codes and blink patterns mean different things from one maker to the next, so never read one from memory or
+      from another brand. Write the code or the number of blinks down exactly, then find it in the maker's service
+      manual or code table and pick the matching state below.
+    systems: [vc.ac, vc.hp]
+    complaint: true
+    cost: 1
+    states:
+      none: No error code displayed
+      comm_error: Indoor-outdoor communication fault code (look it up in that maker's table)
+      ipm_or_drive: Inverter drive / IPM / compressor overcurrent or start-failure code
+      eev_or_sensor: Thermistor or EEV fault code
+    normal: none
+    phrases:
+      comm_error: [communication error, comm error, indoor outdoor communication fault, blinking indicator light,
+        blinking light on wall unit, serial link error]
+      ipm_or_drive: [ipm error, ipm fault, inverter module fault, compressor drive error, overcurrent
+        lockout, dc bus fault]
+      eev_or_sensor: [thermistor error, sensor error code, eev error code, pipe sensor fault, discharge sensor code]
+
+  - id: hp.comm_signal
+    name: Indoor–outdoor serial communication voltage
+    ask: What do you measure on the communication wire between the indoor and outdoor units (labeled S, S2–S3, 2–3 or similar)?
+    how: |
+      Find the signal terminal and its common in the wiring diagram first. Labels vary, and on some terminal
+      blocks the neighboring terminal is line voltage. Set your meter to DC volts (and check AC volts too), and
+      read signal to common at both the indoor and the outdoor terminal blocks. A healthy serial line shows an
+      unsteady DC voltage that visibly sweeps or pulses. Compare with the maker's figure if you have it. A steady
+      0 V, a flat rail that never moves, or wild noise from a spliced or stranded wire points to a communication
+      fault.
+    caution: >-
+      Live check on a terminal block next to line voltage: use a CAT III meter and insulated probes, and find the
+      signal terminal on the wiring diagram before the leads touch anything. Before unplugging the serial wire or
+      touching the board, breaker off, wait the maker's time (not under 5 minutes) and confirm under 10 V DC across
+      P(+)–N(−): the inverter bus holds 300–400 V DC.
+    systems: [vc.ac, vc.hp]
+    states:
+      pulsing_ok: Normal unsteady, sweeping or pulsing DC/AC voltage
+      dead_or_noisy: Steady 0 V, stuck high, open/spliced wire, or outdoor board power supply dead
+    normal: pulsing_ok
+    cost: 2
+    needs: meter
+    phrases:
+      dead_or_noisy: [no pulsing voltage on s wire, communication wire open, spliced mini split wire, s2 s3 no
+        voltage, outdoor board dead no leds]
+
+  - id: hp.ipm_diode_test
+    name: Inverter IPM diode check & DC bus
+    ask: How do the outdoor inverter board's IPM (Intelligent Power Module) diode legs and DC bus test?
+    how: |
+      Breaker off, then wait the maker's stated time (never less than 5 minutes) for the high-voltage DC bus
+      capacitors to bleed down, and confirm the bus reads under 10 V DC across P(+) and N(−) with a CAT III 600 V
+      meter before anything else. Unplug the compressor (U, V, W) and use the meter's diode mode to test P(+) to
+      U/V/W and N(−) to U/V/W in both directions. All six IGBT diode legs should read the same drop one way and
+      open (OL) the other. Compare the legs with each other, not with a fixed number.
+    caution: >-
+      The inverter board holds 300–400 V DC on the bus capacitors after the breaker is off. Wait the maker's
+      time (not under 5 minutes) and confirm under 10 V DC across P(+)–N(−) with a CAT III 600 V meter before
+      unplugging any harness or touching the board.
+    systems: [vc.ac, vc.hp]
+    states:
+      ok: All 6 IPM diode legs match each other and the DC bus reads normal
+      failed: Shorted or open IPM leg, burned trace, or failed DC bus capacitor/reactor
+    normal: ok
+    cost: 3
+    needs: meter
+    phrases:
+      failed: [ipm shorted, bad ipm module, failed diode check on inverter board, blown igbt, dc bus capacitor bad]
+
+  - id: hp.inverter_comp_phases
+    name: Inverter compressor windings (U–V–W)
+    ask: With the compressor leads unplugged from the inverter board, how do U–V, V–W, and U–W measure?
+    how: |
+      First make the board safe: breaker off, wait the maker's stated time (never less than 5 minutes), and
+      confirm under 10 V DC across P(+) and N(−) before unplugging the compressor leads. Disconnect the leads from
+      the board before any megger test, since a megger across a connected board destroys it. Measure
+      phase-to-phase resistance across U–V, V–W, and U–W with a low-ohms meter, then megger or ohm each pin to
+      the copper suction pipe. All three phases on a three-phase inverter compressor must read the same (within
+      a few percent, and usually a few ohms or less) and show infinite resistance to ground. Equal phases and no
+      ground fault do not clear a seized or demagnetized rotor, so judge that from how the compressor starts.
+    caution: >-
+      Inverter board bus capacitors hold 300–400 V DC after power-off. Wait the maker's time (not under 5 minutes)
+      and confirm under 10 V DC across P(+)–N(−) with a CAT III 600 V meter before unplugging the compressor
+      leads. Disconnect the leads from the board before any megger test.
+    systems: [vc.ac, vc.hp]
+    states:
+      balanced_ok: All three phases equal (U–V = V–W = U–W) and open to ground
+      imbalanced_or_grounded: Phase-to-phase resistance unequal, open, or grounded
+    normal: balanced_ok
+    cost: 3
+    needs: meter
+    phrases:
+      imbalanced_or_grounded: [inverter compressor phases unequal, u v w resistance off, inverter compressor
+        grounded, bad inverter compressor]
+
+  - id: hp.eev_coil_ohms
+    name: EEV stepper coil winding resistance
+    ask: With power off and the DC bus verified discharged, what do the EEV stepper coil winding pairs read at the unplugged harness?
+    how: |
+      Make the board safe first: breaker off, wait the maker's stated time (never less than 5 minutes), and confirm
+      under 10 V DC across P(+) and N(−) before unplugging the EEV harness. Test resistance from the common
+      wire(s) to each of the stepper phase pins on the small 5- or 6-pin plug. Healthy windings read matched values
+      across all the phases (use the maker's figure; commonly tens to low hundreds of ohms) and ∞ Ω to the valve
+      body.
+    caution: >-
+      Inverter board bus capacitors hold 300–400 V DC after power-off. Wait the maker's time (not under 5 minutes)
+      and confirm under 10 V DC across P(+)–N(−) with a CAT III 600 V meter before unplugging the EEV harness or
+      touching the board.
+    systems: [vc.ac, vc.hp]
+    states:
+      ok: All stepper windings matched (maker's figure) and open to the valve body
+      open_or_short: One or more windings open (∞ Ω), shorted, or corroded plug
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      open_or_short: [eev coil open, bad eev coil, stepper coil open, eev winding open, eev harness corroded]
+
+  - id: hp.eev_init_click
+    name: EEV power-up initialization & magnet test
+    ask: When you cycle breaker power (or rotate a service magnet on the EEV body), does the EEV click and move refrigerant?
+    how: |
+      At power-up, the board drives the EEV several hundred steps closed to find zero — you should hear
+      and feel rapid ticking at the valve body for 10–20 seconds. If the coil ticks but refrigerant flow
+      never changes, remove the coil and spin an EEV service magnet around the brass spindle to check if
+      the internal rotor/needle is jammed.
+    systems: [vc.ac, vc.hp]
+    states:
+      normal: Ticks at power-up and modulates refrigerant flow
+      silent: Silent at power-up (no stepper clicking)
+      clicks_no_flow_change: Coil clicks at power-up, but needle is mechanically stuck (no flow change)
+    normal: normal
+    cost: 2
+    phrases:
+      silent: [eev not clicking, eev silent at power up, no click from eev]
+      clicks_no_flow_change: [eev body stuck, eev stuck closed, eev stuck open, eev clicks but wont move, magnet test
+        failed]
+
+  - id: hp.thermistor_check
+    name: NTC thermistor resistance vs temperature
+    ask: Do the unit's NTC thermistors (coil, discharge, room, outdoor ambient) match their resistance-vs-temperature table, and are they seated on the coil or tube they should read?
+    how: |
+      Make the board safe first: breaker off, wait the maker's stated time (never less than 5 minutes), and confirm
+      under 10 V DC across P(+) and N(−) before unplugging any sensor. Unplug the suspected thermistor from the
+      board, measure the actual temperature right at the sensor bulb (or place it in a 32 °F ice-water bath), and
+      compare its kΩ reading with the manufacturer's kΩ chart. A sensor that has drifted well off the curve tells
+      the inverter to throttle back or lock out. A resistance that passes only proves the bulb is good: look at
+      where the bulb sits, because a sensor that has slipped out of its well or off the tube reads air instead of
+      the coil.
+    caution: >-
+      Inverter board bus capacitors hold 300–400 V DC after power-off. Wait the maker's time (not under 5 minutes)
+      and confirm under 10 V DC across P(+)–N(−) with a CAT III 600 V meter before unplugging any sensor or
+      touching the board.
+    systems: [vc.ac, vc.hp]
+    states:
+      ok: Resistance matches actual temperature on the chart, and the sensor sits tight on its coil or tube
+      drifted_or_open: Drifted off-curve, open, or shorted (reports false temperature)
+      loose_or_misplaced: Resistance is right at the bulb, but the sensor is loose, out of its well, or not on the coil it should read
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      drifted_or_open: [bad thermistor, thermistor drifted, thermistor out of range, coil sensor bad, discharge
+        thermistor bad, ambient thermistor off]
+      loose_or_misplaced: [thermistor loose, sensor fell out of well, coil sensor not on coil, sensor off the tube,
+        thermistor not seated, sensor clip missing]
+
+  - id: hp.flare_joint
+    name: Mini-split flare joints
+    ask: What do you find at the flare nuts (behind the indoor unit and at the outdoor service valves)?
+    how: |
+      Open the line-set wrap behind the indoor wall head and at the outdoor flare ports. Check for compressor
+      oil sheen on the brass flare nuts and sweep with an electronic leak detector or soap bubbles.
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    states:
+      tight_clean: Dry, clean, and leak-free
+      oil_or_leak: Oil film, bubbles, detector alarm, or cracked/cocked copper flare
+    normal: tight_clean
+    cost: 2
+    phrases:
+      oil_or_leak: [leaking flare, flare nut leak, oil on flare, mini split flare leak, cracked flare, loose flare
+        nut]
+
+  - id: hp.crossflow_wheel
+    name: Mini-split indoor cross-flow blower wheel
+    ask: Shine a flashlight into the indoor unit's supply vane — what is the condition of the cylindrical blower wheel?
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    complaint: true
+    cost: 1
+    states:
+      clean: Clean blades and strong, even air throw
+      caked_surging: Blades packed with biofilm/dust — weak air throw and surging/whooshing noise
+    normal: clean
+    phrases:
+      caked_surging: [dirty blower wheel, mold on blower wheel, biofilm on wheel, mini split surging noise, whooshing
+        noise, barely blowing air from wall unit, squirrel cage dirty]
+
+  - id: hp.cond_pump_state
+    name: Mini-split condensate pump & float switch
+    ask: How are the mini-split's internal float switch and condensate pump operating?
+    how: |
+      Check the indoor drain pan and mini-pump reservoir for slime, a stuck reed float, an air-bound pump
+      impeller, or an open safety contact cutting off the head.
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    states:
+      ok: Float switch closed and pump discharging water cleanly
+      pump_or_float_fault: Pump failed/air-bound, float switch tripped open, or overflow alarm active
+    normal: ok
+    cost: 2
+    phrases:
+      pump_or_float_fault: [condensate pump failed, mini split pump buzzing, mini split float switch tripped, overflow
+        error on wall unit, gurgling condensate pump]
+
+  - id: hp.multizone_mismatch
+    name: Multi-zone port piping vs wiring match
+    ask: On a multi-zone condenser or branch box, does each indoor head's control wire land on the same port (A, B, C, D) as its refrigerant lines?
+    how: |
+      Turn on only one indoor head at a time and check which liquid/gas line pair changes temperature at
+      the outdoor manifold or branch box. If calling on head A chills or heats the pipes feeding head B,
+      the control wires and pipe ports are crossed. Before you tear into the wiring, rule out the normal
+      one-mode-at-a-time behavior (see the mode check): a head that sits in standby while another head
+      runs the opposite mode is not crossed.
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    states:
+      matched: Control wire and refrigerant lines match on every port
+      crossed_pipes_wires: Crossed — calling on head A sends refrigerant to head B's coil
+    normal: matched
+    cost: 2
+    phrases:
+      crossed_pipes_wires: [crossed wiring on multi zone, pipes and wires crossed, wrong port on branch box, head b
+        freezes when head a calls, multi split wired backwards]
+
+  - id: hp.multizone_modes
+    name: Mode asked of each head (multi-zone)
+    ask: On a multi-zone system, is another head running in the opposite mode (one heating, one cooling), with this head waiting in standby?
+    how: |
+      Most multi-zone outdoor units (the ones without heat recovery) can run only one mode at a time. The head
+      that was called first sets the mode, and a head asking for the other mode waits in standby, often with a
+      blinking indicator, until the first mode is done. Check what mode each head is set to and which one started
+      first.
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    cost: 1
+    states:
+      same_mode: Every head that is running is in the same mode
+      mixed_modes: One head is heating and another is asking for cooling (or the reverse) and is waiting
+    normal: same_mode
+    phrases:
+      mixed_modes: [one head heating other head cooling, multi zone mode conflict, head blinking waiting, head in
+        standby wont heat, one zone cool one zone heat, head wont switch mode, other head running opposite mode,
+        one head wont heat while the other zone is cooling, second head wont come on, head wont cool while other head
+        is heating, other zone is in the opposite mode]
+
+inputs:
+  - id: hp.return_f
+    name: Return air temperature (indoor)
+    unit: °F
+    systems: [vc.hp]
+    probe: air
+    hint: Air entering the indoor unit / return plenum
+  - id: hp.supply_f
+    name: Supply air temperature (indoor)
+    unit: °F
+    systems: [vc.hp]
+    probe: air
+    hint: Air leaving the indoor unit or the wall head's louver (strips off unless testing strip heat)
+  - id: hp.outdoor_f
+    name: Outdoor air temperature
+    unit: °F
+    systems: [vc.hp]
+    probe: air
+    hint: Air entering the outdoor coil (the heating evaporator). Needed to grade suction and head in heating.
+  - id: hp.rv_evap_in_f
+    name: 4-way valve — from evaporator coil
+    unit: °F
+    systems: [vc.ac, vc.hp]
+    probe: pipe
+    hint: Cold vapor tube entering the reversing valve from the active evaporator
+  - id: hp.rv_comp_out_f
+    name: 4-way valve — to compressor suction
+    unit: °F
+    systems: [vc.ac, vc.hp]
+    probe: pipe
+    hint: Center tube of the reversing valve, the one going to the compressor
+  - id: hp.strip_amps_meas
+    name: Aux heat strip current
+    unit: A
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    probe: clamp
+    hint: One conductor (L1 or L2) of each heater circuit, with every stage called. Never clamp both conductors together.
+  - id: hp.strip_kw
+    name: Aux heat strip rating
+    unit: kW
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    hint: kW at the heater's rated voltage (nameplate), for the bank being tested
+  - id: hp.strip_rated_v
+    name: Aux heat strip rated voltage
+    unit: V
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    hint: Voltage the heater's kW rating is stated at (nameplate). Leave blank to use the nameplate voltage, or 240.
+  - id: hp.strip_phases
+    name: Heater phases (1 or 3)
+    unit: phases
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    choices: [1, 3]
+    default: 1
+    hint: Single-phase heaters are the norm in houses. Rooftop and commercial units are often 3-phase.
+
+measures:
+  # In heating the shared cooling measures of vc-core no longer run on vc.hp, so these two are the only
+  # things that set the suction and head saturation features there.
+  - id: hp.evap_td_heating
+    name: Outdoor coil TD (outdoor air minus suction saturation)
+    unit: °F
+    systems: [vc.hp]
+    value: hp.outdoor_f - tsat_dew(vc.suction_psig)
+    target: '10'
+    sets: vc.evap_sat
+    states:
+      - [low, v > 18]
+      - [high, v < 3]
+      - [normal, 'true']
+
+  - id: hp.cond_heating
+    name: Condensing temperature over return air (heating)
+    unit: °F
+    systems: [vc.hp]
+    let:
+      known: has(hp.outdoor_f)
+      od: clamp(hp.outdoor_f ?? 40, -10, 60)
+      expect: 15 + 0.4 * (od - 5)
+      ductless: "(ctx.hp_unit ?? 'ducted') == 'minisplit'"
+    value: tsat_bubble(vc.liquid_psig) - hp.return_f
+    target: expect
+    sets: vc.cond_sat
+    states:
+      - [low, 'v < (known ? expect - 8 : 10)']
+      - [high, 'v > expect + (ductless ? 22 : 12)']
+      - [normal, 'true']
+
+  - id: hp.heat_rise
+    name: Indoor air temperature rise
+    unit: °F
+    systems: [vc.hp]
+    let:
+      ductless: "(ctx.hp_unit ?? 'ducted') == 'minisplit'"
+    value: hp.supply_f - hp.return_f
+    target: 'ductless ? 35 : 25'
+    sets: hp.heat_rise
+    states:
+      - [low, v < 12]
+      - [high, 'v > (ductless ? 55 : 38)']
+      - [normal, 'true']
+
+  - id: hp.rv_suction_rise
+    name: Reversing-valve suction-path temperature rise
+    unit: °F
+    systems: [vc.ac, vc.hp]
+    value: hp.rv_comp_out_f - hp.rv_evap_in_f
+    target: '1'
+    sets: hp.rv_suction_rise
+    states:
+      - [high, v > 3]
+      - [normal, 'true']
+
+  - id: hp.strip_current
+    name: Aux strip current vs rated for the voltage applied
+    unit: '%'
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    let:
+      vr: hp.strip_rated_v ?? gen.volts_nominal ?? 240
+      vm: gen.volts ?? vr
+      k: '(hp.strip_phases ?? 1) == 3 ? 1.732 : 1'
+      rated_a: (hp.strip_kw * 1000) / (vr * k) * (vm / vr)
+    value: hp.strip_amps_meas / rated_a * 100
+    target: '100'
+    sets: hp.strip_amps
+    states:
+      - [zero, v < 10]
+      - [low, v < 75]
+      - [normal, 'true']
+
+causes:
+  # ======================= reversing valve (4-way valve) =======================
+  - id: hp.rv_24v_wrongly_on
+    name: Reversing valve stuck in cooling on a heat call — 24 V is still on an O-type coil (O shorted to R, or a stuck relay at the thermostat or defrost board)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter], rv_energized: [cool]}
+    prior: common
+    keywords: [o shorted to r, o wire shorted, reversing valve energized in heat, 24v on reversing valve in heat,
+      stuck in cooling, stuck relay on defrost board]
+    signs:
+      gen.output: none
+      hp.mode_actual: cooling_in_heat!
+      hp.rv_coil_24v: present_when_off!
+      hp.stat_ob_config: ok
+      hp.heat_rise: low!
+    confirm: |
+      The unit runs in cooling on a heat call, the thermostat is set to match an O-type valve (energized in
+      cooling), and metering the coil leads on the heat call shows 24 V that should not be there.
+    fix: |
+      Find where the 24 V is coming from by working back from the coil: pull the O wire at the air handler and then
+      at the thermostat, and watch the voltage on the coil leads. Look for O shorted to R (a nicked or stapled
+      thermostat cable, a pinched wire at a splice), a thermostat or sub-base relay stuck on, or a stuck relay on
+      the outdoor defrost board holding 24 V on the coil. Repair or replace whatever holds the voltage on, then
+      confirm the valve moves to heating on the next heat call.
+    refs: [practice]
+
+  - id: hp.rv_24v_absent
+    name: Reversing valve stuck in cooling on a heat call — no 24 V reaching a B-type (heat-energized) coil (open B wire, thermostat or defrost-board relay)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter], rv_energized: [heat]}
+    prior: common
+    keywords: [broken b wire, no 24v on b wire, b terminal dead, reversing valve signal missing, stuck in cooling]
+    signs:
+      gen.output: none
+      hp.mode_actual: cooling_in_heat!
+      hp.rv_coil_24v: absent_when_needed!
+      hp.stat_ob_config: ok
+      hp.heat_rise: low!
+    confirm: |
+      The unit runs in cooling on a heat call, the thermostat is set to match a B-type valve (energized in
+      heating), and the coil leads read 0 V when the heat call needs them energized.
+    fix: |
+      Trace the B circuit from the thermostat through the air handler splice and the outdoor defrost board to the
+      solenoid leads, metering as you go. The voltage drops out at the open wire, loose terminal, thermostat output
+      or board relay that is at fault. Repair the break, then confirm the valve shifts to heating on the next heat
+      call.
+    refs: [practice]
+
+  - id: hp.rv_coil_open
+    name: Reversing-valve solenoid coil open or burned out (a heat-energized valve, so it sits in cooling on a heat call)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter], rv_energized: [heat]}
+    prior: common
+    keywords: [bad reversing valve coil, solenoid coil open, 4 way valve coil bad]
+    signs:
+      gen.output: none
+      hp.mode_actual: cooling_in_heat!
+      hp.rv_coil_24v: as_required!
+      hp.rv_coil_ohms: open!
+      hp.heat_rise: low
+    confirm: |
+      24 V is present right at the reversing-valve solenoid leads on the heat call, but the coil reads open (∞ Ω)
+      or has no magnetic pull on a screwdriver tip.
+    fix: |
+      Lock out power, unclip or unscrew the retaining nut on the 4-way valve pilot solenoid, and slip on a
+      replacement coil of the same voltage matched to the valve body (no refrigerant recovery needed). Secure the
+      wires away from the hot discharge line so the insulation cannot melt.
+    notes: |
+      An open coil can only leave the valve in cooling on a heat call when the valve is energized in heating
+      (B-type). On an O-type valve the coil is off in heating anyway, so an open coil there shows up the other way
+      round, as heating when cooling is called.
+    refs: [practice]
+
+  - id: hp.rv_stuck_mech
+    name: Reversing valve mechanically stuck (main slide jammed or pilot capillary plugged)
+    systems: [vc.hp]
+    prior: occasional
+    keywords: [reversing valve stuck, 4 way valve jammed, valve wont shift, stuck reversing valve]
+    signs:
+      gen.output: none|weak
+      hp.mode_actual: cooling_in_heat!
+      hp.rv_coil_24v: as_required
+      hp.rv_coil_line_v: as_required
+      hp.rv_coil_ohms: ok!
+      hp.rv_shift: no_shift!
+      hp.stat_ob_config: ok
+      hp.heat_rise: low
+    confirm: |
+      The coil gets the right voltage for the mode called and tests good (strong magnetic pull if it is a 24 V
+      coil), but switching the coil with the compressor running produces no whoosh and the valve slide never
+      shifts.
+    fix: |
+      Before condemning the valve, check the charge and the pressure difference across it: a valve will not shift
+      without enough charge and a pumping compressor. Then, with the compressor running, cycle the coil while rapping
+      the valve body gently with a rubber mallet (never dent the brass body with a steel hammer, or it will
+      permanently bind). If it still will not shift or sticks again, recover the charge, remove the solenoid coil and
+      shield the pilot tubes, wrap the new 4-way valve in wet rags while brazing with a nitrogen purge, replace the
+      filter-drier, evacuate to 500 microns, and weigh in the charge.
+    safety: R-32 and R-454B are mildly flammable (A2L). Use an A2L-rated recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate or purge with nitrogen fully before brazing.
+    refs: [practice]
+
+  - id: hp.minisplit_rv_electrical
+    name: Ductless unit blowing cool air on a heat call — 4-way valve coil not energized (no line voltage from the board relay or harness) or the coil is open
+    systems: [vc.hp]
+    requires: {hp_unit: [minisplit]}
+    prior: occasional
+    keywords: [mini split blowing cold in heat, mini split cools in heat mode, wall unit cold air in heating,
+      4 way valve not energized mini split, ductless stuck in cooling]
+    signs:
+      gen.output: none
+      hp.mode_actual: cooling_in_heat!
+      hp.rv_coil_line_v: {absent_when_needed: 0.55, as_required: 0.45}
+      hp.rv_coil_ohms: {open: 0.45, ok: 0.55}
+      hp.heat_rise: low!
+    confirm: |
+      The head is on a heat call but blows cool air while the outdoor fan blows warm air. At the board's 4-way coil
+      connector (power on, call made) either the voltage the wiring diagram calls for is missing, or it is there and
+      the coil, checked with power off, reads open against the maker's figure.
+    fix: |
+      Read the maker's wiring diagram to see which mode energizes the coil. If the voltage is missing, check the
+      board relay output, the harness and connector (heat damage, corrosion, a loose pin), and any stored fault code
+      (look it up in the maker's manual) before replacing the outdoor board. If the voltage is there and the coil
+      reads open, replace the coil with the exact part for the valve (no refrigerant recovery needed) and keep its
+      leads clear of the hot discharge line.
+    safety: The 4-way coil circuit is line voltage. Lock out and verify dead before unplugging or swapping the coil, and use a CAT III meter for the live check.
+    refs: [practice]
+
+  - id: hp.rv_internal_leak
+    name: Reversing valve stuck mid-position or leaking internally (hot discharge gas bypassing into suction)
+    systems: [vc.ac, vc.hp]
+    prior: occasional
+    keywords: [reversing valve leaking through, 4 way valve bypass, reversing valve stuck mid position, hot gas bypass
+      in 4 way valve]
+    signs:
+      gen.output: weak!
+      hp.rv_suction_rise: high!
+      vc.evap_sat: high
+      vc.cond_sat: low
+      vc.superheat: low?
+      hp.heat_rise: low
+      vc.comp_amps: normal|low
+      vc.pumpdown: weak?
+    confirm: |
+      Touch-and-measure test on the 4-way valve body: the center tube leaving the valve toward the compressor is
+      more than 3–4 °F (often 8–20 °F) warmer than the evaporator return tube entering the valve, accompanied by
+      high suction pressure and low head pressure.
+    fix: |
+      First try cycling the solenoid several times under load to see if the slide seats fully. If the
+      suction-path temperature rise across the 4-way valve stays above 3–4 °F, the Teflon slide is scored
+      or warped (often from brazing too hot without wet rags or overheating on high discharge temp).
+      Recover the refrigerant, remove the solenoid coil and shield the pilot tubes, braze in a new reversing valve
+      with wet heat-sink wraps and a nitrogen sweep, replace the filter-drier, evacuate, and recharge by weight.
+    safety: R-32 and R-454B are mildly flammable (A2L). Use an A2L-rated recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate or purge with nitrogen fully before brazing.
+    notes: |
+      NIST TN 1648 Table 5.3.1 shows internal 4-way/compressor leakage raises evaporator saturation
+      temperature, lowers superheat, and drops condensing temperature and indoor air temperature rise. The
+      leak also bleeds discharge gas into suction, so the pump-down test fails the same way it does for weak
+      compressor valves. The 4-way valve suction rise check is what separates a leaking reversing valve from
+      weak compressor valves.
+    refs: [nist-tn1648, practice]
+
+  - id: hp.stat_ob_reversed
+    name: Thermostat reversing-valve (O/B) setting does not match the valve (set to O on a B valve, or to B on an O valve)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [thermostat o/b wrong, cools in heat and heats in cool, o b setting backwards, new thermostat blowing
+      cold in heat]
+    signs:
+      gen.recent_work: yes!
+      gen.output: none
+      hp.mode_actual: cooling_in_heat!
+      hp.stat_ob_config: reversed!
+      hp.rv_coil_24v: {present_when_off: 0.5, absent_when_needed: 0.45, as_required: 0.05}
+      hp.heat_rise: low
+    when:
+      - if: {rv_energized: cool}
+        signs:
+          hp.rv_coil_24v: present_when_off!
+      - if: {rv_energized: heat}
+        signs:
+          hp.rv_coil_24v: absent_when_needed!
+    confirm: |
+      Calling for heat runs the unit in cooling (and calling for cool runs it in heating), right after a
+      thermostat replacement or reset, and the installer menu has the O/B setting opposite to what the valve coil
+      needs (confirmed from the wiring diagram or by metering the coil leads in both modes).
+    fix: |
+      Change the reversing-valve O/B setting in the thermostat's installer menu to match the valve: O if the coil is
+      energized in cooling, B if it is energized in heating. Confirm which one you have from the wiring diagram or
+      the meter, not from the brand name. Then verify the outdoor unit shifts into heating on a heat call.
+    refs: [practice]
+
+  # ======================= defrost system =======================
+  - id: hp.defrost_board_failed
+    name: Defrost control board failed (timer IC or relay dead — never initiates defrost)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [bad defrost board, defrost control failed, outdoor unit frozen solid, wont go into defrost]
+    signs:
+      gen.output: weak
+      hp.outdoor_coil_ice: encased!
+      vc.evap_sat: low
+      hp.defrost_behavior: not_in_defrost!
+      hp.defrost_sensor: ok!
+      hp.defrost_test_pins: no_response!
+      hp.heat_rise: low
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Outdoor coil is encased in ice, 24 V power (R and C) and Y are present on the defrost board, the
+      defrost sensor tests good (closed/in-range), and shorting the TEST pins still fails to start defrost.
+    fix: |
+      Inspect the defrost board for cracked solder joints or a burned outdoor-fan relay. Thaw the outdoor
+      coil carefully with warm water (never chip ice off fins with a screwdriver), replace the defrost
+      control board, set the timer jumper (30/60/90 min), and verify a forced test-pin defrost shifts the
+      4-way valve, stops the outdoor fan, and energizes W2.
+    refs: [practice]
+
+  - id: hp.defrost_sensor_fault
+    name: Defrost coil sensor, defrost thermostat or outdoor ambient sensor open / drifted warm (never detects a freezing coil)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [bad defrost sensor, defrost thermostat open, defrost klixon bad, defrost thermistor drifted,
+      ambient sensor drifted, outdoor ambient sensor bad]
+    signs:
+      gen.output: weak
+      hp.outdoor_coil_ice: encased!
+      vc.evap_sat: low
+      hp.defrost_behavior: not_in_defrost
+      hp.defrost_sensor: open_or_drifted!
+      hp.defrost_test_pins: starts_when_sensor_jumped!
+      hp.heat_rise: low
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Outdoor coil is below 25 °F and iced solid, but the snap-disc defrost thermostat reads open (or the NTC
+      thermistor reads a warm resistance, or the ambient sensor on a demand-defrost board reads off the curve);
+      jumping the sensor terminals and TEST pins immediately starts defrost.
+    fix: |
+      Replace the defrost snap-disc thermostat or NTC coil thermistor, clip it tightly to the designated
+      bottom liquid/distributor return bend where frost forms first, insulate the bulb from wind if specified,
+      and thaw the coil before returning the unit to service. On a demand-defrost board, test the outdoor ambient
+      sensor the same way and replace it if it has drifted, since the board compares coil to ambient.
+    refs: [practice]
+
+  - id: hp.defrost_rv_no_shift
+    name: Defrost initiates, but reversing valve fails to shift (fan stops and W2 calls, outdoor coil stays cold)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: uncommon
+    keywords: [no hot gas in defrost, fan stops in defrost but coil stays cold, reversing valve wont shift in defrost]
+    signs:
+      gen.output: weak
+      hp.outdoor_coil_ice: encased
+      hp.defrost_behavior: fan_stops_no_hot_gas!
+      hp.defrost_sensor: ok?
+      hp.heat_rise: low?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      When defrost triggers, the outdoor fan stops and W2 energizes, but the reversing valve never moves to the
+      cooling position that sends hot discharge gas into the outdoor coil.
+    fix: |
+      Check whether the defrost board's reversing-valve relay is actually switching the O/B terminal during
+      defrost. If the board switches 24 V properly, check the solenoid coil and wiring to the 4-way valve;
+      if the board's O/B relay contact is burned open or stuck, replace the defrost board. If the board and the
+      coil both check out, run the shift test: the valve itself may be mechanically stuck.
+    refs: [practice]
+
+  - id: hp.defrost_fan_stays_on
+    name: Outdoor fan stays running during defrost (welded fan relay on defrost board or miswired fan)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: uncommon
+    keywords: [outdoor fan runs in defrost, fan doesnt stop in defrost, incomplete defrost]
+    signs:
+      gen.output: weak
+      hp.outdoor_coil_ice: partial_or_band!
+      hp.defrost_behavior: fan_runs_in_defrost!
+      hp.defrost_sensor: ok?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      During a defrost cycle, the reversing valve shifts to heat the outdoor coil, but the outdoor condenser
+      fan keeps spinning and blowing subfreezing air across the coil so the ice cannot finish melting.
+    fix: |
+      With the unit off, pull the fan lead from the defrost board's OF/FAN relay terminal and check if the
+      relay contacts on the board are welded closed (0 Ω between line in and fan out with no power). Replace
+      the defrost board if the relay is welded, or correct any field wiring where a tech landed the fan
+      motor directly on the contactor load side instead of through the defrost board.
+    refs: [practice]
+
+  - id: hp.defrost_no_terminate
+    name: Defrost runs too long or never terminates until the 10-minute backup limit (sensor stuck closed or unclipped)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: occasional
+    keywords: [stuck in defrost, defrost wont terminate, trips high pressure in defrost, steaming outdoor unit]
+    signs:
+      hp.defrost_behavior: runs_too_long!
+      hp.defrost_sensor: stuck_closed_or_loose!
+      hp.outdoor_coil_ice: none
+      vc.cond_sat: high?
+      vc.hps_trip: yes?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      All ice melts off within a few minutes and the outdoor coil is steaming hot, yet the unit stays in
+      defrost with the fan off until the 10-minute backup timer expires or the high-pressure switch trips.
+    fix: |
+      Check if the defrost termination sensor fell off the tube and is hanging in cold air. If it is clipped
+      tight to the hot liquid tube (>70 °F) and still reads closed (snap-disc) or high-resistance cold
+      (thermistor), replace the termination sensor.
+    refs: [practice]
+
+  - id: hp.defrost_nuisance
+    name: Nuisance defrost cycles in cold dry weather (timer set too short or a sensor reading falsely cold)
+    systems: [vc.hp]
+    prior: uncommon
+    keywords: [defrosting dry coil, nuisance defrost, defrosts with no ice, too many defrosts]
+    signs:
+      hp.defrost_behavior: nuisance_dry_coil!
+      hp.outdoor_coil_ice: none!
+      gen.output: weak?
+      vc.low_ambient: yes?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Unit enters defrost every 30 minutes even when the outdoor coil is completely bare and dry.
+    fix: |
+      On time-temperature defrost boards in dry climates (like polar/high-altitude stations), move the
+      timer pin from 30 minutes to 60 or 90 minutes. On a demand-defrost board or an inverter unit, check that the
+      coil thermistor has not drifted to a higher resistance, and that the outdoor ambient sensor has not drifted,
+      since either can fool the board into seeing a frost difference on a clean coil.
+    refs: [practice]
+
+  - id: hp.basepan_frozen
+    name: Outdoor basepan drain plugged or basepan heater failed — solid ice shelf in bottom of unit
+    systems: [vc.hp]
+    prior: occasional
+    keywords: [basepan frozen, bottom of coil iced, basepan heater bad, drain holes plugged with ice, cracked bottom u
+      bend]
+    signs:
+      hp.basepan_ice: solid_bottom!
+      hp.outdoor_coil_ice: partial_or_band!
+      vc.low_ambient: yes?
+      gen.output: weak?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Upper coil rows clear during defrost, but meltwater cannot escape the bottom pan — forming a thick
+      glacier that engulfs the lower refrigerant passes and can split the bottom return bends or hit the
+      fan blade.
+    fix: |
+      With the unit off, melt the basepan ice completely with warm water (never a heat gun, and never pry against
+      the copper return bends, which may already be split). Clear leaves and mud from the drain slots, remove
+      rubber shipping plugs if left in on a mini-split, verify the unit sits level on risers above the snow line,
+      and test/replace the electric basepan heater and its thermostat on cold-climate units.
+    refs: [practice]
+
+  - id: hp.defrost_cold_blow
+    name: Cold air blows from vents during defrost (W2 / defrost tempering wire open or disconnected)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [cold air during defrost, blows cold when defrosting, w2 wire disconnected, no aux heat in defrost]
+    signs:
+      hp.defrost_cold_air: yes!
+      hp.w2_defrost_call: missing_at_air_handler!
+      hp.defrost_behavior: normal_defrost
+      hp.heat_rise: low?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      The outdoor unit defrosts normally (shifts into cooling to melt outdoor frost), but the indoor air
+      handler never receives the 24 V W/W2 signal from the outdoor defrost board to energize tempering
+      strip heat, so 55 °F air blows into the rooms. Only a fault when the air handler has strips wired to the
+      defrost output.
+    fix: |
+      Connect and trace the W / W2 defrost tempering wire from the outdoor defrost board's W out terminal
+      to the indoor air handler's W1/W2 strip-heat terminal, and confirm the electric heat strips stage on
+      whenever a defrost cycle runs.
+    refs: [practice]
+
+  # ======================= auxiliary / emergency electric strip heat =======================
+  - id: hp.stat_em_heat_or_lockout
+    name: Thermostat left on Emergency Heat, or the compressor lockout set above today's outdoor temperature (the strips are doing all the work)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [emergency heat on, em heat, e heat, compressor lockout, heat pump not running strips on, high electric
+      bill, lukewarm air strip heat only, stuck in emergency heat]
+    signs:
+      hp.stat_staging: {em_heat: 0.5, comp_lockout: 0.45, ok: 0.05}
+      vc.comp: off!
+      hp.strip_amps: normal
+      gen.runs_constantly: yes?
+      gen.output: weak
+      hp.heat_rise: high?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      The thermostat shows Emergency Heat, or its installer menu locks the compressor out below an outdoor
+      temperature that is higher than today's. The compressor is off, the strips draw their normal amps, the air is
+      lukewarm to hot at the supply, and the unit runs constantly.
+    fix: |
+      Take the thermostat out of Emergency Heat. If the compressor lockout is the cause, lower it to what the
+      equipment allows (the maker's minimum outdoor temperature for compressor operation) and check the aux-heat
+      lockout and stage delays in the same menu. Explain to the customer that Emergency Heat is for a failed heat
+      pump, because it runs the strips only and costs far more to run.
+    refs: [practice]
+
+  - id: hp.aux_sequencer_failed
+    name: Aux heat sequencer or relay failed open (24 V on control coil, load contacts never close)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [bad sequencer, heat strip relay bad, aux heat not working, emergency heat blowing cold, sequencer open]
+    signs:
+      gen.output: weak|none
+      hp.heat_rise: low
+      hp.strip_amps: zero!
+      hp.w2_defrost_call: present_at_air_handler!
+      hp.strip_breaker: ok
+      hp.strip_limits: closed!
+      hp.sequencer_state: open_with_call!
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      24 V has been on the sequencer's low-voltage terminals for over 60 seconds, line voltage is present
+      and limits are closed, but the sequencer's high-voltage load contacts remain open (240 V across the
+      contacts, 0 A on the heater leads).
+    fix: |
+      Lock out power, label each wire by terminal (M1/M2, M3/M4, H1/H2), and replace the failed bimetal
+      heat sequencer or contactor with one of matching staging timing and contact rating. Verify all slip-on
+      spade terminals fit tightly so they do not overheat.
+    refs: [practice]
+
+  - id: hp.aux_limit_open
+    name: Aux heat thermal high-limit switch open or one-shot fusible link blown
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [fusible link blown, strip heat high limit open, thermal fuse open, no emergency heat]
+    signs:
+      gen.output: weak|none
+      hp.heat_rise: low
+      hp.strip_amps: zero!
+      hp.strip_breaker: ok
+      hp.w2_defrost_call: present_at_air_handler
+      hp.strip_limits: open!
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Heater circuit has 240 V and a 24 V call, but the snap-disc high-limit switch or ceramic fusible link
+      in series with the heater element reads open (∞ Ω with power off).
+    fix: |
+      Never bypass a thermal limit or fusible link. Before replacing an open limit or blown fuse link, find
+      why the heater rack overheated: check for a plugged filter, failed indoor blower, closed supply
+      registers, or a welded sequencer that ran the strips with the blower off. Replace with the exact
+      temperature-rated OEM limit assembly.
+    safety: Never jumper a heater high-limit or fusible link — uncooled nichrome strips can ignite duct liner.
+    refs: [practice]
+
+  - id: hp.aux_element_open
+    name: Electric heating element coil burned open (broken nichrome wire)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: occasional
+    keywords: [open heating element, broken heat strip wire, burned out strip element, half heat strips out]
+    signs:
+      gen.output: weak
+      hp.heat_rise: low
+      hp.strip_amps: zero|low
+      hp.strip_breaker: ok
+      hp.sequencer_state: ok
+      hp.strip_limits: closed
+      hp.element_ohms: open!
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Full 208/240 V is present directly across the heating element end terminals with the sequencer closed,
+      but that element bank draws 0 A and reads open (∞ Ω) with power locked out.
+    fix: |
+      Lock out power, slide the heater rack out of the air handler, inspect the ceramic stringers for a
+      broken or melted nichrome coil and check that no broken tail is touching the cabinet, and restring or
+      replace the heater element assembly. Check indoor airflow so the new element does not overheat.
+    refs: [practice]
+
+  - id: hp.aux_lockout_too_low
+    name: Outdoor aux-heat lockout thermostat or balance-point setting set too low (locks out strips in cold weather)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: occasional
+    keywords: [aux heat locked out, outdoor lockout thermostat, balance point setting wrong, w2 locked out]
+    signs:
+      gen.output: weak
+      gen.runs_constantly: yes
+      hp.outdoor_below_balance: yes
+      hp.w2_defrost_call: blocked_by_lockout!
+      hp.strip_amps: zero
+      hp.heat_rise: low|normal
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      The building is losing ground in cold weather while the heat pump runs nonstop, the strips work fine
+      when jumped at the air handler, and the thermostat or outdoor ambient lockout is blocking W2.
+    fix: |
+      Raise the auxiliary-heat lockout / balance-point temperature in the thermostat's installer setup (e.g.
+      from 15 °F up to 35–40 °F), or adjust/replace a drifted outdoor ambient lockout thermostat so auxiliary
+      heat can assist below the building's true balance point.
+    refs: [practice]
+
+  - id: hp.aux_breaker_off
+    name: Air-handler strip-heat breaker or disconnect off / tripped (separate circuit from blower)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [strip heat breaker off, second breaker tripped, emergency heat blows cold air, heater disconnect off]
+    signs:
+      gen.output: weak|none
+      hp.heat_rise: low
+      hp.strip_amps: zero!
+      hp.strip_breaker: off_or_tripped!
+      gen.power: present
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      The indoor blower and 24 V controls have power (from Circuit 1), but the second 30–60 A breaker or
+      pull-out feeding the electric strip banks is switched off or tripped (0 V across heater L1–L2).
+    fix: |
+      With power off, ohm the heater banks and wiring to ground first to make sure a grounded element or
+      shorted wire did not trip the breaker. Then restore the heater breaker, command Emergency Heat / W2,
+      and verify balanced amp draw on all strip stages.
+    refs: [practice]
+
+  - id: hp.aux_stuck_on
+    name: Electric heat strip stuck ON continuously (welded sequencer/relay or element shorted to grounded frame)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: occasional
+    keywords: [heat strips stuck on, welded sequencer, grounded element, overheating supply air, fighting cooling mode]
+    signs:
+      hp.sequencer_state: welded_or_grounded!
+      hp.heat_rise: high!
+      hp.strip_amps: normal|low
+      gen.burnt_smell: yes?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Clamp meter shows current on the electric heater leads with the thermostat off or in cooling, caused
+      either by a sequencer contact welded shut (240 V, full amps) or a sagging nichrome coil touching the
+      grounded metal rack (120 V to ground on one leg, ~half amps even with the sequencer open).
+    fix: |
+      Lock out power immediately — an energized strip with the blower off will cycle on the high-limit until
+      the limit fails. Ohm each element terminal to the metal frame (to catch a grounded coil) and across
+      each sequencer contact with 24 V disconnected (to catch a welded contact). Replace the failed
+      sequencer or grounded element rack, and inspect the high-limit switch for heat fatigue.
+    safety: Lock out all air-handler breakers before opening the heater compartment; a grounded strip stays hot on one leg even when the sequencer is open.
+    refs: [practice]
+
+  # ======================= heating-mode refrigerant & airflow =======================
+  - id: hp.outdoor_txv_starving
+    name: Outdoor (heating) metering device stuck closed or restricted — starves in heating, cools normally
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: occasional
+    keywords: [heating txv stuck, outdoor txv bad, outdoor piston plugged, starves in heat only, cools fine wont heat]
+    signs:
+      gen.output: weak
+      hp.cooling_mode_ok: yes!
+      hp.check_valve_test: outdoor_heating_restricted!
+      vc.evap_sat: low!
+      vc.superheat: high!
+      vc.subcool: high?
+      vc.discharge_temp: high?
+      hp.heat_rise: low
+      vc.cond_sat: low?
+      vc.lps_trip: yes?
+    confirm: |
+      In heating mode suction pressure dives and outdoor-coil superheat is very high, but when the outdoor air is
+      warm enough to run it, switching the unit into cooling brings pressures, superheat, and subcooling right
+      back to normal. Liquid backs up behind the starved device, so subcooling runs high, which is what separates
+      it from an undercharge.
+    fix: |
+      Inspect the outdoor heating TXV sensing bulb (must be tight and insulated on the outdoor suction
+      header) and warm the bulb to see if the valve opens. If the power head is dead, the inlet screen is
+      plugged, or the outdoor heating piston is clogged, recover the charge, clean or replace the outdoor
+      metering assembly and bi-flow filter-drier, evacuate to 500 microns, and weigh in the charge.
+    safety: R-32 and R-454B are mildly flammable (A2L). Use an A2L-rated recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate or purge with nitrogen fully before brazing.
+    refs: [practice]
+
+  - id: hp.indoor_check_valve_stuck
+    name: Indoor bypass check valve stuck closed in heating (forces the condensed liquid through the indoor metering device)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: uncommon
+    keywords: [indoor check valve stuck closed, cools fine weak heat, temperature drop across indoor metering device,
+      frost on indoor metering device in heat]
+    signs:
+      gen.output: weak
+      hp.cooling_mode_ok: yes!
+      hp.check_valve_test: indoor_bypass_stuck!
+      vc.evap_sat: low
+      vc.superheat: high
+      vc.cond_sat: low|normal
+      vc.subcool: low?
+      vc.hps_trip: 'no'
+    confirm: |
+      Unit cools fine, but in heating suction is low and superheat is high. Head pressure reads normal to low at the
+      liquid port, because that port sits downstream of the stuck valve, and the high-pressure switch does not trip.
+      There is a sharp temperature drop (or frost) across the indoor metering assembly where the bypass check valve
+      is failing to open.
+    fix: |
+      Lightly tap the brass check-valve body while switching between cooling and heating to see if a stuck
+      Teflon ball or flapper frees up. If it stays restricted in heating, recover the charge, replace the
+      indoor check-valve / piston housing (or bi-flow TXV), install a new bi-flow filter-drier, evacuate,
+      and recharge by weight.
+    safety: R-32 and R-454B are mildly flammable (A2L). Use an A2L-rated recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate or purge with nitrogen fully before brazing.
+    notes: |
+      A liquid-line restriction leaves condensing temperature about where it was and drops subcooling (NIST TN 1648
+      Table 5.4.1), so this fault is easy to miss on the head reading. Do not expect a high head or a high-pressure
+      trip from it.
+    refs: [nist-tn1648, practice]
+
+  - id: hp.outdoor_check_valve_leak
+    name: Outdoor check valve leaking through in heating (bypasses outdoor metering device and floods compressor)
+    systems: [vc.hp]
+    requires: {hp_unit: [ducted, inverter]}
+    prior: uncommon
+    keywords: [outdoor check valve leaking, flooding in heating mode, low superheat in heat only, sweating compressor in
+      heat]
+    signs:
+      gen.output: weak
+      hp.cooling_mode_ok: yes
+      hp.check_valve_test: outdoor_bypass_leaking!
+      vc.superheat: low!
+      vc.evap_sat: high
+      vc.subcool: low
+      vc.discharge_temp: low
+      vc.comp_sweat: yes
+      hp.heat_rise: low
+      vc.cond_sat: low
+    confirm: |
+      In heating mode, superheat at the compressor drops near zero with a sweating/frosted accumulator and
+      high suction pressure because liquid is bypassing around the outdoor TXV/orifice through a failed
+      outdoor check valve.
+    fix: |
+      Do not leave the unit running with liquid floodback. Recover the refrigerant, replace the leaking
+      outdoor check valve (using wet heat-sink rags so the new seat is not heat-damaged during brazing) and
+      the bi-flow filter-drier, evacuate to 500 microns, and weigh in the charge.
+    safety: R-32 and R-454B are mildly flammable (A2L). Use an A2L-rated recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate or purge with nitrogen fully before brazing.
+    refs: [practice]
+
+  - id: hp.heating_low_indoor_airflow
+    name: Low indoor airflow in heating — dirty filter, closed or crushed ducts, or a dirty indoor coil (the indoor coil is the condenser)
+    systems: [vc.hp]
+    prior: common
+    keywords: [high pressure trip in heating, high head in heat mode, dirty filter heat pump, low indoor airflow heating,
+      closed registers heat pump, restricted ducts heating, dirty indoor coil heating]
+    signs:
+      gen.output: weak?
+      vc.filter: dirty
+      vc.static: high
+      vc.evap_fan: weak?
+      vc.ducts: restricted?
+      vc.evap_dirty: yes?
+      hp.heat_rise: {high: 0.6, normal: 0.38, low: 0.02}
+      vc.cond_sat: {high: 0.6, normal: 0.38, low: 0.02}
+      vc.hps_trip: yes?
+      vc.evap_sat: normal?
+      vc.discharge_temp: high?
+      vc.comp_amps: high?
+      gen.short_cycle: yes?
+    confirm: |
+      With the indoor coil acting as the condenser, a loaded filter, closed or crushed ducts, or a matted indoor
+      coil show up as high external static, weak air at the registers and an air rise above the normal band
+      (over about 38 °F ducted), with head pressure climbing toward the high-pressure cutout. A mild restriction
+      moves the numbers only a little, so rest the call on what you can see: the filter, the static reading, the
+      registers and the coil face.
+    fix: |
+      Check the indoor air filter first, then inspect supply registers, return dampers, the indoor coil face
+      (and secondary heat exchanger if dual-fuel), and indoor blower speed/capacitor. Restore full indoor
+      CFM (~400 CFM per ton) before resetting the high-pressure switch.
+    notes: |
+      NIST TN 1648 Table 5.1.1: reducing indoor (condenser) airflow in heating mode strongly raises
+      indoor air temperature rise (+32% at the largest fault, about 30% less air), condensing saturation
+      temperature (about +5 °F) and discharge temperature (+4%) while barely changing evaporator saturation
+      temperature. Those are small moves, so the head and rise often still read normal until the restriction is
+      severe.
+    refs: [nist-tn1648, practice]
+
+  - id: hp.indoor_blower_failed_heating
+    name: Indoor blower not running or running slow in heating (motor, run capacitor, relay or control board) — the indoor coil overheats and the head climbs
+    systems: [vc.hp]
+    prior: common
+    keywords: [indoor blower not running heat pump, blower motor bad in heat, no air from vents heat pump, blower
+      capacitor bad, air handler fan not coming on, high pressure trip no airflow]
+    signs:
+      gen.output: none|weak
+      vc.evap_fan: {off: 0.6, weak: 0.35, running: 0.05}
+      vc.cap: bad?
+      vc.filter: clean?
+      vc.static: low?
+      vc.hps_trip: yes?
+      vc.cond_sat: high?
+      hp.heat_rise: high?
+    confirm: |
+      The compressor and outdoor fan run on the heat call but the indoor blower is not turning, or turns slowly and
+      moves little air, while the head climbs and the high-pressure switch trips. With a clean filter and low
+      static, the airflow problem is the blower, not the ducts.
+    fix: |
+      Voltage at the motor decides it: present means the motor or its run capacitor, absent means the blower relay,
+      the control board or the fan-delay logic. With voltage at the motor, test the capacitor, spin the shaft for
+      seized bearings, and ohm the windings and thermal protector. On an ECM motor check the control signal and the
+      motor's own plug before condemning it. With no voltage, check the fan relay, the board output and the
+      thermostat G call. Do not leave the compressor running with no indoor airflow, because it will trip on high
+      pressure.
+    safety: Keep the heat strips off until the blower runs. A strip with no airflow overheats the heater rack and can open the limit or the fusible link.
+    refs: [practice]
+
+  - id: hp.outdoor_coil_blocked_heating
+    name: Outdoor coil (heating evaporator) blocked by snow drift, freezing-rain glaze, leaves, a cover, or a matted, dirty coil face
+    systems: [vc.hp]
+    prior: common
+    keywords: [snow drift on heat pump, outdoor unit covered in snow, freezing rain on heat pump, blocked outdoor coil
+      heating, dirty outdoor coil heat pump, matted outdoor coil, cottonwood on outdoor coil]
+    signs:
+      gen.output: weak!
+      hp.outdoor_airflow_heating: blocked_snow_or_debris!
+      vc.evap_sat: low!
+      vc.cond_sat: low
+      hp.heat_rise: low
+      vc.discharge_temp: high?
+      vc.superheat: high?
+      vc.cond_dirty: yes?
+      vc.cond_airpath: blocked?
+      hp.cooling_mode_ok: yes?
+    when:
+      - if: {metering: [txv, eev]}
+        signs:
+          vc.superheat: {normal: 0.45, high: 0.5, low: 0.05}
+    confirm: |
+      The outdoor coil is starved of air by drifted snow, an ice shell from freezing rain, leaves, a cover, or a
+      mat of dirt and cottonwood on the coil face, pulling evaporator saturation temperature way down and dropping
+      indoor condensing pressure and supply air rise.
+    fix: |
+      Shovel snow clear with at least 24 in. of breathing room around all sides of the outdoor unit, melt
+      any freezing-rain shell with warm water, remove debris or covers, and install a snow hood / wind
+      baffle or higher snow stand if drifts regularly bury the coil. If the coil face is matted, power off and
+      clean it from the inside out with coil cleaner and low-pressure water, then comb the fins.
+    notes: |
+      NIST TN 1648 Table 5.2.1: outdoor (evaporator) airflow blockage in heating mode produces the largest
+      capacity loss (−24%) of any single fault, with a steep drop in evaporator saturation temperature and
+      condensing temperature, and rising superheat and discharge temperature.
+    refs: [nist-tn1648, practice]
+
+  - id: hp.outdoor_fan_failed_heating
+    name: Outdoor fan not running or running slow in heating (motor, run capacitor, defrost-board fan relay, DC fan driver, or ice locking the blade)
+    systems: [vc.hp]
+    prior: occasional
+    keywords: [outdoor fan off in heat, outdoor fan motor bad in heating, fan not spinning heat pump, outdoor fan
+      capacitor bad, outdoor fan slow heat pump]
+    signs:
+      gen.output: weak
+      vc.cond_fan: {off: 0.65, slow: 0.3, running: 0.05}
+      hp.defrost_behavior: normal_defrost|not_in_defrost
+      vc.evap_sat: low!
+      vc.cond_sat: low!
+      hp.heat_rise: low
+      hp.outdoor_coil_ice: encased?
+      vc.cap: bad?
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Compressor is running in normal heating (not in a defrost cycle), the outdoor fan blade is still or turning
+      slowly, and suction pressure and outdoor coil temperature plummet instead of rising as they would in cooling
+      mode.
+    fix: |
+      Check whether 208/240 V is leaving the defrost board's outdoor-fan relay (OF/FAN) to the motor. If
+      voltage reaches the motor, test the fan run capacitor, check whether ice in the shroud is locking the
+      blade, and ohm the motor windings. If voltage stops at the defrost board while not in defrost, the
+      board's NC fan relay contact has burned open — replace the defrost board. On a ductless or inverter unit
+      the outdoor fan is usually a DC motor driven from the board: there is no capacitor to test, so check the
+      board's fan output, the motor connector and the motor against the maker's data.
+    refs: [nist-tn1648, practice]
+
+  - id: hp.below_balance_point
+    name: Outdoor ambient below the heat pump's thermal balance point (pressures normal for deep cold — needs aux heat)
+    systems: [vc.hp]
+    prior: common
+    keywords: [below balance point, too cold outside for heat pump, runs constantly in cold weather, lukewarm air in
+      extreme cold]
+    signs:
+      gen.output: weak
+      gen.runs_constantly: yes!
+      vc.low_ambient: yes
+      hp.outdoor_below_balance: yes!
+      hp.outdoor_coil_ice: none
+      hp.outdoor_airflow_heating: clear
+      vc.evap_sat: normal
+      vc.superheat: normal
+      vc.subcool: normal
+      hp.heat_rise: low|normal
+      hp.cooling_mode_ok: yes?
+    confirm: |
+      Outdoor coil is clean and clear of ice, suction grades normal for the outdoor air (the coil runs only about
+      3–18 °F below it), superheat and subcooling are on target, and the compressor is running flat out below the
+      building's balance point.
+    fix: |
+      Do not add refrigerant to try to raise suction pressure in cold weather — that will seriously
+      overcharge the system when weather warms up. Verify that auxiliary electric strip heat or backup
+      hydronic/furnace heat is enabled and staging on to supplement the heat pump below its balance point.
+    refs: [nist-tn1648, practice]
+
+  # ======================= inverter & ductless mini-split specifics =======================
+  - id: hp.minisplit_comm_error
+    name: Mini-split indoor–outdoor communication error (open/spliced signal wire, miswiring, or dead outdoor board supply)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit, inverter]}
+    prior: very_common
+    keywords: [communication error, mini split blinking light, s2 s3 error, serial communication fault, indoor outdoor
+      communication fault]
+    signs:
+      gen.output: none
+      vc.comp: off
+      hp.inverter_code: comm_error!
+      hp.comm_signal: dead_or_noisy!
+    confirm: |
+      Indoor head displays a communication fault code (look it up in the maker's table) or a blinking indicator LED,
+      and metering the serial link terminal (labeled S, S2–S3, 2–3 or similar) to the common shows steady 0 V, a
+      stuck DC voltage, or a dead outdoor board instead of the normal unsteady, sweeping DC signal.
+    fix: |
+      1. Verify 208/240 V line power at the outdoor terminals L1–L2 and check that the indoor-to-outdoor
+         interconnect cable lands terminal-for-terminal (1 to 1, 2 to 2, 3/S to 3/S — never crossed).
+      2. Inspect the interconnect run for wire-nut splices (most manufacturers forbid splices on the serial
+         link), nicked insulation, or high-voltage induction; pull a continuous cable of the gauge and
+         conductor count the install manual calls for if it is spliced.
+      3. Disconnect the signal wire at the outdoor board and measure the board's open-circuit DC output: if
+         the outdoor board has line power and good fuses/thermistor/rectifier but outputs 0 V DC with no
+         status LEDs, replace the outdoor main board.
+    safety: >-
+      Inverter outdoor board: breaker off, wait the maker's stated time (never less than 5 minutes), then confirm
+      under 10 V DC across P(+) and N(−) with a CAT III 600 V meter before unplugging any harness (compressor U/V/W,
+      EEV, thermistor, serial) or touching the board. Unplug the compressor leads from the board before any megger
+      test. A live DC bus reads roughly 300–400 V DC: insulated probes, one hand, and never while unplugging.
+    refs: [practice]
+
+  - id: hp.inverter_ipm_fault
+    name: Inverter compressor drive / IPM fault (shorted IGBT module, failed DC bus capacitor or reactor)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit, inverter]}
+    prior: occasional
+    keywords: [ipm error, inverter board bad, compressor twitches and stops, igbt shorted, dc bus fault]
+    signs:
+      gen.output: none
+      vc.comp: off|hums
+      hp.inverter_code: ipm_or_drive!
+      hp.ipm_diode_test: failed!
+      hp.inverter_comp_phases: balanced_ok!
+    confirm: |
+      Compressor windings U–V–W test balanced and clean to ground, but the unit faults out on a drive or IPM code
+      (as the maker's table defines it) and the diode test across P(+)/N(−) to U, V, W on the outdoor inverter
+      board shows a shorted or open leg. A DC bus well below the maker's normal figure supports it, but that is a
+      live 300–400 V DC measurement, so see the safety note before taking it.
+    fix: |
+      Lock out power and wait the maker's stated time (never less than 5 minutes) for the DC bus capacitors to
+      discharge, then verify under 10 V DC before touching the board. Always test the compressor windings (U–V–W
+      balance and megger to ground, with the leads off the board) before installing a new inverter PCB so a shorted
+      compressor does not immediately blow the replacement IPM. Apply fresh thermal paste uniformly under the IPM
+      heat sink and torque the mounting screws evenly.
+    safety: >-
+      Inverter outdoor board: breaker off, wait the maker's stated time (never less than 5 minutes), then confirm
+      under 10 V DC across P(+) and N(−) with a CAT III 600 V meter before unplugging any harness (compressor U/V/W,
+      EEV, thermistor, serial) or touching the board. Unplug the compressor leads from the board before any megger
+      test. A live DC bus reads roughly 300–400 V DC: insulated probes, one hand, and never while unplugging.
+    refs: [practice]
+
+  - id: hp.inverter_comp_winding
+    name: Inverter BLDC compressor winding fault or seized/demagnetized rotor
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit, inverter]}
+    prior: occasional
+    keywords: [inverter compressor bad, u v w resistance unequal, grounded inverter compressor, locked rotor mini split]
+    signs:
+      gen.output: none
+      vc.comp: off|hums
+      hp.inverter_code: ipm_or_drive!
+      hp.inverter_comp_phases: {imbalanced_or_grounded: 0.55, balanced_ok: 0.4}
+      hp.ipm_diode_test: ok?
+    confirm: |
+      With the U, V, W harness unplugged from the inverter board, phase-to-phase resistances (U–V, V–W,
+      U–W) are unequal, open, or read to ground — or, with all three phases equal and clean to ground, the
+      compressor sputters and stalls (seized or demagnetized rotor, high start current) on a board whose IPM
+      and DC bus test good.
+    fix: |
+      Replace the inverter compressor (and inspect/diode-check the IPM board at the same time, as a grounded
+      winding often takes out an IGBT leg). Flush or clean the circuit if the oil is dark or acidic, install
+      a new filter-drier, evacuate to below 500 microns, and weigh in the exact factory charge.
+    safety: >-
+      Inverter outdoor board: breaker off, wait the maker's stated time (never less than 5 minutes), then confirm
+      under 10 V DC across P(+) and N(−) with a CAT III 600 V meter before unplugging any harness (compressor U/V/W,
+      EEV, thermistor, serial) or touching the board. Unplug the compressor leads from the board before any megger
+      test. A live DC bus reads roughly 300–400 V DC: insulated probes, one hand, and never while unplugging.
+    refs: [practice]
+
+  - id: hp.eev_coil_open
+    name: Mini-split EEV stepper coil open, shorted or unplugged
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit, inverter]}
+    prior: common
+    keywords: [eev coil open, bad eev stepper motor, eev not clicking, electronic expansion valve coil bad]
+    signs:
+      gen.output: none|weak
+      hp.eev_coil_ohms: open_or_short!
+      hp.eev_init_click: silent!
+      hp.inverter_code: eev_or_sensor?
+      vc.superheat: high|low
+    confirm: |
+      EEV makes no initialization clicking sound when breaker power is cycled, and ohming the 5- or 6-pin
+      EEV stepper plug shows an open or shorted winding pair.
+    fix: |
+      With the board made safe first (see the safety note), unclip the failed stepper motor head from the brass EEV
+      body (no refrigerant recovery is required to swap the external coil), plug the new stepper coil into the
+      board, secure its locking clip so it seats squarely on the spindle, and cycle power to hear the
+      initialization step sequence.
+    safety: >-
+      Inverter outdoor board: breaker off, wait the maker's stated time (never less than 5 minutes), then confirm
+      under 10 V DC across P(+) and N(−) with a CAT III 600 V meter before unplugging any harness (compressor U/V/W,
+      EEV, thermistor, serial) or touching the board. Unplug the compressor leads from the board before any megger
+      test. A live DC bus reads roughly 300–400 V DC: insulated probes, one hand, and never while unplugging.
+    refs: [practice]
+
+  - id: hp.eev_body_stuck
+    name: Mini-split EEV valve body mechanically stuck (needle seized closed or open)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit, inverter]}
+    prior: occasional
+    keywords: [eev stuck, eev body jammed, electronic expansion valve stuck closed, eev magnet test]
+    signs:
+      gen.output: weak|none
+      hp.eev_coil_ohms: ok!
+      hp.eev_init_click: clicks_no_flow_change!
+      hp.flare_joint: tight_clean?
+      vc.evap_sat: low|high
+      vc.superheat: high|low
+    confirm: |
+      All four stepper coil windings ohm balanced and the coil clicks at power-up, but the valve needle does
+      not open or close (starving with frost at the outdoor EEV outlet, or flooding right through).
+    fix: |
+      With the board made safe first (see the safety note), remove the stepper coil and rotate a cylindrical EEV
+      service magnet around the brass spindle while gently tapping the valve body to free grit or copper oxide on
+      the needle threads. If it frees up, reinstall the coil and power-cycle to home it. If the internal rotor
+      remains seized, recover the charge, take the stepper coil off so the heat cannot reach it, braze in a new
+      EEV body wrapped in wet heat-sink rags with a nitrogen purge, evacuate deeply, and weigh in the factory
+      charge.
+    safety: >-
+      Inverter outdoor board: breaker off, wait the maker's stated time (never less than 5 minutes), then confirm
+      under 10 V DC across P(+) and N(−) with a CAT III 600 V meter before unplugging any harness (compressor U/V/W,
+      EEV, thermistor, serial) or touching the board. R-32 and R-454B are mildly flammable (A2L): use an A2L-rated
+      recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate
+      or purge with nitrogen fully before brazing.
+    refs: [practice]
+
+  - id: hp.thermistor_drifted
+    name: NTC thermistor drifted out of curve, or loose off its coil (coil, discharge, ambient or room sensor reporting a false temperature)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit, inverter]}
+    prior: common
+    keywords: [bad thermistor, sensor drifted, mini split ramps down early, discharge thermistor fault, coil sensor out
+      of range, thermistor loose, sensor off the coil, never defrosts, defrosts constantly]
+    signs:
+      gen.output: weak
+      gen.short_cycle: yes?
+      hp.thermistor_check: {drifted_or_open: 0.6, loose_or_misplaced: 0.35, ok: 0.05}
+      hp.inverter_code: eev_or_sensor?
+      hp.outdoor_coil_ice: partial_or_band|encased?
+      vc.evap_sat: normal?
+      vc.cond_sat: normal?
+    confirm: |
+      Unplugging the thermistor and comparing its kΩ resistance against a calibrated thermometer (or a 32 °F
+      ice-water bath) shows it is off the manufacturer's resistance-vs-temperature curve, or it reads right at the
+      bulb but the bulb is loose or out of its well and not touching the coil it should read, causing the inverter to
+      throttle down compressor Hz, lock out prematurely, or defrost wrongly (never, or all the time).
+    fix: |
+      With the board made safe first (see the safety note), replace the drifted NTC thermistor (confirm
+      whether the position uses a 5 kΩ, 10 kΩ, 15 kΩ, 50 kΩ, or 200 kΩ @ 25 °C curve — discharge sensors use a much
+      higher resistance rating than coil/air sensors), seat it all the way into its copper well with thermal grease,
+      and clip it tight. If the sensor tests good, re-seat it on the exact coil spot and clip the maker's way.
+    safety: >-
+      Inverter outdoor board: breaker off, wait the maker's stated time (never less than 5 minutes), then confirm
+      under 10 V DC across P(+) and N(−) with a CAT III 600 V meter before unplugging any harness (compressor U/V/W,
+      EEV, thermistor, serial) or touching the board. Unplug the compressor leads from the board before any megger
+      test. A live DC bus reads roughly 300–400 V DC: insulated probes, one hand, and never while unplugging.
+    refs: [practice]
+
+  - id: hp.minisplit_flare_leak
+    name: Mini-split flare-joint refrigerant leak (cracked flare, wrong torque, or thermal expansion)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    prior: very_common
+    keywords: [mini split leak, leaking flare nut, low charge mini split, frost on small service valve, flare leak]
+    signs:
+      gen.output: weak
+      hp.flare_joint: oil_or_leak!
+      vc.oil: yes
+      vc.leak_found: yes?
+      vc.evap_sat: low
+      vc.superheat: high
+      vc.subcool: low
+      vc.cond_sat: low?
+      hp.heat_rise: low?
+      vc.evap_frost: partial?
+    confirm: |
+      Oil residue, soap bubbles, or an electronic leak-detector alarm at the indoor whip union or outdoor
+      service-valve flare nuts, often accompanied by frost on the small two-phase liquid line and weak
+      output. Subcooling has collapsed, which is the tell that separates a shortage from a restriction.
+    fix: |
+      Recover any remaining refrigerant, undo the leaking flare union, cut back the old flare, slide the
+      forged 45° mini-split flare nut on first, ream lightly, form a fresh concentric flare with an orbital
+      flaring block, apply a tiny drop of the refrigerant oil the maker calls for (or Nylog) to the flare face, and tighten
+      with a torque wrench to the maker's spec (typically 1/4 in.: 11–14 ft-lb; 3/8 in.: 25–30 ft-lb; 1/2 in.:
+      36–45 ft-lb; 5/8 in.: 45–55 ft-lb). Pressure-test with dry nitrogen to the unit's nameplate design test
+      pressure, never above it (older R-22 ductless units are lower), pull a deep vacuum below 500 microns, and weigh
+      in the nameplate charge plus or minus the manual's ounces per foot for the actual line-set length
+      (mini-splits have no liquid-line sight glass and expand inside the outdoor unit, so always charge by weight).
+    safety: R-32 and R-454B are mildly flammable (A2L). Use an A2L-rated recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate or purge with nitrogen fully before brazing.
+    refs: [practice]
+
+  - id: hp.blower_wheel_packed
+    name: Mini-split indoor cross-flow blower wheel packed with biofilm and lint (barely any air throw, surging noise)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    prior: occasional
+    keywords: [dirty mini split blower wheel, mold on wheel, surging noise, weak airflow wall unit, cleaning mini split
+      wheel]
+    signs:
+      gen.output: weak
+      hp.crossflow_wheel: caked_surging!
+      vc.evap_fan: weak
+      vc.evap_split: high?
+      hp.heat_rise: high?
+    confirm: |
+      Looking into the discharge louver with a flashlight shows the curved tangential blades of the
+      cylindrical blower wheel filled with dark biofilm/lint; even a 1/16 in. coating spoils the aerodynamic
+      scoop of a cross-flow wheel so air barely leaves the head and surges rhythmically.
+    fix: |
+      Lock out power, remove the plastic cabinet shroud and louvers, bag the indoor head with a mini-split
+      wash bib (protecting the right-side control board and louver stepper motors from water), or pull the
+      blower wheel out by loosening the left bearing cup and right motor set-screw. Wash the wheel blades
+      and coil clean with low-pressure water and coil cleaner, dry thoroughly, and reassemble.
+    refs: [practice]
+
+  - id: hp.minisplit_cond_pump
+    name: Mini-split condensate pump or pan float switch failed (overflow lockout or water dripping down wall)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    prior: common
+    keywords: [mini split leaking water, condensate pump bad, float switch mini split, overflow alarm wall head]
+    signs:
+      hp.cond_pump_state: pump_or_float_fault!
+      gen.water_leak: yes
+      vc.drain: clogged?
+      gen.output: none|weak
+    confirm: |
+      Indoor pan is full of water or the head shuts off on a drain-float error; the mini-pump reservoir
+      float is stuck with slime, the diaphragm pump buzzes without pumping, or the safety switch is open.
+    fix: |
+      Flush the indoor drain pan and clear biofilm from the small float reservoir and reed magnet. Check
+      that the discharge vinyl tubing is not kinked or siphoning back without a vent. Replace a noisy or
+      burned-out mini-pump, and pour water into the pan to verify both pump cut-in and high-water cutoff.
+    refs: [practice]
+
+  - id: hp.multizone_crossed
+    name: Multi-zone branch box or outdoor port wiring crossed (pipes go to head A, control wires go to head B)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    prior: occasional
+    keywords: [multi zone wired wrong, crossed pipes and wires, wrong head gets cold, branch box ports crossed]
+    signs:
+      gen.recent_work: yes!
+      gen.output: none|weak
+      hp.multizone_mismatch: crossed_pipes_wires!
+      vc.evap_frost: heavy?
+    confirm: |
+      Calling for cooling or heating on Indoor Head A opens the EEV for Port A at the outdoor unit / branch
+      box, which is piped to Indoor Head B — so Head B's coil floods (freezing solid in cooling or baking in
+      heating with its fan off) while Head A blows room-temperature air and never satisfies.
+    fix: |
+      Run one zone at a time (or use the outdoor unit's wiring/piping check mode if equipped) to map which
+      control cable (A, B, C, D) matches which pair of liquid and gas flares. Move the control cables at the
+      outdoor unit or branch box so every port's electrical plug matches its refrigerant lines.
+    notes: |
+      Rule out the normal one-mode-at-a-time behavior of a non-heat-recovery multi-zone unit first (see the
+      mode-conflict cause): a head waiting in standby while another head runs the opposite mode is not crossed.
+    refs: [practice]
+
+  - id: hp.multizone_mode_conflict
+    name: Multi-zone heads asking for opposite modes (normal behavior, not a fault — the outdoor unit serves one mode at a time and the second head waits)
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [minisplit]}
+    prior: common
+    keywords: [multi zone head wont heat, multi zone head wont cool, head blinking standby, mode conflict, one head
+      heating one head cooling, head waiting]
+    signs:
+      hp.multizone_modes: mixed_modes!
+      gen.output: none|weak
+      vc.comp: running?
+    confirm: |
+      One head is running in the mode it was first called for while another head, set to the opposite mode, sits in
+      standby (often blinking) and delivers nothing. Nothing is broken: the outdoor unit can serve only one mode at a
+      time.
+    fix: |
+      Nothing needs repair. Set all the heads to the same mode, or let the first mode finish before the other head
+      takes its turn, and explain this to the customer. If they need heating in one room and cooling in another at
+      the same time, that takes equipment that can run both modes at once (a heat-recovery type, per the maker's
+      literature), which is an equipment choice.
+    refs: [practice]

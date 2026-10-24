@@ -1,0 +1,3001 @@
+module: boiler-oil
+title: Oil-fired heating — pressure-gun burners, boilers (hot water and steam) and warm-air furnaces
+notes: |
+  Burner, control and steam-side directions follow US Army TM 5-642 (1990) where it speaks: the oil-burner
+  troubleshooting list (¶3-13d), ignition and draft procedure (¶3-11), combustion safeguards and low-water
+  cutoffs (¶7-13), limit controls (¶7-11, ¶6-39), warm-air troubleshooting (¶6-40), water-level and steam
+  difficulties (¶4-77 to 4-87) and feeder/cutoff testing (¶4-35). TM 5-642 predates CAD-cell detail and gives
+  no smoke-spot, CAD-cell or pump-vacuum limits, so those thresholds are general field practice (cited
+  `practice`) and are said so in `notes`. Everything is in our own words.
+  Combustion numbers: TM 5-642 wants ≈10 % CO2 after adjustment and treats a burner that cannot reach 5 % O2
+  without smoke as a replacement candidate; flame-retention burners today are tuned to 11–12.5 % CO2
+  (4–5.5 % O2) with a smoke spot of 1 or less. The `blr.o2` window (3–8 %) covers both. Stack temperature: TM
+  5-642 ¶7-9f says most furnaces and boilers run 400–600 °F stack; we flag net stack over 600 °F (fouled or
+  overfired) and under 275 °F (condensing, flue corrosion).
+  Draft: TM 5-642 quotes draft unsigned — set it to 0.02–0.04 in. w.c. to start (¶3-11b(1)) and says starting
+  conditions need about 0.03–0.06 in the firebox (¶3-13f). In this module draft is typed as a NEGATIVE number (a
+  plus sign means pressure over the fire); practice for a flame-retention burner is about −0.02 in. w.c. over the
+  fire and −0.04 to −0.06 at the breech.
+  Fuel in the cold: No. 2 oil clouds around +10 to +20 °F untreated and gels a few degrees lower. Kerosene /
+  No. 1 / JP-8 / AN8 / arctic diesel stay fluid to about −40 °F, but below that, in outdoor tanks and lines, they
+  can cloud too (check the lot's cloud or freeze point). So waxing is a live cause on every grade: on No. 2 it
+  needs cold weather, on the kerosene-class fuels it needs deep cold plus hard evidence (cloudy sample, waxed
+  filter), and `fuel_type` sets how strict the engine is. Water and ice in the fuel, an iced tank vent and
+  plain thick fuel apply to every grade.
+  Rules this module repeats on purpose wherever they bite: reset a locked-out primary once, then find the cause
+  before another reset (TM 5-642 ¶7-9l); liquid oil out of the chamber and the vapor cleared before any relight
+  (¶3-11b(9) describes letting oil-soaked soft brick burn off with the relief door open; a small gun-fired unit has
+  no relief door, so do not copy that); never jumper a limit, pressuretrol or low-water cutoff to test or to get
+  heat; never spray oil with the igniter live.
+
+context:
+  - id: fuel_type
+    ask: What fuel does it burn?
+    hint: No. 2 heating oil and No. 2 diesel wax up in the cold (around +10 to +20 °F). Kerosene, No. 1, JP-8, AN8
+      and arctic diesel stay fluid to about −40 °F, but below that, in outdoor tanks and lines, they can cloud
+      too — check the lot's cloud point.
+    systems: [fuel]
+    options:
+      - {id: no2, label: 'No. 2 heating oil / No. 2 diesel', words: [heating oil, red diesel, no 2 oil, no 2 diesel,
+          no 2 fuel oil, number 2 oil, number 2 diesel]}
+      - {id: kero, label: 'Kerosene, No. 1, JP-8 / AN8, arctic diesel', words: [jp8, jp 8, an8, an 8, kerosene, kero,
+          arctic diesel, jet fuel, no 1 oil, no 1 fuel oil]}
+    # no default on purpose: the plant burns both families, so the question is always put to the tech
+  - id: oil_piping
+    ask: How is the fuel unit piped?
+    hint: One-pipe has no return line (return port plugged, bypass plug out). Two-pipe has a return line and the
+      bypass plug in. A two-stage pump has two gear sets.
+    systems: [fuel]
+    options:
+      - {id: one_pipe, label: One-pipe (no return line)}
+      - {id: two_pipe, label: 'Two-pipe, single-stage pump'}
+      - {id: two_stage, label: 'Two-pipe, two-stage pump'}
+    defaults: {fuel.boiler: two_pipe, fuel.furnace: two_pipe}
+  - id: flame_sensor
+    ask: How does the primary control prove the flame?
+    hint: A CAD cell is the little photocell under the ignition transformer, looking down the air tube. A stack
+      relay is a box clamped on the smoke pipe with a bimetal helix inside (older installations).
+    systems: [fuel]
+    options:
+      - {id: cad, label: CAD cell (photocell in the burner)}
+      - {id: stack, label: Stack relay / stack switch on the smoke pipe}
+    defaults: {fuel.boiler: cad, fuel.furnace: cad}
+  - id: boiler_kind
+    ask: Hot-water or steam boiler?
+    hint: Steam boilers have a gauge glass and a pressuretrol; hot-water boilers have an aquastat, an expansion
+      tank and a pressure/temperature gauge.
+    systems: [fuel.boiler]
+    options:
+      - {id: hw, label: Hot water (hydronic)}
+      - {id: steam, label: Steam}
+    defaults: {fuel.boiler: hw}
+
+features:
+  # ---------------- the complaint and the first look ----------------
+  - id: blr.lockout
+    name: Lockout
+    ask: Is the primary control locking out (red light, reset button)?
+    how: Reset ONCE and watch one start, and keep count of the resets. A lockout that comes back has just pumped
+      oil for the full safety time, so find what is stopping the flame before you reset again — no restart until
+      the cause is known (TM 5-642 ¶7-9l).
+    caution: Reset once only, and keep count. Every failed try sprays oil for the full safety time. Before any
+      further reset, look into the chamber with the burner off — liquid oil, or a glowing or smoldering floor, means
+      no relight until the oil is removed, the chamber has cooled and the vapor has cleared.
+    systems: [fuel]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': No lockout
+      once: Locked out once or now and then — ran again after one reset
+      repeats: Locks out again on every try or within minutes
+    normal: 'no'
+    base: {'no': 0.84, once: 0.08, repeats: 0.08}
+    phrases:
+      once: [lockout, locked out, locks out sometimes, nuisance lockout, reset button, hit the reset, red light,
+        reset and it runs, locks out at night, locks out once in a while, safety tripped, tripped the safety]
+      repeats: [keeps locking out, locks out every time, locks out again, lockout repeats, wont stay running,
+        won't stay running, locks out right away, locks out after 15 seconds, locks out in 15 seconds, hard lockout,
+        reset doesnt help, reset doesn't help, three tries and lockout]
+  - id: blr.start
+    ask_unless: {blr.lockout: repeats, blr.co_room: 'yes'}
+    name: Burner on a call
+    ask: Watch one start — what does the burner do on a call for heat?
+    how: Turn the thermostat up or jumper T–T at the primary control and watch through the inspection port. Watch
+      one start, not several. With a CO complaint, do not cycle the burner until the flue and vent are proven clear.
+    caution: One start only. If it fails to light and locks out, do not keep resetting — look into the chamber with
+      the burner off for liquid oil and find the cause first. Stand to the side of the inspection port, and with a
+      CO complaint keep the burner off until the flue and vent are proven clear.
+    systems: [fuel]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      normal: Lights within a few seconds and runs steady
+      nothing: Nothing happens on a call — the burner motor never runs
+      no_flame: Motor runs but no flame — then locks out
+      flame_lost: Lights, then the flame drops out or it locks out later
+      delayed: Lights late — a puff, bang or rumble at light-off
+    normal: normal
+    phrases:
+      nothing: [burner wont start, burner won't start, burner does nothing, motor doesnt run, motor doesn't run,
+        nothing happens, no burner, burner dead, burner not coming on, no response to thermostat]
+      no_flame: [no flame, no fire, wont light, won't light, no ignition, not lighting, motor runs no flame,
+        runs but no fire, burner runs but doesnt light, cranks but no flame, fails to light, no light off]
+      flame_lost: [flame goes out, lights then goes out, fire goes out, flame drops out, lights and dies,
+        runs a minute then locks out, flame failure, loses flame, flame out, cuts out after it lights,
+        locks out while running]
+      delayed: [delayed ignition, puff back, puffback, puff-back, bang on start, bangs when it lights, boom on
+        startup, rumbles on start, hard start, late ignition, explodes on start, kicks on start, smoke on start]
+      normal: [lights fine, burner runs, fires ok, flame ok]
+  - id: blr.flame_look
+    ask_unless: {blr.lockout: repeats, blr.co_room: 'yes'}
+    name: Flame appearance
+    ask: With the burner running, what does the flame look like through the inspection port?
+    how: Wait a minute after light-off. A good gun-burner flame is bright yellow-orange with a defined shape, steady,
+      and clear of the chamber walls.
+    caution: Look from the side, not straight into the port, and keep the port closed except to look. After a puff,
+      bang or misfire, shut the burner off and check the chamber for liquid oil before you try another start.
+    systems: [fuel]
+    cost: 2
+    states:
+      normal: Bright yellow-orange, steady, clear of the chamber walls
+      smoky: Dark orange, lazy, smoky tips
+      stringy: Sparky, stringy or one-sided — streaks of raw oil
+      pulsing: Pulsates, rumbles or surges
+      impinging: Hits the chamber wall or floor — bright spot, carbon on the brick
+    normal: normal
+    phrases:
+      smoky: [smoky flame, smokey flame, dark flame, lazy flame, orange smoky fire, dirty flame, sooty flame,
+        flame smoking]
+      stringy: [stringy flame, sparky flame, sparklers, sparks in the flame, raw flame, one sided flame, lopsided
+        flame, streaky flame, uneven flame, flame off to one side, flame flutters]
+      pulsing: [pulsating flame, flame pulsates, rumbling, rumbles, burner rumbles, surging flame, flame surges,
+        pulsation, thumping fire, breathing flame, fire pulses]
+      impinging: [flame hitting the wall, flame impingement, impingement, flame too long, flame on the floor,
+        flame hits the chamber, carbon on the chamber, flame too big for the chamber]
+  - id: blr.after_drip
+    name: After-drip
+    ask: When the burner shuts off, does the flame hang on, smoke, rumble or drip oil (after-drip)?
+    systems: [fuel]
+    chip: state
+    cost: 2
+    states:
+      'no': Shuts off clean
+      'yes': After-drip — flame hangs on, smokes or drips at shutdown
+    normal: 'no'
+    phrases:
+      'yes': [after drip, afterdrip, after-drip, drips after shutdown, nozzle dripping, smokes on shutdown, flame
+        hangs on, rumbles on shutdown, oil drips from nozzle, dribbles at shutoff, smoke at shutdown]
+  - id: blr.oil_smell
+    name: Oil smell
+    ask: Is there a fuel-oil or kerosene smell around the unit or in the building?
+    systems: [fuel]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': No oil smell
+      'yes': Oil / kerosene smell
+    normal: 'no'
+    phrases:
+      'yes': [oil smell, smells like oil, fuel smell, fuel oil smell, kerosene smell, diesel smell, jet fuel smell,
+        smells like diesel, oil odor, oily smell in the house, fumes, smells like fuel]
+  - id: blr.soot_outside
+    name: Soot or smoke outside the appliance
+    ask: Is soot or smoke getting out of the appliance — on the jacket, at the draft regulator, in the room?
+    systems: [fuel]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': None
+      'yes': Soot or smoke outside the appliance
+    normal: 'no'
+    phrases:
+      'yes': [soot, soot in the house, soot everywhere, soot on the burner, soot around the boiler, smoke in the
+        boiler room, smoke in the house, smoking, black soot, smoke from the barometric, smoke out the draft regulator,
+        smoke out the inspection door, sooty, black dust, soot on the walls, puffback soot]
+  - id: blr.pump_noise
+    name: Fuel pump noise
+    ask: Is the fuel pump noisy — whine, growl or chatter?
+    systems: [fuel]
+    cost: 1
+    states:
+      quiet: Quiet
+      noisy: Whines, growls or chatters
+    normal: quiet
+    phrases:
+      noisy: [pump noisy, noisy pump, pump whining, pump whine, pump growls, pump chatters, pump screams, loud pump,
+        pump howls, fuel unit noisy, burner whining]
+  - id: blr.oil_leak
+    name: Oil leak
+    ask: Is oil leaking anywhere — pump shaft, filter, fittings, nozzle line, under the burner?
+    caution: Oil on a hot burner housing or in the chamber is a fire hazard. Close the oil supply valve at the tank
+      and kill burner power before you touch anything.
+    systems: [fuel]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': Dry
+      'yes': Oil leaking
+    normal: 'no'
+    phrases:
+      'yes': [oil leak, leaking oil, oil on the floor, oil under the burner, pump leaking, shaft seal leaking, oil
+        dripping, wet with oil, fuel leak, filter leaking, oil puddle, oil at the fitting]
+  - id: blr.co_room
+    name: CO in the building
+    ask: Has a CO alarm gone off or has CO been measured in the building or the supply air?
+    caution: If CO is confirmed, ventilate and shut the burner off before you troubleshoot. Do not cycle the burner
+      until the flue and vent are proven clear.
+    systems: [fuel]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': No CO alarm or reading
+      'yes': CO alarm or CO measured in the building
+    normal: 'no'
+    base: {'no': 0.95, 'yes': 0.05}
+    phrases:
+      'yes': [co alarm, carbon monoxide, co detector, co detector going off, co alarm going off, co in the house,
+        co in the ducts, co in supply air, headaches, people getting sick, fumes in the building, carbon monoxide
+        alarm]
+
+  # ---------------- no start: the electrical chain ----------------
+  - id: blr.motor
+    name: Burner motor
+    ask: With voltage at the motor, what does the burner motor do — and does the shaft turn freely by hand?
+    how: Power off to spin it. Try the motor shaft or fan wheel by hand with the coupling on, then with it off; a
+      seized pump binds the shaft only while coupled.
+    caution: Power off and locked out before you turn the shaft, coupling or fan wheel by hand.
+    systems: [fuel]
+    ask_if: {blr.start: nothing}
+    cost: 2
+    states:
+      runs: Runs
+      hums_bound: Hums or trips its overload — shaft hard to turn (seized pump or motor bearings)
+      hums_free: Hums or trips — shaft turns freely (start winding, capacitor or overload)
+      silent: Voltage present, silent — open winding or open thermal protector
+    normal: runs
+    phrases:
+      hums_bound: [motor hums, burner motor hums, motor locked up, pump seized, seized pump, motor wont turn, motor
+        won't turn, shaft wont turn, shaft stuck, motor trips, motor overload trips, motor smells hot]
+      hums_free: [motor hums shaft spins, motor buzzes, hums then trips, motor tries to start, motor needs a push,
+        bad motor capacitor]
+      silent: [motor dead, burner motor dead, motor silent, motor does nothing with power, open winding, motor
+        burnt out]
+  - id: blr.motor_v
+    name: Voltage to the burner motor
+    ask: Does the primary control put line voltage out to the burner motor on a call?
+    how: Meter the motor leads (orange/black on most primaries to white) with the thermostat calling and the control
+      reset.
+    systems: [fuel]
+    ask_if: {blr.start: nothing}
+    cost: 2
+    needs: meter
+    states:
+      present: Present
+      missing: Missing
+    normal: present
+    phrases:
+      missing: [no voltage to motor, no power to the burner motor, no output from primary, primary not sending
+        power, no voltage on orange, nothing to the motor]
+      present: [voltage at motor, power to the motor, motor has voltage]
+  - id: blr.primary_line_in
+    name: Line voltage into the primary control
+    ask: Is there line voltage into the primary control (through the limit and safety string)?
+    how: Meter the primary's hot-in (black) to white. Missing here with power at the service switch means a limit,
+      LWCO or other safety is open — check each one.
+    systems: [fuel]
+    ask_if: {blr.start: nothing}
+    cost: 2
+    needs: meter
+    states:
+      present: Present
+      missing: Missing — a limit or safety ahead of it is open
+    normal: present
+    phrases:
+      missing: [no power to primary, no voltage to the primary control, no line in, no power through the limit,
+        primary control dead, nothing to the control]
+  - id: blr.tt
+    ask_unless: {blr.lockout: repeats, blr.co_room: 'yes'}
+    name: Call at the primary (T–T)
+    ask: Is the call for heat reaching the primary control — T–T closed, or the burner starts when you jumper T–T?
+    how: Jumper T to T at the primary for a few seconds only, then take the jumper off. If the burner starts, the
+      thermostat, zone relay, end switch or interlock upstream is the problem; if not, the primary or its power is.
+    caution: On a boiler, confirm the circulator is running before you jumper T–T — a zone valve or flow interlock
+      may be open to keep the boiler from firing with no flow. Jumper for a few seconds, watch one start, and take
+      the jumper off; if it fails to light, do not keep resetting.
+    systems: [fuel]
+    ask_if: {blr.start: nothing}
+    cost: 2
+    needs: meter
+    states:
+      'yes': Call present at T–T
+      'no': No call at T–T (runs when T–T is jumpered)
+    normal: 'yes'
+    phrases:
+      'no': [no call at tt, no tt, jumper tt and it runs, runs when jumpered, no call to the primary, end switch not
+        made, zone valve end switch, relay not calling, t-t open]
+  - id: blr.polarity
+    name: Polarity at the burner
+    ask: Is hot/neutral polarity correct at the primary control (hot on black, neutral on white, ground good)?
+    how: Meter black to ground (should read line voltage) and white to ground (should read near zero). Modern
+      primaries are polarity-sensitive and misbehave or lock out when reversed.
+    systems: [fuel]
+    cost: 2
+    needs: meter
+    states:
+      ok: Correct
+      reversed: Reversed, or neutral/ground open
+    normal: ok
+    base: {ok: 0.95, reversed: 0.05}
+    phrases:
+      reversed: [reversed polarity, polarity reversed, hot and neutral swapped, wired backwards, neutral hot, bad
+        ground at the burner, no ground, floating neutral, generator wiring]
+
+  # ---------------- ignition parts (drawer assembly out) ----------------
+  - id: blr.spark
+    name: Ignition spark
+    ask: Does the ignition transformer / igniter throw a strong arc across the electrode tips?
+    how: Take the oil away first — oil supply valve closed at the tank, the oil solenoid unplugged if there is one,
+      and, if the primary allows it, the motor leads lifted so the pump does not turn. Oil still in the pump and
+      line can reach the nozzle in the first seconds, so wipe the drawer assembly dry. Then, with the assembly out,
+      start the burner for a moment only and watch the gap. Use an igniter tester or the burner maker's method on
+      solid-state igniters — don't arc them by hand.
+    caution: Oil off before the igniter is live — supply valve closed, solenoid unplugged, and the pump not turning
+      if you can lift the motor leads. An arc beside a spraying nozzle is a fire. There are 10,000 V or more at the
+      electrodes, so keep hands clear, and never arc a solid-state igniter by hand.
+    systems: [fuel]
+    ask_if: {blr.start: [no_flame, delayed, flame_lost]}
+    cost: 3
+    needs: shutdown
+    states:
+      strong: Strong, steady arc
+      weak: Weak, thin or intermittent arc
+      none: No arc
+    normal: strong
+    phrases:
+      none: [no spark, no arc, transformer dead, igniter dead, ignitor dead, no ignition spark, bad transformer,
+        ignition transformer bad, no high voltage]
+      weak: [weak spark, weak arc, thin spark, intermittent spark, spark comes and goes, weak transformer, weak
+        igniter, weak ignitor]
+      strong: [good spark, strong spark, spark ok, transformer ok]
+  - id: blr.electrodes
+    name: Electrodes
+    ask: How do the electrodes look — gap and position to the burner's spec card, porcelain intact, tips clean?
+    how: Typical settings are a 1/8–5/32 in. gap with the tips just ahead of and above the nozzle, out of the spray.
+      Look for cracked or carbon-tracked porcelain, burnt tips, carbon bridging, loose clamps.
+    systems: [fuel]
+    cost: 3
+    needs: shutdown
+    states:
+      ok: Set to spec, porcelain clean and intact
+      off_spec: Gap or position off spec, tips worn back
+      damaged: Cracked or carbon-tracked porcelain, carboned or bridged tips
+    normal: ok
+    phrases:
+      off_spec: [electrodes out of adjustment, electrode gap wrong, electrodes too far apart, electrodes in the
+        spray, electrodes misadjusted, electrode setting, tips burnt back, electrodes worn]
+      damaged: [cracked porcelain, cracked insulator, carbon on the electrodes, electrodes carboned, electrodes
+        sooted, carbon tracking, electrode bridged, insulator cracked, burnt electrodes]
+  - id: blr.nozzle
+    name: Nozzle
+    ask: What does the nozzle look like, and does it match the rating plate (gph at rated pressure, angle, pattern)?
+    how: Pull it with a nozzle wrench. Check the stamping against the appliance plate and the burner's spec. Replace,
+      don't clean in the field; never put a metal needle in the orifice (TM 5-642 ¶3-13b).
+    systems: [fuel]
+    cost: 3
+    needs: shutdown
+    states:
+      ok: Clean, correct size, angle and pattern
+      plugged: Plugged or dirty — carbon or sludge on the face, strainer loaded
+      worn: Worn or eroded orifice, bad spray pattern
+      wrong: Wrong size, angle or pattern for the appliance
+    normal: ok
+    phrases:
+      plugged: [plugged nozzle, clogged nozzle, dirty nozzle, nozzle plugged, nozzle clogged, carbon on nozzle,
+        carboned nozzle, nozzle strainer plugged, bad nozzle, nozzle partly plugged]
+      worn: [worn nozzle, old nozzle, nozzle worn out, eroded nozzle, bad spray pattern, nozzle spraying crooked,
+        nozzle streaming]
+      wrong: [wrong nozzle, oversized nozzle, nozzle too big, nozzle too small, wrong spray angle, wrong angle nozzle,
+        wrong pattern, overfired, over fired, underfired, under fired, nozzle doesnt match plate]
+  - id: blr.coupling
+    name: Motor-to-pump coupling
+    ask: Is the coupling between the motor and the fuel pump intact and driving the pump?
+    systems: [fuel]
+    cost: 3
+    needs: shutdown
+    states:
+      ok: Intact, drives the pump
+      broken: Broken, stripped, slipping or missing
+    normal: ok
+    phrases:
+      broken: [broken coupling, coupling broken, coupling stripped, coupling slipping, sheared coupling, pump not
+        turning, pump shaft not turning, pump doesnt spin, pump doesn't spin, coupling missing]
+  - id: blr.chamber
+    name: Combustion chamber
+    ask: How does the combustion chamber / refractory look through the port?
+    how: Burner off first. Look for liquid oil on the floor, carbon, cracks or a collapsed liner, and for a floor
+      that is glowing or smoldering.
+    caution: Burner off and the chamber cool before the port or door is opened; stand to the side. Liquid oil, or a
+      glowing or smoldering floor, means no relight — remove the oil, let it cool and let the vapor clear first.
+    systems: [fuel]
+    cost: 3
+    needs: shutdown
+    states:
+      ok: Sound and clean
+      carbon_oil: Carbon buildup or oil-soaked floor
+      damaged: Cracked, collapsed or burned-through refractory
+    normal: ok
+    phrases:
+      carbon_oil: [carbon in the chamber, oil in the chamber, oil soaked chamber, raw oil in the firebox, puddle of
+        oil in the chamber, carbon buildup, clinkers, coke in the chamber, chamber full of carbon]
+      damaged: [cracked chamber, chamber cracked, refractory cracked, refractory collapsed, chamber fell apart,
+        burned through chamber, broken fire brick, chamber liner gone, bad chamber]
+
+  # ---------------- fuel supply ----------------
+  - id: blr.tank
+    name: Fuel supply at the tank
+    ask: Is there fuel in the tank and is the supply valve (and fusible-link fire valve) open?
+    how: Stick the tank or check the gauge against a stick — gauges stick. The spring-loaded fire valve above the
+      burner closes when its fusible link lets go; look for a tripped lever.
+    caution: A tripped fire valve means its fusible link let go — look for fire or a heat source at the burner before
+      you reset it, and don't reset it with oil leaking.
+    systems: [fuel]
+    cost: 1
+    states:
+      ok: Fuel present, valves open
+      empty: Tank empty or below the pickup
+      valve_closed: Supply valve or fire valve closed
+    normal: ok
+    phrases:
+      empty: [out of oil, out of fuel, ran out of oil, ran out of fuel, tank empty, no oil in tank, empty tank, low
+        tank, gauge stuck, tank gauge wrong, no fuel, fuel delivery late, ran dry]
+      valve_closed: [valve closed, fuel valve closed, oil valve shut, firomatic tripped, fire valve closed, fusible
+        link valve tripped, someone shut the valve, supply valve off]
+  - id: blr.tank_vent
+    name: Tank vent
+    ask: Is the tank vent open — does air move at the vent cap, and does the pump vacuum fall when the vent is cleared?
+    how: Look at the vent cap for rime, ice, snow or a screen packed with frost. A vent whistle that has gone silent,
+      or air rushing in when you crack the fill cap, means the vent is plugged and the tank is pulling a vacuum.
+    caution: No flame, torch or heat gun at a tank vent — there is fuel vapor there. Thaw a frozen vent with warm
+      water or warm rags.
+    systems: [fuel]
+    cost: 1
+    states:
+      open: Open — air moves freely
+      blocked: Blocked — frost, ice, snow or a pinched vent line
+    normal: open
+    phrases:
+      blocked: [vent iced, vent iced over, tank vent frozen, vent frozen shut, vent plugged, vent blocked, vent cap
+        iced, vent cap frozen, rime on the vent, frost on the vent cap, tank sucks air, air rushes in at the fill
+        cap, vent whistle silent, tank vent pinched, tank vent blocked, vent line crushed]
+  - id: blr.filter
+    name: Fuel filter / strainer
+    ask: What's in the fuel filter and the pump strainer?
+    caution: Oil supply valve closed before a filter or strainer is opened. Catch the oil and wipe up every spill
+      before the burner runs again.
+    systems: [fuel]
+    cost: 3
+    needs: shutdown
+    states:
+      clean: Clean
+      clogged: Clogged with sludge, rust or dirt
+      waxed_iced: Coated with wax, slush or ice
+    normal: clean
+    phrases:
+      clogged: [clogged filter, plugged filter, dirty fuel filter, fuel filter dirty, filter full of sludge, sludge,
+        rust in the filter, strainer plugged, pump strainer dirty, filter plugged, black filter]
+      waxed_iced: [wax in the filter, waxed filter, waxy filter, filter gelled, slush in the filter, ice in the filter,
+        frozen filter, filter froze, white wax, jelly in the filter, gel in the filter]
+  - id: blr.fuel_sample
+    name: Fuel sample
+    ask: What does a fuel sample from the filter bowl or tank bottom look like?
+    how: Drain a little into a clear jar and let it settle. Water sits on the bottom as a clear layer or shows as
+      ice crystals; waxed fuel is cloudy or jelled; bad fuel is dark with sediment or stringy growth.
+    systems: [fuel]
+    cost: 2
+    states:
+      clear: Clear and bright
+      water_ice: Free water or ice crystals
+      cloudy_wax: Cloudy, waxy or jelled
+      dark_sludge: Dark, sediment or microbial growth
+    normal: clear
+    phrases:
+      water_ice: [water in the fuel, water in the tank, water in the oil, ice in the fuel, ice crystals, slush in the
+        fuel, water bottom, condensation in the tank, snow in the tank, water in the filter bowl]
+      cloudy_wax: [cloudy fuel, waxy fuel, gelled fuel, jelled fuel, fuel gelled, fuel jelled, fuel waxed, diesel
+        gelled, oil gelled, cloud point, fuel too cold, wax in the fuel]
+      dark_sludge: [sludge in the tank, dirty fuel, bad fuel, black fuel, algae in the fuel, microbes, bugs in the
+        fuel, sediment in the fuel, old fuel]
+  - id: blr.pump_psi
+    name: Pump pressure
+    ask: What does a gauge on the pump's pressure port read with the burner running?
+    how: Gauge in the gauge port or nozzle port. Most pumps are set at 100 psi; many newer burners run 140–150 —
+      check the burner's spec. The needle should be steady, and drop sharply to a held cutoff pressure at shutdown.
+      Pressure that comes up to spec on a start and holds at cutoff also proves oil is leaving the pump.
+    caution: Fit the gauge with the burner off and the oil supply valve closed, and check it for leaks before the
+      burner runs. Oil leaves a loose gauge or bleed port at pump pressure (100 psi or more) and can go through skin.
+      Read the needle at the start; if it will not light, shut down — no repeated tries.
+    systems: [fuel]
+    cost: 3
+    needs: gauges
+    states:
+      normal: At spec (within about 10 psi) and steady
+      low: Low — more than about 10 psi below spec
+      zero: Zero — no pressure
+      high: High — more than about 10 psi above spec
+      fluctuating: Needle bounces or wanders
+    normal: normal
+    phrases:
+      low: [low pump pressure, pump pressure low, pressure low, 60 psi, wont make pressure, won't make pressure, low
+        oil pressure, pressure below 100]
+      zero: [no pump pressure, zero pressure, no oil pressure, pump not pumping, pump dead, no pressure at the gauge]
+      high: [pump pressure high, pressure too high, pressure set high, 150 psi on a 100 psi nozzle, regulator set
+        high, overpressure]
+      fluctuating: [pressure bouncing, needle bouncing, pressure fluctuates, pressure hunting, pressure jumps,
+        gauge flickers, erratic pressure]
+  - id: blr.pump_vac
+    name: Pump vacuum
+    ask: What does a vacuum gauge on the pump inlet read with the burner running?
+    how: Expect roughly 1 in. Hg per foot of lift plus 1 per 10 ft of horizontal run. How much a pump may pull depends
+      on its piping — about 6 in. Hg on a one-pipe system (above that, air comes out of the oil), about 10 on a
+      two-pipe single-stage pump, about 15 on a two-stage; the pump's data sheet rules. Over its limit is a
+      restriction (filter, valve, kinked or frozen line, iced tank vent, thick or gelled fuel), and so is a reading
+      well above what the lift explains. Near zero with real lift means air is getting in. On shutdown the needle
+      should hold — a steady fall is a suction-side air leak.
+    caution: With the tank above the burner, close the oil supply valve before the vacuum-gauge plug comes out, or oil
+      runs out of the port. Wipe up before the burner runs.
+    systems: [fuel]
+    cost: 3
+    needs: gauges
+    states:
+      normal: Normal for the lift, holds on shutdown
+      high: High — over the pump's limit (about 6 in. Hg one-pipe, 10 two-pipe single-stage, 15 two-stage) or well
+        above what the lift explains
+      low_zero: Near zero with real lift, or won't hold on shutdown
+    normal: normal
+    phrases:
+      high: [high vacuum, vacuum high, pulling high vacuum, 15 inches vacuum, vacuum too high, pump starving, hard
+        pull on the line]
+      low_zero: [no vacuum, zero vacuum, vacuum leaks down, wont hold vacuum, won't hold vacuum, vacuum drops when it
+        shuts off, sucking air, air in the line, air in the oil line, bleeding air every start]
+  - id: blr.oil_at_nozzle
+    name: Oil reaching the nozzle
+    ask: With ignition off and the motor running, does oil leave the pump and get as far as the nozzle line?
+    how: Prove delivery at the pump first, with ignition off (lift the igniter or transformer lead) so nothing can
+      light. Put the gauge with its bleeder in the pump's gauge port, run a hose from the bleeder into a container,
+      put on safety glasses, open the bleeder, and run the motor for a few seconds. A solid, air-free stream means
+      oil is leaving the pump. Shut the burner off at the service switch before you close the bleeder — closing it
+      with the motor running pressures the pump up and sprays the nozzle with the igniter off. Pressure that comes up
+      to spec on a normal start and holds at cutoff (see the pump pressure check) proves the same thing, and an oil
+      valve that clicks open on a powered coil lets the oil through to the nozzle line. Only if the nozzle line itself
+      is still in doubt, make sure ignition is off, take the line off at the nozzle end so any oil valve is tested
+      too, clamp the open end into a container so it cannot whip, and run the motor once for a few seconds. A solid
+      stream means the pump and supply are fine and the fault is at the nozzle or ignition. Never run the burner with
+      the drawer assembly out or the nozzle line open to the room — the nozzle sprays at pump pressure and the
+      igniter is a spark in the middle of it.
+    caution: Ignition OFF before the motor runs — lift the igniter or transformer lead. Safety glasses on, a container
+      under any open line or port, hands clear; oil leaves at pump pressure (100 psi or more) and can go through skin.
+      Burner off before you close the bleeder. Never run the burner with the drawer assembly out or the nozzle line
+      open to the room.
+    systems: [fuel]
+    ask_if: {blr.start: [no_flame, flame_lost]}
+    cost: 4
+    needs: shutdown
+    states:
+      'yes': Oil flows
+      'no': No oil, or only a dribble
+    normal: 'yes'
+    phrases:
+      'no': [no oil at the nozzle, no oil to the nozzle, not getting oil, no fuel to the burner, no oil to the burner,
+        oil not reaching the burner, nozzle dry, no fuel at the nozzle, dry nozzle line]
+      'yes': [oil at the nozzle, getting oil, oil flows, fuel reaches the nozzle]
+  - id: blr.oil_valve
+    ask_unless: {blr.lockout: repeats, blr.co_room: 'yes'}
+    name: Oil solenoid / delay valve
+    ask: Does the oil valve get voltage and open on a start (click), and does it hold tight at shutdown?
+    how: Meter the coil on a start. The delay valve opens a few seconds after the motor (TM 5-642 ¶3-14b says at
+      least 4 s) and must shut instantly when the motor stops.
+    caution: This needs a start — one try only. If it will not light and the primary locks out, stop, look into the
+      chamber for liquid oil, and find the cause before any further reset.
+    systems: [fuel]
+    cost: 2
+    needs: meter
+    states:
+      ok: Powered, opens and closes clean
+      no_power: No voltage to the coil on a start
+      stuck: Powered but doesn't open (dead coil, stuck plunger)
+      leaks: Passes oil after shutdown
+    normal: ok
+    base: {ok: 0.9, no_power: 0.03, stuck: 0.04, leaks: 0.03}
+    phrases:
+      no_power: [no voltage to the oil valve, solenoid not getting power, valve not energized]
+      stuck: [oil valve stuck, solenoid stuck, solenoid dead, oil valve not opening, solenoid valve bad, delay valve
+        stuck, valve wont open, oil solenoid failed]
+      leaks: [solenoid leaking through, oil valve leaks, valve passes oil, solenoid dribbles]
+  - id: blr.bypass_plug
+    name: Pump bypass plug vs piping
+    ask: Does the pump's bypass plug match the piping — plug IN for two-pipe, OUT for one-pipe?
+    how: Pull the return-port plug on the pump and look for the small bypass plug inside. A plug on a one-pipe system
+      dead-heads the pump and blows the shaft seal; no plug on a two-pipe system means it never primes properly.
+    caution: Burner off and the oil supply valve closed first; catch the oil that runs out of the return port.
+    systems: [fuel]
+    ask_if: {gen.recent_work: 'yes'}
+    cost: 3
+    needs: shutdown
+    states:
+      ok: Matches the piping
+      wrong: Wrong for the piping
+    normal: ok
+    phrases:
+      wrong: [bypass plug, by-pass plug, bypass plug installed one pipe, no bypass plug two pipe, one pipe two pipe,
+        return port plugged, new pump leaking, new pump wont prime, pump wont prime, won't prime, wrong pump setup]
+
+  # ---------------- cold ----------------
+  - id: blr.cold
+    situational: true
+    name: Outdoor temperature
+    ask: How cold is it outside?
+    systems: [fuel]
+    cost: 1
+    states:
+      mild: Above 20 °F
+      cold: 20 °F down to −20 °F
+      extreme: Below −20 °F
+    normal: mild
+    base: {mild: 0.6, cold: 0.3, extreme: 0.1}
+    phrases:
+      cold: [cold snap, cold out, freezing out, below zero, zero degrees, cold night, winter night, single digits]
+      extreme: [extreme cold, minus 30, minus 40, forty below, -40, arctic, antarctic, bitter cold, polar]
+  - id: blr.line_cold
+    name: Fuel line / filter exposed to the cold
+    ask: Does the fuel line, filter or tank sit outside or in an unheated space?
+    systems: [fuel]
+    cost: 1
+    states:
+      'no': Indoors or heated
+      'yes': Outdoor or unheated tank, line or filter
+    normal: 'no'
+    base: {'no': 0.65, 'yes': 0.35}
+    phrases:
+      'yes': [outdoor tank, outside tank, tank outside, line runs outside, exposed fuel line, filter outside, line in
+        the cold, unheated fuel line, tank in the shed, day tank outside, above ground tank, line under the snow]
+  - id: blr.thaw
+    name: Warming test
+    ask: Does gently warming the exposed line or filter (warm rags, warm water, moving it indoors) restore flow?
+    how: Warm the suspect section, then watch pump vacuum or oil flow.
+    caution: No open flame or torch on a fuel line, filter or tank. Use warm water, warm rags or heat trace; a heat
+      gun only on a dry metal line with no fuel leaking and the burner locked out.
+    systems: [fuel]
+    ask_if: {blr.line_cold: 'yes'}
+    cost: 3
+    states:
+      no_change: No change
+      restores: Flow comes back as it warms
+    normal: no_change
+    phrases:
+      restores: [thawed it out, warmed the line and it ran, heat gun fixed it, ran after it warmed up, works in the
+        daytime, runs when the sun hits the tank, froze overnight]
+
+  # ---------------- flame proving ----------------
+  - id: blr.cad_ohms
+    name: CAD cell resistance
+    ask: What does the CAD cell read — with the flame on, and dark?
+    how: Pull the cell leads off the primary (F–F) and ohm them. Flame on, most controls want under 1,600 Ω
+      (the burner maker's limit rules); dark, well over 20 kΩ. A cell that reads low in the dark sees light or is
+      shorted and the control will refuse to start or lock out.
+    caution: Reading it with the flame on means lifting a lead off the primary, which makes the primary shut the
+      burner down — usually a lockout you caused. Reset once, and only with a dry chamber. Burner off and power
+      locked out for the dark reading.
+    systems: [fuel]
+    requires: {flame_sensor: cad}
+    cost: 2
+    needs: meter
+    states:
+      good: Under ~1,600 Ω with flame, high dark
+      high: Over ~1,600 Ω with the flame on — flame not seen
+      low_dark: Low with no flame — cell sees light or is shorted
+    normal: good
+    phrases:
+      high: [cad cell high, cad cell reads high, cad cell bad, cad cell dirty, bad cad cell, cadmium cell, flame not
+        proven, not proving flame, eye dirty, sooty cad cell, cad cell 5000 ohms, high ohms with flame, cad cell not
+        seeing flame, flame sensor bad]
+      low_dark: [cad cell sees light, cad cell low in the dark, cad cell shorted, light leak, cell reads low with no
+        flame, control sees flame before start, false flame]
+      good: [cad cell ok, cad cell good, cad cell reads low with flame, flame proven]
+  - id: blr.stack_relay
+    name: Stack relay
+    ask: Does the stack relay's helix move freely and do its contacts switch cleanly when the stack heats?
+    how: Pull the relay out of the smoke pipe. Soot binds the bimetal helix so the hot contacts never make or never
+      break; worn contacts drop the burner.
+    caution: Burner off and the smoke pipe cool before the relay comes out, and reseal the hole before any restart —
+      an open hole upsets the draft and can spill flue gas into the room. After a stack-control lockout let its
+      safety element cool before you reset, and never hold the relay in (TM 5-642 ¶3-11b(7), ¶7-9h).
+    systems: [fuel]
+    requires: {flame_sensor: stack}
+    cost: 3
+    states:
+      ok: Helix free, contacts clean
+      faulty: Helix sooted or stuck, contacts worn or dirty
+    normal: ok
+    phrases:
+      faulty: [stack relay bad, stack switch bad, stack relay stuck, helix stuck, helix sooted, protectorelay, stack
+        control bad, bimetal stuck, stack switch wont reset, hot contacts, cold contacts]
+
+  # ---------------- combustion (analyzer in the flue) ----------------
+  - id: blr.stack_temp
+    name: Net stack temperature
+    ask: What is the net stack temperature (flue minus room), after 10 minutes of running?
+    caution: The smoke pipe, the probe and the test hole are hot (400–600 °F). Gloves on, hose and cable clear of the
+      pipe and the draft regulator, and plug the test hole when you are done — an open hole upsets the draft and
+      can spill flue gas into the room.
+    systems: [fuel]
+    cost: 3
+    needs: combustion
+    states:
+      normal: Normal (about 275–600 °F net)
+      high: High (over 600 °F net)
+      low: Low (under 275 °F net)
+    normal: normal
+    phrases:
+      high: [high stack temp, stack temp high, high stack temperature, stack too hot, flue too hot, high flue temp,
+        700 degree stack, heat going up the chimney]
+      low: [low stack temp, stack temp low, low flue temp, flue cold, condensing in the flue, cold stack, wet stack]
+  - id: blr.o2
+    name: Flue O2 / excess air
+    ask: What is the flue O2 (or CO2) with the burner running steady?
+    caution: The smoke pipe, the probe and the test hole are hot (400–600 °F). Gloves on, hose and cable clear of the
+      pipe and the draft regulator, and plug the test hole when you are done — an open hole upsets the draft and
+      can spill flue gas into the room.
+    systems: [fuel]
+    cost: 3
+    needs: combustion
+    states:
+      normal: Normal (about 3–8 % O2, about 9.5–13 % CO2 on light oil)
+      low: Low O2 (under 3 %) — too little air
+      high: High O2 (over 8 %) — too much air or a flue leak
+    normal: normal
+    phrases:
+      low: [o2 low, low o2, low oxygen, co2 high, high co2, not enough air, air shutter closed, too little air, rich,
+        running rich]
+      high: [o2 high, high o2, high oxygen, co2 low, low co2, too much air, excess air high, air shutter wide open,
+        lean, running lean, 12 percent o2]
+  - id: blr.co
+    name: Flue CO (air-free)
+    ask: What is the flue CO, corrected to air-free?
+    how: Correcting to air-free needs the flue O2 from the same sample, so read both together.
+    caution: The smoke pipe, the probe and the test hole are hot (400–600 °F). Gloves on, hose and cable clear of the
+      pipe and the draft regulator, and plug the test hole when you are done — an open hole upsets the draft and
+      can spill flue gas into the room.
+    systems: [fuel]
+    cost: 3
+    needs: combustion
+    states:
+      normal: Under 100 ppm air-free
+      high: 100–400 ppm air-free
+      very_high: Over 400 ppm air-free
+    normal: normal
+    phrases:
+      high: [co high, high co, co 200, elevated co, co in the flue, carbon monoxide in the stack]
+      very_high: [co very high, co 1000, co off the scale, co over 400, analyzer alarming, co maxed out, co through
+        the roof]
+  - id: blr.smoke
+    name: Smoke spot number
+    ask: What is the smoke spot number (0–9 scale)?
+    caution: The smoke pipe, the pump probe and the test hole are hot (400–600 °F). Gloves on, and plug the test
+      hole when you are done — an open hole upsets the draft and can spill flue gas into the room.
+    systems: [fuel]
+    cost: 3
+    needs: combustion
+    states:
+      normal: 0–1 (trace)
+      high: 2–3
+      heavy: 4 or more
+    normal: normal
+    phrases:
+      high: [smoke number 2, smoke spot 3, smoke test dirty, smoke spot high, smoky, smoke 2]
+      heavy: [smoke number 5, smoke spot 6, smoke off the chart, heavy smoke, black smoke, smoke 9, soot test black,
+        smoke out the stack, black smoke from the chimney]
+  - id: blr.draft_of
+    name: Over-fire draft
+    ask: What is the draft over the fire (through the inspection port) with the burner running warm?
+    how: Type draft as a NEGATIVE number — a gauge that says "draft 0.04" is −0.04 here, and a plus sign means pressure.
+      A flame-retention burner usually wants about −0.02 in. w.c.; TM 5-642 wants the firebox just below atmospheric
+      once warm so nothing pushes out, and says starting conditions need about 0.03–0.06 (¶3-13f), so judge against
+      the burner's own spec.
+    caution: Reading through the inspection port — stand to the side. If the chamber is under pressure, hot gas and
+      soot come out of the port. Close it again when you are done.
+    systems: [fuel]
+    cost: 3
+    needs: manometer
+    states:
+      normal: Draft of about 0.01 to 0.04 in. w.c. (reads −0.01 to −0.04)
+      none_positive: No draft — reads zero or positive (pressure over the fire)
+      excessive: Strong draft — more than 0.05 in. w.c. (reads below −0.05)
+    normal: normal
+    phrases:
+      none_positive: [positive over fire, positive pressure in the chamber, no over fire draft, zero draft over the
+        fire, pressure in the firebox, blowing out the inspection door, puffing out the port]
+      excessive: [too much over fire draft, high over fire draft, pulling too hard, overfire draft high]
+  - id: blr.draft_br
+    name: Breech draft
+    ask: What is the draft in the smoke pipe between the appliance and the barometric regulator?
+    how: Type draft as a NEGATIVE number — a gauge that says "draft 0.04" is −0.04 here, and a plus sign means pressure.
+      TM 5-642 quotes the draft unsigned, 0.02–0.04 in. w.c. to start (¶3-11b(1)); running practice is 0.04 to 0.06
+      (−0.04 to −0.06). Weak draft means a cold, blocked, leaky or undersized chimney; a very strong draft means the
+      regulator isn't regulating.
+    caution: The smoke pipe and the test hole are hot. Gloves on, and plug the test hole when you are done — an open
+      hole upsets the draft and can spill flue gas into the room.
+    systems: [fuel]
+    cost: 3
+    needs: manometer
+    states:
+      normal: Draft of about 0.03 to 0.07 in. w.c. (reads −0.03 to −0.07)
+      weak: Weak — less than 0.025 in. w.c. of draft (reads −0.02 or closer to zero), no draft, or reversing
+      excessive: Strong — more than 0.08 in. w.c. (reads below −0.08)
+    normal: normal
+    phrases:
+      weak: [no draft, weak draft, poor draft, low draft, downdraft, down draft, draft reverses, chimney wont draw,
+        chimney won't draw, no chimney draft, draft reading zero, backdraft]
+      excessive: [too much draft, excessive draft, draft too strong, high draft, draft 0.1, chimney pulling too hard,
+        strong draft]
+  - id: blr.flue
+    name: Flue and chimney
+    ask: Is the smoke pipe, breeching and chimney clear, dry and intact?
+    how: Open the smoke-pipe cleanout and the chimney base; look up the flue and at the cap. Snow, frost and ice at
+      the cap, soot and scale at the base, a fallen liner, a nest.
+    caution: Burner off and locked out before a cleanout or the chimney base is opened — a running burner can push flue
+      gas out of it. Test for CO before you put your head near it.
+    systems: [fuel]
+    cost: 3
+    states:
+      clear: Clear and dry
+      restricted: Restricted — soot, debris, collapsed liner, snow or ice at the cap
+      wet: Wet or corroded — moisture, rust streaks, white deposits
+    normal: clear
+    phrases:
+      restricted: [chimney blocked, blocked chimney, flue blocked, blocked flue, soot in the chimney, chimney full of
+        soot, chimney plugged, bird nest, liner collapsed, snow on the chimney, chimney iced, frost on the chimney,
+        ice in the flue, vent iced over, chimney cap frozen, snow in the vent, vent blocked, smoke pipe full of soot]
+      wet: [wet flue, water in the smoke pipe, rusty smoke pipe, rust streaks on the flue, condensation in the flue,
+        white powder on the flue, flue pipe rotted, chimney wet]
+  - id: blr.combustion_air
+    name: Combustion air to the room
+    ask: Is combustion air getting into the boiler room — intakes open and clear, louvers open, room not pulled
+      negative by exhaust fans?
+    systems: [fuel]
+    cost: 1
+    states:
+      ok: Open and clear
+      restricted: Restricted — intake drifted shut, louvers closed, tight room, exhaust fans pulling it negative
+    normal: ok
+    phrases:
+      restricted: [no combustion air, intake blocked, snow in the intake, intake drifted in, louvers closed, makeup
+        air closed, tight boiler room, room negative, exhaust fan pulls the room, door was closed, no makeup air,
+        combustion air damper closed, intake iced over]
+  - id: blr.soot_hx
+    name: Soot in the heat exchanger
+    ask: How much soot is in the flue passages / heat exchanger?
+    how: Open a cleanout or the flue collector. A light dusting is normal between cleanings; piles, flakes and
+      narrowed passages are not.
+    caution: Burner off, locked out and cool before a cleanout is opened. Wear eye and dust protection.
+    systems: [fuel]
+    cost: 3
+    needs: shutdown
+    states:
+      light: Light dusting
+      heavy: Heavy — passages narrowed, soot falling out
+    normal: light
+    phrases:
+      heavy: [sooted up, boiler sooted, soot in the boiler, flue passages plugged, passages full of soot, heat
+        exchanger sooted, needs cleaning, soot in the heat exchanger, boiler full of soot, furnace sooted up]
+  - id: blr.spill_switch
+    name: Spill / blocked-vent switch
+    ask: Is a spill or blocked-vent switch tripped (manual reset button at the draft regulator or flue collar)?
+    caution: A tripped spill or rollout switch is a safety. Find out why it tripped before you reset it, reset it once
+      only, and never jumper or bypass it.
+    systems: [fuel]
+    cost: 1
+    states:
+      ok: Not tripped (or none fitted)
+      tripped: Tripped
+    normal: ok
+    base: {ok: 0.95, tripped: 0.05}
+    phrases:
+      tripped: [spill switch, spill switch tripped, blocked vent switch, vent safety tripped, flue switch tripped,
+        rollout switch, roll out switch tripped]
+
+  # ---------------- limits and safeties ----------------
+  - id: blr.limit_open
+    name: High limit
+    ask: Is the high limit (aquastat, pressuretrol or furnace limit) open with a call — and is the boiler or plenum
+      actually hot?
+    how: Meter across the limit contacts with a call present, and read the boiler temperature / steam pressure /
+      plenum temperature against the dial setting. Line voltage across the open contacts means the limit is open.
+    caution: Never jumper a limit, pressuretrol or low-water cutoff to test it or to get heat — meter across the
+      open contacts instead.
+    systems: [fuel]
+    cost: 2
+    needs: meter
+    states:
+      'no': Closed, not limiting
+      open_overheat: Open and the boiler/plenum really is at or past the setting
+      open_early: Open while not hot — mis-set, failed, or the sensor is out of its well
+      closed_hot: Still closed though the boiler/plenum is past its setting
+    normal: 'no'
+    phrases:
+      open_overheat: [tripping on high limit, high limit tripping, limit trips, boiler too hot, boiler overheating,
+        cycling on the limit, cycling on high limit, hits the limit, limit cutting out, plenum too hot, furnace
+        overheating, on the limit]
+      open_early: [limit open cold, aquastat open, aquastat bad, bad aquastat, high limit bad, limit stuck open,
+        pressuretrol open, pressuretrol bad, limit opens too soon, aquastat failed, limit wont close, limit won't
+        close, aquastat not closing]
+      closed_hot: [limit not opening, limit stuck closed, aquastat stuck, boiler runs away, boiler way over temp,
+        pressuretrol stuck, pressuretrol not shutting off, boiler steaming, runaway boiler, pressure keeps climbing,
+        limit welded]
+  - id: blr.aquastat_set
+    name: Operating control setting
+    ask: Are the aquastat / pressuretrol / fan-limit settings right for the system (setpoint and differential)?
+    how: Typical hot-water high limit 180–200 °F with a 10–20 °F differential; steam pressuretrol cut-in ½–1 psi
+      with a 1–2 psi differential; furnace limit about 175–200 °F.
+    systems: [fuel]
+    cost: 1
+    states:
+      ok: Reasonable
+      too_low: Set too low or differential too tight
+      too_high: Set too high — dial or cut-out turned up well past design
+    normal: ok
+    phrases:
+      too_low: [aquastat set low, aquastat turned down, set too low, limit set too low, differential too tight,
+        pressuretrol set low, cut out too low, setting too low, dial turned down, somebody turned it down]
+      too_high: [aquastat set high, set too high, limit cranked up, pressuretrol set high, setting too high, dial
+        turned up, somebody turned it up, aquastat turned up, aquastat cranked up, pressuretrol cranked up]
+  - id: blr.lwco
+    name: Low-water cutoff
+    ask: Is the low-water cutoff open or closed — and is the water really low?
+    how: Meter across the LWCO contacts; then check the gauge glass (steam) or confirm the boiler is full (hot water).
+      Open with the water low is the cutoff doing its job. Open with water visible at the right level means a dirty
+      probe, a sludged float chamber or a bad control. Closed with the water below the cutoff level and the burner
+      still firing means the cutoff has failed (stuck, bridged, jumpered or not fitted) — shut the burner off first.
+    caution: Never jumper the cutoff, to test it or to get heat. If the water is low or out of sight, shut the burner
+      off first and do not feed water into a hot boiler (TM 5-642 ¶4-78).
+    systems: [fuel.boiler]
+    cost: 2
+    needs: meter
+    states:
+      ok: Closed, and the water is at the normal level (steam) or the boiler is full (hot water)
+      open_low: Open and the water IS low
+      open_fooled: Open but the level is fine — probe, float chamber or control
+      stuck_closed: Closed and the burner is firing, but the water is below the cutoff level (cutoff failed, jumpered
+        or not fitted)
+    normal: ok
+    phrases:
+      open_low: [low water cutoff tripped, lwco tripped, low water, lwco open, low water cut off, boiler low on water,
+        no water in the boiler, lost water, water low in the glass, lwco light on]
+      open_fooled: [lwco bad, lwco dirty probe, probe dirty, probe scaled, float stuck, float chamber sludged, lwco
+        nuisance, lwco wont reset, lwco holding off burner with water in the glass, bad low water cutoff, lwco
+        false trip]
+      stuck_closed: [lwco did not shut off, lwco did not trip, lwco failed, lwco stuck closed, lwco jumpered, lwco
+        bypassed, no low water cutoff, no lwco, burner kept firing with low water, burner running with low water,
+        boiler ran dry, dry fired, glass empty and burner running]
+  - id: blr.water_level
+    name: Water level in the gauge glass
+    ask: Where is the water in the gauge glass, and is it steady?
+    how: Blow down the glass first so you're not reading a stale column. Compare with the boiler's marked normal
+      water line. If the glass is empty or you cannot find the water, shut the burner off first and do not feed water
+      to a hot boiler (TM 5-642 ¶4-78).
+    caution: Open the glass drain slowly, face turned away, with the drain piped to a safe place — it is hot water and
+      steam. If the water is out of sight, burner off first.
+    systems: [fuel.boiler]
+    requires: {boiler_kind: steam}
+    cost: 1
+    states:
+      normal: At the normal line, steady
+      low: Low or out of sight at the bottom
+      high: High — flooded, near or above the top
+      bouncing: Bouncing or surging an inch or more
+    normal: normal
+    phrases:
+      low: [glass empty, no water in the glass, water out of sight, water level low, low water line, sight glass
+        empty, gauge glass empty]
+      high: [flooded boiler, boiler flooding, water level high, glass full, water out the top of the glass, over
+        filling, boiler overfills, too much water, boiler taking on water]
+      bouncing: [bouncing water line, water level bouncing, surging, surging water line, water jumping in the glass,
+        priming, boiler priming, foaming, water line unsteady, carryover, wet steam]
+  - id: blr.water_cond
+    name: Boiler water condition
+    ask: What does the boiler water look like — drain some from the gauge-glass cock or the LWCO blowdown?
+    caution: It is hot water and steam. Open the cock or blowdown slowly, stand to the side, and run it to a drain.
+      Watch the glass while you do it and shut the valve if the level drops toward the low-water mark.
+    systems: [fuel.boiler]
+    requires: {boiler_kind: steam}
+    cost: 2
+    states:
+      clean: Clear
+      dirty: Dirty, oily film, foam or sediment
+    normal: clean
+    phrases:
+      dirty: [dirty boiler water, oily boiler water, oil in the boiler, black water, rusty water, muddy water, foam
+        in the glass, scum, grease in the boiler, boiler water dirty, needs skimming, never been skimmed]
+  - id: blr.steam_press
+    name: Steam pressure
+    ask: What does the steam gauge do while the burner runs?
+    how: Open the test cock to prove the gauge isn't lying (TM 5-642 ¶4-79). A heating boiler should build to the
+      pressuretrol cut-out (a few psi at most) and cycle on it; the safety valve is 15 psi.
+    caution: The test cock vents steam. Open it slowly with your hand and face clear of the outlet.
+    systems: [fuel.boiler]
+    requires: {boiler_kind: steam}
+    cost: 1
+    states:
+      normal: Builds to the pressuretrol setting and cycles
+      none: Never builds pressure while firing steadily
+      high: Above the pressuretrol setting — approaching the safety valve
+    normal: normal
+    phrases:
+      none: [no steam pressure, wont build pressure, won't build pressure, no pressure on the gauge, zero steam,
+        cant make steam, can't make steam, never gets to pressure]
+      high: [steam pressure high, pressure too high, popping the safety, safety valve blowing, over pressure, 10 psi
+        on a heating boiler, pressure climbing]
+  - id: blr.pressure_hw
+    name: Boiler pressure (hot water)
+    ask: What does the boiler's pressure gauge read?
+    how: A residential system fills to about 12 psi cold and runs 15–22 psi hot with a 30 psi relief valve; larger
+      systems differ — compare with the relief valve rating and the fill setting. Pressure that climbs toward the
+      relief setting as the water heats points at the expansion tank; pressure that creeps up cold points at the
+      fill valve or a leaking coil.
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    cost: 1
+    states:
+      normal: Normal for the system
+      high: High — within a few psi of the relief valve or above
+      low: Low or zero
+    normal: normal
+    phrases:
+      high: [boiler pressure high, pressure high, 28 psi, 30 psi, pressure near the relief, pressure climbing,
+        pressure creeping up, pressure too high on the boiler]
+      low: [boiler pressure zero, no pressure on the boiler, pressure low, lost pressure, zero psi, boiler empty,
+        gauge reads zero, boiler drained down]
+  - id: blr.fill_isolated
+    name: Pressure with the fill valve shut
+    ask: With the make-up water valve closed and the burner off, does boiler pressure still creep up over an hour?
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    ask_if: {blr.pressure_hw: high}
+    cost: 3
+    states:
+      'no': Holds steady
+      'yes': Still climbs — domestic water is getting in
+    normal: 'no'
+    phrases:
+      'yes': [pressure climbs with the fill valve off, pressure rises with feed off, tankless coil leaking, coil
+        leaking into the boiler, domestic water in the boiler, pressure climbs overnight]
+  - id: blr.exp_tank
+    name: Expansion tank
+    ask: With the boiler cool and the tank valved off from the system, what do you find at the expansion tank — tap
+      test and air valve?
+    how: Isolate the tank and drain its water side before you gauge the air side. A bladder tank should ring hollow
+      on the air end and dull toward the water end. Press the air valve briefly — air is good; water means a ruptured
+      bladder or a waterlogged tank. The air precharge should be about the cold fill pressure (roughly 12 psi) with
+      the system side off the tank.
+    caution: Isolate the tank and drain its water side before you gauge the air side. Press the air valve briefly with
+      your face clear — on a ruptured bladder it spits system water at boiler temperature. Never open a tank valve
+      on a hot, pressurized system.
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    cost: 2
+    states:
+      ok: Hollow on top, air at the valve, precharge holds
+      waterlogged: Solid all over, water at the air valve, or no precharge
+    normal: ok
+    phrases:
+      waterlogged: [expansion tank waterlogged, bad expansion tank, water at schrader, water out of the air valve, tank
+        solid, lost air cushion, ruptured bladder, flat expansion tank, expansion tank full of water, extrol
+        waterlogged, no air in the expansion tank]
+  - id: blr.fill_valve
+    name: Fill (make-up) valve
+    ask: Cold boiler, burner off — does the pressure creep up with the fill valve open and hold steady once you close
+      the shutoff ahead of it?
+    how: Close the shutoff ahead of the fill valve and bleed the pressure back to the cold fill pressure (about 12
+      psi). If it then holds steady, the fill valve was passing (or set high); if it keeps climbing with the shutoff
+      closed, look at the tankless coil instead.
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    cost: 2
+    states:
+      ok: Holds steady, fill valve shuts off tight
+      passing: Creeps up with the fill valve open, steady with the shutoff closed
+    normal: ok
+    phrases:
+      passing: [fill valve passing, fill valve leaking through, prv leaking through, pressure creeps up cold, bad fill
+        valve, fill valve set high, makeup valve passing, pressure reducing valve passing]
+  - id: blr.relief
+    name: Relief / safety valve
+    ask: Is the relief or safety valve weeping or popping?
+    caution: Stay out of line with the discharge pipe — it can throw boiling water or steam. Do not lift the lever by
+      hand unless the pressure is 80 to 85 percent of the popping point (TM 5-642 ¶4-41c), and never tighten the
+      spring to stop a leak.
+    systems: [fuel.boiler]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      ok: Dry
+      weeping: Weeping or dripping
+      popping: Lifting or blowing off
+    normal: ok
+    phrases:
+      weeping: [relief valve dripping, relief valve leaking, relief valve weeping, weeping relief, relief drips, safety
+        valve dripping, drip from the relief, relief valve seeping]
+      popping: [relief valve popping, relief popping off, popping off, safety valve blowing, blowing off, relief
+        valve going off, relief valve discharging, safety lifting, relief dumps water]
+  - id: blr.kettling
+    name: Kettling
+    ask: Does the boiler rumble, percolate or bang like a kettle while the burner runs?
+    systems: [fuel.boiler]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': Quiet
+      'yes': Kettling — rumbles, percolates or bangs while firing
+    normal: 'no'
+    phrases:
+      'yes': [kettling, kettle noise, boiler rumbling, boiler rumbles, percolating, boiler banging while firing,
+        coffee pot noise, boiler pinging, boiler knocking, boiler sounds like a kettle, boiling noise, boiler
+        gurgling when it fires]
+  - id: blr.dhw
+    name: Domestic hot water from the coil
+    ask: Is the tankless coil giving hot water while the boiler is hot?
+    systems: [fuel.boiler]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      ok: Plenty of hot water
+      weak: Little or no domestic hot water with the boiler hot
+    normal: ok
+    base: {ok: 0.94, weak: 0.06}
+    phrases:
+      weak: [no domestic hot water, no hot water at the tap, tankless coil, hot water runs out, shower goes cold,
+        lukewarm tap water, coil scaled, no hot water from the boiler, hot water weak, low hot water flow, coil
+        plugged]
+
+  # ---------------- warm-air furnace ----------------
+  - id: blr.blower
+    name: Furnace blower
+    ask: What is the blower doing once the furnace is hot?
+    systems: [fuel.furnace]
+    cost: 1
+    states:
+      ok: Runs when hot, good airflow
+      weak: Runs but weak airflow (slow, dirty wheel, slipping belt, backwards)
+      'off': Doesn't run when the plenum is hot
+      constant: Runs all the time, even cold
+    normal: ok
+    phrases:
+      weak: [blower weak, weak airflow, low airflow, blower slow, belt slipping, dirty blower wheel, blower running
+        backwards, not much air from the vents, poor air flow]
+      'off': [blower not running, blower off, blower dead, fan not coming on, no air from the vents, blower doesnt
+        start, blower doesn't start, fan wont start, blower motor dead, blower stopped]
+      constant: [blower runs all the time, blower never shuts off, fan runs constantly, blower stuck on, fan wont
+        shut off, fan won't shut off, blowing cold air, cold air from the vents]
+  - id: blr.blower_v
+    name: Voltage to the blower motor
+    ask: With the plenum hot, is there voltage at the blower motor leads?
+    systems: [fuel.furnace]
+    ask_if: {blr.blower: 'off'}
+    cost: 2
+    needs: meter
+    states:
+      present: Present
+      missing: Missing — the fan control isn't switching
+    normal: present
+    phrases:
+      missing: [no voltage to the blower, fan control not switching, fan control bad, fan limit bad, no power to the
+        blower motor, fan switch not closing]
+      present: [voltage at the blower, blower has power, power to the blower]
+  - id: blr.air_filter
+    name: Furnace air filter
+    ask: Is the furnace air filter dirty, collapsed or missing?
+    systems: [fuel.furnace]
+    cost: 1
+    states:
+      clean: Clean
+      dirty: Dirty, clogged, collapsed or sucked into the blower
+    normal: clean
+    phrases:
+      dirty: [dirty filter, filter dirty, clogged filter, plugged filter, filter collapsed, filter sucked in, filter
+        never changed, filter black, air filter plugged]
+  - id: blr.ducts
+    name: Ducts and registers
+    ask: Are supply registers and dampers open and the ducts intact?
+    systems: [fuel.furnace]
+    cost: 2
+    states:
+      ok: Open and intact
+      restricted: Closed registers or dampers, crushed or undersized duct, blocked return
+    normal: ok
+    phrases:
+      restricted: [registers closed, vents closed, dampers closed, crushed duct, blocked return, return blocked,
+        undersized duct, duct collapsed, too many vents shut]
+  - id: blr.plenum_f
+    name: Supply plenum temperature
+    ask: How hot is the supply plenum with the burner running and the blower on?
+    how: TM 5-642 ¶6-40g — outlet air shouldn't stay over 160 °F; the usual cause when it does is airflow. Shield the
+      probe from the heat exchanger's radiant heat or it reads high and sends you after airflow that is fine. Supply
+      minus return temperature against the nameplate rise is the better test when the return air is cold.
+    systems: [fuel.furnace]
+    cost: 2
+    needs: thermometer
+    states:
+      normal: Normal (about 120–160 °F)
+      high: High (over 160 °F) — starved airflow or overfired
+      low: Low (under 110 °F) — underfired, blower on too early, or blower never stops
+    normal: normal
+    phrases:
+      high: [supply air too hot, plenum too hot, plenum temp high, air very hot, hot air scorching, high bonnet temp,
+        outlet temperature high]
+      low: [supply air lukewarm, plenum temp low, air not very warm, lukewarm air, cool supply air, air barely warm]
+  - id: blr.hx_crack
+    name: Heat exchanger integrity
+    ask: Any sign the heat exchanger is cracked — flame changes when the blower starts, CO or O2 shift in the supply
+      air, visible crack?
+    how: Watch the flame as the blower starts (a crack lets blower air disturb it); sample the supply air with the
+      analyzer for CO or an O2 drop; inspect with a light and mirror or a camera.
+    caution: If the analyzer finds CO in the supply air, shut the furnace down at once and ventilate. Stand to the side
+      of the inspection port, and keep the probe and hose clear of the hot heat exchanger.
+    systems: [fuel.furnace]
+    cost: 3
+    needs: combustion
+    states:
+      ok: No sign
+      cracked: Cracked — flame disturbed by the blower, CO in the supply air, or a visible crack
+    normal: ok
+    base: {ok: 0.95, cracked: 0.05}
+    phrases:
+      cracked: [cracked heat exchanger, heat exchanger cracked, flame changes when the blower comes on, flame jumps
+        when the fan starts, co in the ductwork, co in the supply air, hole in the heat exchanger, heat exchanger
+        rusted through, flame rolls out when the blower starts]
+
+inputs:
+  - {id: blr.stack_f, name: Stack temperature, unit: °F, systems: [fuel], probe: air, hint: In the smoke pipe
+      between the appliance and the barometric regulator, after 10 minutes of running}
+  - {id: blr.room_f, name: Room / combustion air temperature, unit: °F, systems: [fuel], probe: air, default: 70}
+  - {id: blr.o2_pct, name: Flue O2, unit: '%', systems: [fuel], hint: Same spot as the stack temperature}
+  - {id: blr.co_ppm, name: Flue CO (as read), unit: ppm, systems: [fuel], hint: Enter the flue O2 from the same
+      sample too — the air-free correction needs it}
+  - {id: blr.smoke_no, name: Smoke spot number, unit: '0–9', systems: [fuel], hint: Pump test on filter paper, read
+      against the scale}
+  - {id: blr.of_draft_inwc, name: Over-fire draft, unit: in. w.c., systems: [fuel], probe: manometer, hint: Type draft
+      as a NEGATIVE number (−0.04). If the gauge says "draft 0.04" that is −0.04; a plus sign means pressure}
+  - {id: blr.br_draft_inwc, name: Breech draft, unit: in. w.c., systems: [fuel], probe: manometer, hint: Between the
+      appliance and the barometric regulator. Type draft as a NEGATIVE number (−0.04). If the gauge says "draft
+      0.04" that is −0.04; a plus sign means pressure}
+  - {id: blr.pump_psi_meas, name: Pump pressure, unit: psi, systems: [fuel], hint: Gauge in the pump's gauge or nozzle
+      port, burner running}
+  - {id: blr.pump_psi_spec, name: Rated pump pressure, unit: psi, systems: [fuel], default: 100, choices: [100, 140,
+      150, 175, 200], hint: From the burner spec; 100 psi unless the burner says otherwise}
+  - {id: blr.pump_vac_inhg, name: Pump vacuum, unit: in. Hg, systems: [fuel], hint: Gauge on the pump inlet / vacuum
+      port, burner running}
+  - {id: blr.lift_ft, name: Lift from tank bottom to pump, unit: ft, systems: [fuel], hint: Zero or blank if the tank
+      sits above the burner}
+  - {id: blr.cad_flame_ohms, name: CAD cell resistance with flame, unit: Ω, systems: [fuel]}
+  - {id: blr.cad_dark_ohms, name: CAD cell resistance dark, unit: Ω, systems: [fuel], hint: Burner off, air tube
+      covered}
+  - {id: blr.odt_f, name: Outdoor temperature, unit: °F, systems: [fuel], probe: air}
+  - {id: blr.hw_psi, name: Boiler pressure, unit: psi, systems: [fuel.boiler]}
+  - {id: blr.relief_psi, name: Relief valve rating, unit: psi, systems: [fuel.boiler], default: 30, choices: [30, 50,
+      75, 100]}
+  - {id: blr.plenum_temp_f, name: Supply plenum temperature, unit: °F, systems: [fuel.furnace], probe: air, hint:
+      Blower running, burner on 5 minutes}
+
+measures:
+  # combustion
+  - id: blr.net_stack
+    name: Net stack temperature
+    unit: °F
+    systems: [fuel]
+    value: blr.stack_f - (blr.room_f ?? 70)
+    target: '450'
+    sets: blr.stack_temp
+    states:
+      - [high, v > 600]
+      - [low, v < 275]
+      - [normal, 'true']
+  - id: blr.o2_check
+    name: Flue O2
+    unit: '%'
+    systems: [fuel]
+    value: blr.o2_pct
+    target: '5'
+    sets: blr.o2
+    states:
+      - [low, v < 3]
+      - [high, v > 8]
+      - [normal, 'true']
+  - id: blr.co2_calc
+    name: Flue CO2 (from O2, light oil)
+    unit: '%'
+    systems: [fuel]
+    value: 15.4 * (20.9 - blr.o2_pct) / 20.9
+    target: '11.5'
+  - id: blr.excess_air
+    name: Excess air
+    unit: '%'
+    systems: [fuel]
+    value: 100 * blr.o2_pct / (20.9 - blr.o2_pct)
+    target: '30'
+  - id: blr.eff
+    name: Combustion efficiency (steady state)
+    unit: '%'
+    systems: [fuel]
+    value: flue_eff(blr.stack_f, blr.room_f ?? 70, blr.o2_pct)
+    target: '83'
+  - id: blr.co_af
+    name: CO air-free
+    unit: ppm
+    systems: [fuel]
+    value: co_airfree(blr.co_ppm, blr.o2_pct)
+    target: '50'
+    sets: blr.co
+    states:
+      - [very_high, v > 400]
+      - [high, v > 100]
+      - [normal, 'true']
+  - id: blr.smoke_check
+    name: Smoke spot
+    unit: '0–9'
+    systems: [fuel]
+    value: blr.smoke_no
+    target: '1'
+    sets: blr.smoke
+    states:
+      - [heavy, v >= 4]
+      - [high, v >= 2]
+      - [normal, 'true']
+  - id: blr.of_draft
+    name: Over-fire draft
+    unit: in. w.c.
+    systems: [fuel]
+    value: blr.of_draft_inwc
+    target: '-0.02'
+    sets: blr.draft_of
+    states:
+      - [none_positive, v > -0.005]
+      - [excessive, v < -0.05]
+      - [normal, 'true']
+  - id: blr.br_draft
+    name: Breech draft
+    unit: in. w.c.
+    systems: [fuel]
+    value: blr.br_draft_inwc
+    target: '-0.04'
+    sets: blr.draft_br
+    states:
+      - [weak, v > -0.025]
+      - [excessive, v < -0.08]
+      - [normal, 'true']
+  # fuel unit
+  - id: blr.pump_pressure
+    name: Pump pressure vs rating
+    unit: psi
+    systems: [fuel]
+    value: blr.pump_psi_meas
+    target: blr.pump_psi_spec
+    sets: blr.pump_psi
+    states:
+      - [zero, v < 20]
+      - [low, v < t - 10]
+      - [high, v > t + 10]
+      - [normal, 'true']
+  # how much a pump may pull depends on its piping: one-pipe about 6 in. Hg (air breaks out of the oil above
+  # that), two-pipe single-stage about 10, two-stage about 15 — the pump's data sheet rules
+  - id: blr.pump_vacuum
+    name: Pump vacuum vs lift
+    unit: in. Hg
+    systems: [fuel]
+    let: {cap: "(ctx.oil_piping ?? 'two_pipe') == 'one_pipe' ? 6 : ((ctx.oil_piping ?? 'two_pipe') == 'two_stage' ? 15 : 10)"}
+    value: blr.pump_vac_inhg
+    target: '(blr.lift_ft ?? 0) + 2'
+    sets: blr.pump_vac
+    states:
+      - [high, 'v > cap || v > t + 6']
+      - [low_zero, '(blr.lift_ft ?? 0) > 2 && v < 0.5 * blr.lift_ft']
+      - [normal, 'true']
+  # flame proving — the dark reading is listed first so a cell that sees light is caught even when its flame
+  # reading is fine
+  - id: blr.cad_dark
+    name: CAD cell dark
+    unit: Ω
+    systems: [fuel]
+    requires: {flame_sensor: cad}
+    value: blr.cad_dark_ohms
+    target: '20000'
+    sets: blr.cad_ohms
+    states:
+      - [low_dark, v < 20000]
+  - id: blr.cad_flame
+    name: CAD cell with flame
+    unit: Ω
+    systems: [fuel]
+    requires: {flame_sensor: cad}
+    value: blr.cad_flame_ohms
+    target: '1600'
+    sets: blr.cad_ohms
+    states:
+      - [high, v > 1600]
+      - [good, 'true']
+  # conditions
+  - id: blr.outdoor
+    name: Outdoor temperature
+    unit: °F
+    systems: [fuel]
+    value: blr.odt_f
+    sets: blr.cold
+    states:
+      - [extreme, v < -20]
+      - [cold, v < 20]
+      - [mild, 'true']
+  - id: blr.hw_pressure
+    name: Boiler pressure vs relief rating
+    unit: psi
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    value: blr.hw_psi
+    target: '15'
+    sets: blr.pressure_hw
+    states:
+      - [high, 'v >= (blr.relief_psi ?? 30) - 5']
+      - [low, v < 5]
+      - [normal, 'true']
+  - id: blr.plenum
+    name: Supply plenum temperature
+    unit: °F
+    systems: [fuel.furnace]
+    value: blr.plenum_temp_f
+    target: '150'
+    sets: blr.plenum_f
+    states:
+      - [high, v > 160]
+      - [low, v < 110]
+      - [normal, 'true']
+
+causes:
+  # ======================= ignition =======================
+  - id: blr.igniter_failed
+    name: Ignition transformer or solid-state igniter weak or dead
+    systems: [fuel]
+    prior: common
+    keywords: [bad transformer, ignition transformer, igniter, ignitor, no spark, weak spark]
+    signs:
+      blr.start: no_flame!
+      blr.lockout: repeats
+      blr.spark: none|weak!
+      blr.electrodes: ok
+      blr.oil_at_nozzle: 'yes'
+      blr.pump_psi: normal
+      blr.chamber: carbon_oil?
+      blr.oil_smell: yes?
+      gen.output: none
+    confirm: Motor runs and oil reaches the nozzle, but no arc (or a thin, intermittent one) across good electrodes.
+      A solid-state igniter that works cold and quits warm is also a failed igniter.
+    fix: |
+      Check line voltage at the igniter primary during the start first — no voltage is a primary control or wiring
+      problem, not an igniter. With voltage in and no arc, replace the transformer or igniter (match the burner;
+      solid-state igniters replace iron-core transformers on many newer burners). Clean the spring contacts and the
+      electrode buss bars, then recheck the electrode settings before the first light.
+
+      The failed tries may have left raw oil in the chamber. Before the next try, look into the chamber with the
+      burner off. Liquid oil, or a glowing or smoldering floor, means no relight — remove the oil, let it cool and let
+      the vapor clear, and ventilate it (TM 5-642 ¶3-11b(9) says to ventilate after any misfire; open the fire or
+      observation door if the unit has one). Then reset the primary once.
+    safety: 10,000–14,000 V at the output. Never test a solid-state igniter by arcing it with a hand-held screwdriver;
+      use a tester. Reset the primary once — if it locks out again, find the cause before another reset. Raw oil in
+      the chamber puffs on relight, so there is no relight over liquid oil.
+    refs: [tm-5-642, practice]
+  - id: blr.electrodes_bad
+    name: Electrodes out of adjustment, carboned, or porcelain cracked
+    systems: [fuel]
+    prior: common
+    keywords: [electrodes, electrode gap, cracked porcelain, carbon on electrodes, electrode setting]
+    signs:
+      blr.start: {no_flame: 0.4, delayed: 0.4, flame_lost: 0.05, normal: 0.1, nothing: 0.05}
+      blr.lockout: once|repeats
+      blr.spark: weak|none
+      blr.electrodes: off_spec|damaged!
+      blr.oil_at_nozzle: 'yes'
+      blr.pump_psi: normal
+      blr.oil_smell: yes?
+      blr.soot_outside: yes?
+      gen.output: none|weak
+    confirm: Drawer assembly out — gap or position off the spec card, tips burnt back, carbon bridging, or a crack or
+      carbon track across the porcelain that bleeds the spark to ground.
+    fix: |
+      Reset the electrodes to the burner's spec (gap and position to the nozzle), out of the oil spray; replace
+      cracked or carbon-tracked porcelains and bent or burnt tips. Carbon on the tips means they sit in the spray,
+      the nozzle leaks at its seat, or the pump isn't cutting off cleanly at shutdown (TM 5-642 ¶3-13d(3)) — fix
+      that too or they'll carbon again. Tighten the clamps and check the buss bars and transformer springs make
+      firm contact. Replace the nozzle while you're in there.
+    safety: Delayed ignition from weak electrodes puffs burning gas and soot out of every leak in the appliance.
+      After a misfire, look into the chamber with the burner off and ventilate it. Liquid oil, or a glowing or
+      smoldering floor, means no relight until the oil is removed, the chamber has cooled and the vapor has cleared.
+      Reset the primary once — if it locks out again, find the cause before another reset.
+    refs: [tm-5-642, practice]
+  - id: blr.nozzle_bad
+    name: Nozzle plugged, dirty or worn
+    systems: [fuel]
+    prior: very_common
+    keywords: [bad nozzle, dirty nozzle, plugged nozzle, worn nozzle, nozzle]
+    signs:
+      blr.nozzle: plugged|worn!
+      blr.flame_look: stringy|smoky|impinging
+      blr.start: {normal: 0.3, delayed: 0.3, no_flame: 0.25, flame_lost: 0.1, nothing: 0.05}
+      blr.lockout: once|repeats?
+      blr.smoke: high?
+      blr.o2: {low: 0.2, normal: 0.55, high: 0.25}
+      blr.pump_psi: normal
+      blr.chamber: carbon_oil?
+      blr.oil_smell: yes?
+      blr.electrodes: ok|damaged?
+      gen.output: weak?
+    confirm: Streaky, one-sided or smoky flame; delayed light-off; or no flame at all with pump pressure normal and
+      a plugged orifice or strainer on the bench.
+    fix: |
+      Replace the nozzle with the same gph, spray angle and pattern the appliance plate calls for; a nozzle is
+      replaced in the field, not cleaned (TM 5-642 ¶3-13b, c). Replace the nozzle-line strainer or the pump strainer
+      if it's loaded. Hold the adapter with a second wrench and seat the new nozzle firmly on a clean seat in one go;
+      don't overtighten it, and use no sealant on the threads. Set electrodes, then run a smoke test and set the
+      air. A nozzle that plugs again soon has dirty fuel or a bad filter behind it: check the fuel sample and
+      filter.
+    safety: A nozzle that dribbles or sprays badly may have wet the chamber. Before the next start look in with the
+      burner off — liquid oil means no relight until it is removed and the vapor has cleared. Reset the primary
+      once; if it locks out again, find the cause before another reset.
+    refs: [tm-5-642, practice]
+  - id: blr.nozzle_wrong
+    name: Wrong nozzle or pump pressure — overfired, wrong angle or pattern, flame hitting the chamber
+    systems: [fuel]
+    prior: occasional
+    keywords: [wrong nozzle, oversized nozzle, overfired, impingement, nozzle too big, pump pressure too high]
+    signs:
+      blr.nozzle: wrong!
+      gen.recent_work: 'yes'
+      blr.flame_look: impinging!
+      blr.pump_psi: high?
+      blr.stack_temp: high?
+      blr.chamber: carbon_oil|damaged
+      blr.smoke: high?
+      blr.limit_open: open_overheat?
+      gen.short_cycle: yes?
+      blr.soot_outside: yes?
+    confirm: Nozzle stamping (gph, angle, pattern) doesn't match the appliance plate and burner spec, or the pump is
+      set well above the pressure the nozzle is rated at; the flame reaches the chamber wall or floor.
+    fix: |
+      Fit the nozzle the appliance and burner literature call for and set pump pressure to the burner's spec —
+      flow rises with pressure (TM 5-642 table 3-1), so 140 psi through a nozzle sized for 100 overfires it. A
+      too-large nozzle also heats the boiler so fast it short-cycles on the limit (TM 5-642 ¶3-13d(5)(e)). Check
+      the chamber for damage from the impinging flame and clean the carbon out. Re-tune with the analyzer.
+    refs: [tm-5-642, practice]
+
+  # ======================= fuel unit =======================
+  - id: blr.pump_pressure_low
+    name: Pump pressure low — worn pump, regulator mis-set or pump strainer plugged
+    systems: [fuel]
+    prior: occasional
+    keywords: [low pump pressure, worn pump, fuel unit weak, pressure regulator]
+    signs:
+      blr.pump_psi: low!
+      blr.pump_vac: normal
+      blr.flame_look: smoky|stringy
+      blr.smoke: high?
+      blr.start: {normal: 0.45, delayed: 0.3, flame_lost: 0.15, no_flame: 0.05, nothing: 0.05}
+      blr.pump_noise: noisy?
+      blr.filter: clean?
+      gen.output: weak?
+    confirm: Pressure below the burner's spec with normal vacuum and clean supply — the regulator won't bring it up,
+      or the pressure sags as the pump warms (worse once it is warm, on light fuel).
+    fix: |
+      Adjust the regulator to spec first; if it won't hold, the gear set or regulator is worn — replace the fuel
+      unit (match one-pipe/two-pipe, rotation and the bypass plug). Clean the pump strainer. Big droplets from low
+      pressure make a smoky flame, so retune after the pressure is right. If vacuum is high too, fix the supply
+      restriction before condemning the pump.
+
+      On kerosene-class fuel, check that the lot carries a lubricity additive (TM 5-642 ¶3-11a); a fuel unit that
+      wears out early may be a fuel problem, not just a bad pump.
+    safety: Low pressure makes big droplets and a rough or late light-off. If it has been puffing or locking out, look
+      into the chamber with the burner off for liquid oil before the next start, and reset the primary once only.
+    refs: [tm-5-642, practice]
+  - id: blr.pump_seized
+    name: Fuel pump seized or failed (no pressure)
+    systems: [fuel]
+    prior: occasional
+    keywords: [seized pump, pump seized, bad fuel pump, fuel unit failed, pump locked up]
+    signs:
+      blr.pump_psi: zero!
+      blr.oil_at_nozzle: 'no'
+      blr.start: no_flame|nothing
+      blr.lockout: repeats
+      blr.motor: hums_bound|runs
+      blr.coupling: ok
+      blr.pump_noise: noisy?
+      blr.pump_vac: low_zero?
+      gen.output: none
+    confirm: No pressure and no oil at the nozzle; the motor hums or trips with the coupling on and spins free with
+      it off (seized pump), or the pump turns but pumps nothing (stripped gears). If it only hums in the cold and
+      runs once it is warm, suspect thick fuel before the pump.
+    fix: |
+      Pull the coupling: if the pump shaft won't turn by hand, replace the fuel unit. Find out why it seized —
+      water or rust in the fuel, running dry after an empty tank, dirt past a bad strainer — and fix that, or the
+      new one follows it. Prime and bleed the new pump at the bleed port into a container, check pressure and cutoff,
+      then set the air.
+
+      On kerosene-class fuel, check that the lot carries a lubricity additive (TM 5-642 ¶3-11a); a fuel unit that
+      wears out early may be a fuel problem, not just a bad pump.
+    safety: Reset the primary once after the repair. If it locks out again, find the cause before another reset (TM
+      5-642 ¶7-9l), and look into the chamber with the burner off for liquid oil first.
+    refs: [tm-5-642, practice]
+  - id: blr.coupling_broken
+    name: Motor-to-pump coupling broken or slipping
+    systems: [fuel]
+    prior: occasional
+    keywords: [broken coupling, coupling, pump not turning]
+    signs:
+      blr.coupling: broken!
+      blr.motor: runs!
+      blr.pump_psi: zero!
+      blr.oil_at_nozzle: 'no'
+      blr.start: no_flame!
+      blr.lockout: repeats
+      blr.pump_noise: quiet?
+      gen.output: none
+    confirm: Motor runs normally, no pressure and no oil; the coupling is cracked, stripped or lying in the housing.
+    fix: |
+      Replace the coupling and check why it failed — a pump that drags or seized momentarily, or the coupling set
+      with end pressure on the pump shaft (TM 5-642 ¶3-13e wants it seated without pushing on the pump). Spin the
+      pump by hand before fitting the new coupling. Bleed into a container, check pressure, then relight.
+    safety: Reset the primary once after the repair. If it locks out again, find the cause before another reset (TM
+      5-642 ¶7-9l), and look into the chamber with the burner off for liquid oil first.
+    refs: [tm-5-642, practice]
+  - id: blr.motor_failed
+    name: Burner motor failed — open winding, bad bearings, capacitor or thermal overload
+    systems: [fuel]
+    prior: occasional
+    keywords: [burner motor, motor bad, motor hums, motor dead, motor overload]
+    signs:
+      blr.start: nothing!
+      blr.motor: hums_free|silent!
+      blr.motor_v: present!
+      blr.coupling: ok
+      blr.lockout: {'no': 0.3, repeats: 0.6, once: 0.1}
+      gen.breaker: ok|tripped
+      gen.burnt_smell: yes?
+      gen.output: none
+    confirm: Line voltage at the motor leads on a call but it hums and trips, or sits silent; shaft turns freely with
+      the coupling off.
+    fix: |
+      Press the motor's thermal reset button if it has one and watch whether it trips again. Test the capacitor on
+      PSC motors, spin the shaft for rough bearings, ohm the windings. Replace with the same frame, rpm, rotation
+      and shaft; make sure the new motor isn't fighting a seized pump (spin the pump first). A motor that runs hot
+      and trips may be over-coupled to the pump or starved of air by a soot-packed fan wheel.
+    safety: Lock out power before touching the motor or coupling. After the repair reset the primary once; if it locks
+      out again, find the cause before another reset (TM 5-642 ¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.oil_valve_stuck
+    name: Oil solenoid or delay valve not opening (dead coil, no power, stuck)
+    systems: [fuel]
+    prior: uncommon
+    keywords: [oil valve, solenoid valve, delay valve, solenoid stuck]
+    signs:
+      blr.oil_valve: stuck|no_power!
+      blr.pump_psi: normal!
+      blr.oil_at_nozzle: 'no'
+      blr.start: no_flame!
+      blr.lockout: repeats
+      blr.spark: strong?
+      gen.output: none
+    confirm: Pump pressure normal but no oil reaches the nozzle; the valve coil has no voltage on a start, or has
+      voltage and never clicks open.
+    fix: |
+      No voltage to the coil: trace it to the primary control's valve terminal or the delay timer. Voltage but no
+      click: replace the valve or coil (match voltage and the delay the burner wants — TM 5-642 ¶3-14b has the
+      delay valve opening at least 4 s after the motor). Check the nozzle line and nozzle strainer while it's apart;
+      a plugged line looks the same from outside.
+    safety: Reset the primary once after the repair. If it locks out again, find the cause before another reset (TM
+      5-642 ¶7-9l), and look into the chamber with the burner off for liquid oil first.
+    refs: [tm-5-642, practice]
+  - id: blr.after_drip
+    name: After-drip — pump cutoff or oil valve leaking, or air in the nozzle line
+    systems: [fuel]
+    prior: occasional
+    keywords: [after drip, afterdrip, nozzle drip, pump cutoff, dribble]
+    signs:
+      blr.after_drip: yes!
+      blr.oil_smell: 'yes'
+      blr.start: delayed?
+      blr.chamber: carbon_oil
+      blr.electrodes: damaged?
+      blr.oil_valve: leaks?
+      blr.soot_outside: yes?
+      blr.pump_psi: normal
+    confirm: At shutdown the flame hangs on, smokes or rumbles, or oil drips from the nozzle; the pump gauge doesn't
+      drop sharply to a held cutoff pressure.
+    fix: |
+      Bleed any air out of the nozzle line and give a new installation a few days — trapped air compresses and
+      squirts oil at shutdown (TM 5-642 ¶3-13d(1)(d)). If the pump's cutoff doesn't snap shut (gauge drifts instead
+      of holding), replace the fuel unit or add/replace the oil solenoid valve; if the solenoid passes oil, replace
+      it. Clean carbon out of the chamber and off the electrodes, and replace a nozzle that leaks at its seat.
+    safety: Oil that drips at shutdown collects in the chamber. Before a relight, look in with the burner off. Liquid
+      oil, or a glowing or smoldering floor, means no relight until the oil is removed, the chamber has cooled and
+      the vapor has cleared.
+    refs: [tm-5-642, practice]
+  - id: blr.oil_leak
+    name: Oil leaking — pump shaft seal, filter gasket, fitting or nozzle line
+    systems: [fuel]
+    prior: occasional
+    keywords: [oil leak, shaft seal, leaking filter, leaking fitting]
+    signs:
+      blr.oil_leak: yes!
+      blr.oil_smell: 'yes'
+      blr.bypass_plug: ok?
+      blr.pump_psi: normal?
+      gen.recent_work: yes?
+    confirm: Wet oil at the pump shaft, filter can, flare fittings or nozzle line, and the smell to go with it. With the
+      tank above the burner, a weeping shaft seal can also mean too much inlet head on the seal.
+    fix: |
+      Fix the leak at its source: new filter gasket (lubricate it with oil), reflare or replace a weeping flare
+      (no compression fittings on oil lines), tighten or replace the nozzle line. A leaking shaft seal means a new
+      fuel unit — and check that the bypass plug matches the piping, because a plug on a one-pipe system blows the
+      seal within minutes. Clean up with absorbent; oil-soaked floor and insulation keep the smell for weeks.
+
+      Tank above the burner: check the inlet head against the pump's seal rating (the pump's data sheet gives it), and
+      fit an anti-siphon (oil safety) valve if a broken line could drain the tank through the pump.
+    safety: Oil on a hot burner housing or in the chamber is a fire hazard. Close the oil supply valve at the tank and
+      kill burner power while you work.
+    refs: [practice]
+  - id: blr.bypass_plug
+    name: Pump bypass plug wrong for the piping (after a pump change)
+    systems: [fuel]
+    prior: uncommon
+    keywords: [bypass plug, one pipe, two pipe, new pump, pump wont prime]
+    signs:
+      gen.recent_work: yes!
+      blr.bypass_plug: wrong!
+      blr.oil_leak: yes?
+      blr.pump_psi: {zero: 0.3, low: 0.25, fluctuating: 0.25, normal: 0.15, high: 0.05}
+      blr.start: no_flame|flame_lost
+      blr.lockout: repeats|once
+      blr.pump_noise: noisy?
+    confirm: Pump recently changed. One-pipe with the plug in — the shaft seal blows and oil runs out of the pump.
+      Two-pipe with the plug out — it never primes, pressure is low or bouncy, air keeps showing up.
+    fix: |
+      One-pipe: remove the bypass plug from the return port and plug the return port itself. Two-pipe: install the
+      bypass plug and connect the return line. Replace a fuel unit whose seal already blew. Prime at the bleed port
+      into a container until the oil runs clear, then check pressure and cutoff.
+    safety: Oil sprayed from a blown seal onto a hot housing is a fire hazard. Close the oil supply valve at the tank
+      and kill burner power before you start. After the repair reset the primary once; if it locks out again, find
+      the cause before another reset, and look into the chamber with the burner off for liquid oil first.
+    refs: [practice]
+
+  # ======================= fuel supply =======================
+  - id: blr.air_leak_suction
+    name: Air leak into the suction line — fitting, filter gasket, gauge port, valve packing
+    systems: [fuel]
+    prior: common
+    keywords: [air leak, air in the line, sucking air, suction leak, bleeding air, wont prime]
+    signs:
+      blr.pump_vac: low_zero!
+      blr.pump_noise: noisy!
+      blr.pump_psi: fluctuating|low
+      blr.flame_look: pulsing|stringy
+      blr.start: flame_lost|delayed|no_flame
+      blr.lockout: once|repeats
+      gen.intermittent: yes?
+      gen.recent_work: yes?
+      blr.filter: clean?
+      blr.oil_at_nozzle: 'yes'
+    confirm: Vacuum reads near zero for the lift or falls away when the burner stops; pump whines; pressure needle
+      bounces; air keeps appearing at the bleed port. Overhead piping above the tank's oil level admits air at any
+      loose joint (TM 5-642 ¶3-13d(4)).
+    fix: |
+      Find the leak: tighten or reflare every fitting from the tank to the pump, new filter-can gasket, cap or
+      plug the vacuum-gauge port, repack or replace the shutoff valve, check the pump cover gasket and the
+      vacuum-gauge port plug. Isolate by section with a vacuum gauge — a tight section holds vacuum when the pump
+      stops. With very light fuels an overhead line lets dissolved air collect; a two-pipe arrangement minimizes
+      that (TM 5-642 ¶3-13d(4)(d)), and an air separator (de-aerator) in the supply line cures chronic air as a
+      matter of practice. Bleed thoroughly into a container after the repair.
+    safety: Air in the oil makes the flame sputter and drop out, and every failed try can leave oil in the chamber.
+      Reset the primary once; if it locks out again, look into the chamber with the burner off for liquid oil and
+      find the cause before another reset (TM 5-642 ¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.supply_restricted
+    name: Fuel supply restricted — clogged filter or strainer, partly closed valve, kinked or crushed line
+    systems: [fuel]
+    prior: common
+    keywords: [clogged filter, plugged filter, fuel restriction, starved for fuel, kinked line]
+    signs:
+      blr.pump_vac: high!
+      blr.filter: clogged!
+      blr.pump_psi: low|fluctuating
+      blr.pump_noise: noisy
+      blr.start: flame_lost|no_flame
+      blr.lockout: once|repeats
+      blr.fuel_sample: dark_sludge?
+      blr.flame_look: pulsing|stringy?
+      blr.tank: ok
+      gen.output: weak|none
+    confirm: Vacuum well above what the lift explains, or over the pump's limit (about 6 in. Hg one-pipe, 10 two-pipe
+      single-stage, 15 two-stage), pressure sagging, pump noisy; a loaded filter or strainer, or a valve or line that
+      isn't fully open.
+    fix: |
+      Change the filter and clean the pump strainer; open valves fully; straighten or replace a crushed line. If
+      vacuum is still high, the lift or run is too much for that pump — convert a one-pipe to two-pipe, or fit a
+      two-stage pump. Sludge in the filter means the tank needs treatment or cleaning, and water drained off the
+      bottom. Bleed into a container and check pressure afterward.
+    safety: Reset the primary once after the repair. If it locks out again, look into the chamber with the burner off
+      for liquid oil and find the cause before another reset (TM 5-642 ¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.no_fuel
+    name: Out of fuel, or the supply valve / fire valve is closed
+    systems: [fuel]
+    prior: common
+    keywords: [out of oil, no fuel, tank empty, valve closed, firomatic]
+    signs:
+      blr.tank: empty|valve_closed!
+      blr.start: {no_flame: 0.6, flame_lost: 0.3, nothing: 0.02, delayed: 0.03, normal: 0.05}
+      blr.oil_at_nozzle: 'no'
+      blr.pump_psi: zero|low
+      blr.pump_vac: {high: 0.45, low_zero: 0.4, normal: 0.15}
+      blr.lockout: repeats
+      blr.pump_noise: noisy?
+      gen.output: none
+    confirm: Tank sticks dry or below the pickup (gauges stick — stick it), or a supply valve or the fusible-link fire
+      valve is closed. An empty tank sucks air (vacuum near zero); a closed valve pulls a high vacuum.
+    fix: |
+      Fill the tank (or open the valve — but find out why the fire valve tripped before resetting it). Running dry
+      pulls tank-bottom sludge and water into the filter and pump: change the filter, clean the strainer, bleed the
+      pump until the oil runs clear, and expect a second filter change soon. Reset the primary once after the
+      bleed; repeated resets fill the chamber with oil.
+    safety: After an empty-tank episode the chamber may hold unburned oil from the lockout tries. Before the first
+      light, look in with the burner off — liquid oil, or a glowing or smoldering floor, means no relight until the
+      oil is removed, the chamber has cooled and the vapor has cleared. Then ventilate it, stand clear of the front
+      of the unit on the first try, and reset the primary once only.
+    refs: [tm-5-642, practice]
+  - id: blr.fuel_gelled
+    name: Fuel waxed or gelled in the cold
+    systems: [fuel]
+    prior: occasional
+    keywords: [gelled fuel, jelled, waxed, wax, cold fuel, cloud point, fuel too cold, diesel gelled, waxed up,
+      fuel clouded, freeze point]
+    signs:
+      blr.cold: cold|extreme!
+      blr.line_cold: yes!
+      blr.filter: waxed_iced!
+      blr.fuel_sample: cloudy_wax!
+      blr.pump_vac: high!
+      blr.thaw: restores
+      blr.start: flame_lost|no_flame
+      blr.lockout: once|repeats
+      gen.intermittent: yes?
+      blr.pump_noise: noisy?
+      gen.output: none|weak
+    when:
+      # kerosene, No. 1, JP-8, AN8 and arctic diesel stay fluid to about -40 °F, so wax on them needs deep cold
+      - if: {fuel_type: kero}
+        signs: {blr.cold: extreme!}
+    confirm: Cold outdoor tank or line, high vacuum, a filter coated in white wax and a cloudy or jelled fuel sample.
+      It runs again when the sun hits the tank or the line is warmed. On kerosene-class fuel it takes deep cold,
+      below about −40 °F, or the wrong fuel in the tank.
+    fix: |
+      Warm the filter and line gently (warm water, warm rags, heat trace, or move the filter indoors; a heat gun only
+      on a dry metal line with no fuel leaking and the burner locked out) — never a flame — and change the waxed
+      filter. Then stop it recurring: move the filter indoors onto the warm side of the wall, heat-trace or insulate
+      the outdoor run, and match the fuel to the weather.
+
+      No. 2 oil: blend kerosene / No. 1 into the tank (the usual winter blend is 10–50 %), or switch to an arctic
+      grade. Kerosene-class fuel (kerosene, No. 1, JP-8, AN8, arctic diesel): wax means it is colder than that lot's
+      cloud or freeze point, or the wrong fuel is in the tank — read the cloud or freeze point off the delivery
+      paperwork, keep the tank, filter and suction line warm, and do not blend No. 2 into it. Anti-gel additive
+      only works mixed into fuel that hasn't waxed yet.
+    safety: Reset the primary once after the thaw. If it locks out again, look into the chamber with the burner off
+      for liquid oil and find the cause before another reset (TM 5-642 ¶7-9l).
+    notes: No. 2 oil clouds around +10 to +20 °F untreated. Kerosene, No. 1, JP-8, AN8 and arctic diesel stay fluid
+      to about −40 °F, but below that, in outdoor tanks and lines, they can cloud too — so this cause is live on every
+      grade. When the fuel is known to be kerosene-class, the cold sign is tightened to deep cold, and the waxed
+      filter and cloudy sample still have to be there.
+    refs: [practice]
+  - id: blr.fuel_water_ice
+    name: Water or ice in the fuel
+    systems: [fuel]
+    prior: occasional
+    keywords: [water in the fuel, water in the tank, ice in the fuel, condensation, water bottom]
+    signs:
+      blr.fuel_sample: water_ice!
+      blr.filter: waxed_iced|clogged
+      blr.start: flame_lost|delayed|no_flame
+      blr.flame_look: pulsing|stringy
+      blr.lockout: once|repeats
+      gen.intermittent: 'yes'
+      blr.pump_noise: noisy?
+      blr.pump_vac: high?
+      blr.cold: cold|extreme?
+      blr.electrodes: damaged?
+    confirm: A clear water layer or ice crystals in a settled sample; slush or ice on the filter element in the cold;
+      the flame sputters and drops out as water slugs reach the nozzle.
+    fix: |
+      Pump or drain the water off the tank bottom (every outdoor tank breathes and condenses; snow gets in loose
+      fills). Change the filter — a water-absorbing cartridge helps — clean the pump strainer, replace the nozzle,
+      and bleed into a container until the oil runs clean. Fix the way water gets in: fill cap gasket, vent cap, a
+      tank that sits in the sun by day and chills at night. Water also feeds microbial sludge in warm months, so
+      treat the tank if the sample shows growth. In the cold, ice crystals plug a filter the same way wax does at any
+      fuel grade.
+    safety: Water slugs put the flame out and the primary locks out, and each failed try can leave oil in the chamber.
+      Reset the primary once; if it locks out again, look into the chamber with the burner off for liquid oil and
+      find the cause before another reset (TM 5-642 ¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.line_frozen
+    name: Outdoor fuel line or filter frozen, iced or snow-crushed
+    systems: [fuel]
+    prior: occasional
+    keywords: [frozen line, line froze, frozen filter, iced line, snow on the line, buried line]
+    signs:
+      blr.line_cold: yes!
+      blr.cold: extreme|cold
+      blr.pump_vac: high!
+      blr.thaw: restores!
+      blr.filter: clean|waxed_iced
+      blr.fuel_sample: clear|water_ice|cloudy_wax
+      blr.start: no_flame|flame_lost
+      blr.lockout: repeats|once
+      gen.intermittent: yes?
+      gen.output: none
+    confirm: Exposed line or filter in deep cold, vacuum pegged, and warming the suspect section brings the oil back;
+      the fuel sample itself may look fine because the water froze in the low spot of the line.
+    fix: |
+      Thaw gently (warm water on the filter can, warm rags or heat trace; a heat gun only on a dry metal line with no
+      fuel leaking and the burner locked out — never a flame), then find the ice: a low spot or trap in the line
+      where water settles, a filter can outdoors, a line crushed under snow or ice load. Drain water from the tank,
+      drop the filter indoors, pitch the line so it drains back to the tank with no traps, heat-trace and insulate
+      what has to stay outside, and keep the run clear of drifting snow. Change the filter after the thaw. If the
+      line was never frozen and the vacuum stays high, check the tank vent before anything else.
+    safety: Reset the primary once after the thaw. If it locks out again, look into the chamber with the burner off for
+      liquid oil and find the cause before another reset (TM 5-642 ¶7-9l).
+    refs: [practice]
+  - id: blr.tank_vent_blocked
+    name: Tank vent iced over or blocked — the tank pulls a vacuum and the pump starves
+    systems: [fuel]
+    prior: uncommon
+    keywords: [iced vent, vent blocked, vent frozen, vent cap iced, tank vacuum, tank sucks air, rime on the vent,
+      blocked tank vent, tank not breathing]
+    signs:
+      blr.tank_vent: blocked!
+      blr.pump_vac: high!
+      blr.filter: clean
+      blr.fuel_sample: clear
+      blr.line_cold: yes?
+      blr.cold: cold|extreme?
+      blr.thaw: no_change
+      blr.start: flame_lost|no_flame
+      gen.intermittent: yes?
+    confirm: Vacuum high with a clean filter and a clear fuel sample, and warming the line changes nothing; frost, ice
+      or snow packed in the vent cap or screen, no whistle at the vent, and air rushing in when the fill cap is
+      cracked. The vacuum drops and the burner runs once the vent is cleared.
+    fix: |
+      Clear the vent cap and screen (warm water or warm rags, no flame), check the vent line for a pinch, a low spot
+      that holds water or a crushed section, and make sure the vent ends where snow and drifting spray cannot reach it
+      — a hooded, screened cap on a pitched line, kept clear of rime. Then recheck the pump vacuum and bleed the pump
+      into a container. Do not replace the fuel unit for this.
+    safety: A tank pulling a hard vacuum can be dented or collapsed, and cracking the fill cap lets air rush in. Loosen
+      the cap slowly, with no flame or spark near the vent. Reset the primary once after the repair; if it locks out
+      again, look into the chamber with the burner off for liquid oil and find the cause before another reset.
+    refs: [practice]
+  - id: blr.cold_thick_fuel
+    name: Fuel too thick in the deep cold (not waxed) — pump starves, motor overloads on a cold start, spray is poor
+    systems: [fuel]
+    prior: occasional
+    keywords: [thick fuel, fuel too thick, cold fuel, motor hums cold, slow to start in the cold, viscous fuel, cold
+      start overload, fuel like syrup]
+    signs:
+      blr.cold: extreme!
+      blr.pump_vac: high
+      blr.motor: hums_bound?
+      blr.fuel_sample: clear
+      blr.filter: clean
+      blr.line_cold: yes
+      blr.flame_look: stringy|pulsing?
+      blr.start: nothing|no_flame|delayed
+    confirm: Deep cold, an outdoor tank or long outdoor suction run, vacuum high with a clear sample and a clean
+      filter, no wax anywhere; the motor hums or trips on a cold start and the burner runs once the pump has warmed,
+      with a ragged, stringy flame until the fuel warms.
+    fix: |
+      Thick fuel is not waxed fuel — it flows, just badly. Keep the fuel unit, filter and suction line warm (heat trace,
+      an insulated indoor filter housing, the shortest possible outdoor run, larger tubing, or a two-stage pump) and
+      do not condemn the pump until it has been run warm. Check the lot's viscosity or cold-flow data on the delivery
+      paperwork if the problem comes back in the same weather.
+    safety: A motor that hums and trips on a cold start is stalled. Leave it off with the power locked out rather than
+      cycling it, because a motor held at stall overheats; warm the pump, then try once. If the primary locks out,
+      reset it once, and if it locks out again look into the chamber with the burner off for liquid oil and find the
+      cause before another reset.
+    refs: [practice]
+
+  # ======================= flame proving and the primary control =======================
+  - id: blr.cad_cell_bad
+    name: CAD cell dirty, misaligned, failed or its leads bad — flame not proven
+    systems: [fuel]
+    requires: {flame_sensor: cad}
+    prior: very_common
+    keywords: [cad cell, cadmium cell, flame sensor, eye, flame not proven, lockout after it lights]
+    signs:
+      blr.start: flame_lost!
+      blr.lockout: repeats|once
+      blr.cad_ohms: high!
+      blr.flame_look: normal?
+      blr.smoke: normal|high
+      blr.pump_psi: normal
+      blr.spark: strong?
+      gen.intermittent: yes?
+    confirm: The burner lights and burns well but the control drops it at the end of its own safety time (15 seconds
+      is common; the primary's sheet gives it); the cell reads over the control's limit (typically 1,600 Ω) with the
+      flame on, and much lower once cleaned or replaced.
+    fix: |
+      Pull the cell: wipe the face, seat it firmly in its bracket sighting straight down the air tube at the flame,
+      check the leads and the F–F terminals for corrosion or a pinched wire. Re-read it with the flame on — still
+      high, replace the cell. A smoky flame or a nozzle that sprays off-pattern also hides the flame from the cell,
+      so if the reading improves after a tune-up the cell was never the fault. Clean the flame sensor every heating
+      season (TM 5-642 ¶7-9e).
+    safety: Reset the primary once after the cell is cleaned or replaced. If it drops out again, do not keep resetting —
+      every try pumps oil for the safety time, so look into the chamber with the burner off for liquid oil and find
+      the cause first (TM 5-642 ¶7-9l).
+    notes: CAD-cell ohm limits are manufacturer practice, not in the Army manuals; the control's own instruction
+      sheet rules.
+    refs: [tm-5-642, practice]
+  - id: blr.cad_sees_light
+    name: CAD cell sees light with no flame — light leak, shorted cell, glowing refractory or smoldering oil
+    systems: [fuel]
+    requires: {flame_sensor: cad}
+    prior: uncommon
+    keywords: [false flame, cad cell shorted, light leak, cell sees light]
+    signs:
+      blr.cad_ohms: low_dark!
+      blr.start: nothing|no_flame
+      blr.lockout: repeats
+      blr.motor_v: missing?
+      blr.chamber: carbon_oil?
+      blr.spark: strong?
+    confirm: The control refuses to start or locks out before ignition; the cell reads low (under ~20 kΩ) with the
+      burner off and the air tube covered.
+    fix: |
+      Cover the air tube and re-read: if the reading climbs, light is reaching the cell — close the inspection door,
+      seal gaps around the transformer and air tube, and look into the chamber with the burner off for a glowing floor
+      or smoldering oil left by earlier failed starts. If you find any, there is no relight until it is out, the oil
+      is removed and the vapor has cleared. If the reading stays low covered, the cell or its leads are shorted —
+      replace. Check the primary control's instructions; some run a flame-present test before each start.
+    safety: A cell that sees "flame" with the burner off may be looking at a glowing floor or smoldering oil. Keep the
+      burner off and the chamber closed up until it has cooled, and do not relight until the oil is removed and the
+      vapor has cleared. Reset the primary once; if it locks out again, find the cause before another reset (TM
+      5-642 ¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.stack_relay_bad
+    name: Stack relay helix sooted or stuck, or its contacts failed
+    systems: [fuel]
+    requires: {flame_sensor: stack}
+    prior: occasional
+    keywords: [stack relay, stack switch, helix, protectorelay, stack control]
+    signs:
+      blr.stack_relay: faulty!
+      blr.start: flame_lost|nothing|no_flame
+      blr.lockout: repeats|once
+      blr.soot_hx: heavy?
+      blr.stack_temp: normal|high
+    confirm: Helix bound with soot so it never pulls the hot contacts in (the burner drops out when the stack control's
+      own safety timing runs out) or never releases (won't restart until it's tapped); contacts pitted. A
+      stack-control lockout comes later than a CAD-cell lockout — usually a minute or more after light-off (the
+      control's sheet gives the time), where a CAD primary locks out within its own 15 to 45 second safety time.
+    fix: |
+      Pull the relay, clean the helix and the smoke-pipe hole, set the drive arm per the control's sheet and reseal
+      the hole — air leaks there upset it (TM 5-642 ¶7-9k). Make sure the element sits in flowing flue gas, not a
+      dead pocket. Worn contacts or a tired relay: replace, or convert the burner to a CAD-cell primary. Heavy soot
+      on the helix means the fire has been dirty — tune it.
+
+      After a lockout let the stack control's safety element cool before you reset it (the control's sheet gives the
+      wait), and never hold the relay in. Do not restart until the cause is found (TM 5-642 ¶3-11b(7), ¶7-9h, ¶7-9l).
+    safety: Do not block the control's motor or ignition switches in or out, and do not hold the relay in — the safety
+      features stop working and the safety element overheats (TM 5-642 ¶7-9h, ¶3-11b(7)). Reset once; if it locks
+      out again, look into the chamber with the burner off for liquid oil and find the cause before another reset.
+    refs: [tm-5-642, practice]
+  - id: blr.primary_failed
+    name: Primary control failed — relay, safety switch or board won't send the burner out
+    systems: [fuel]
+    prior: occasional
+    keywords: [primary control, bad primary, protectorelay, control board, r8184, safety switch wont reset]
+    signs:
+      blr.start: nothing!
+      blr.motor_v: missing!
+      blr.primary_line_in: present!
+      blr.tt: 'yes'
+      blr.lockout: {'no': 0.5, repeats: 0.4, once: 0.1}
+      blr.limit_open: 'no'
+      blr.cad_ohms: good?
+      blr.polarity: ok
+      gen.output: none
+    confirm: Line voltage into the control and a call at T–T, nothing out to the motor and igniter — even after a
+      reset and with the CAD cell reading dark.
+    fix: |
+      Confirm polarity and a sound neutral first, and that the CAD cell reads dark (a cell that sees light stops a
+      start). Then replace the control with one matched to the flame sensor and safety timing the burner needs, and
+      set the thermostat anticipator to the control's rating. Don't block or hold a relay in — the safety features
+      stop working (TM 5-642 ¶7-9h). Nuisance safety trips are often low voltage or reversed polarity, not the
+      control (¶3-13d(6)).
+    safety: Never block or hold a relay in to make it run — the safety features don't work while it is held (TM 5-642
+      ¶7-9h). After a lockout reset once only; a lockout that comes back means find the cause before another reset
+      (¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.polarity_reversed
+    name: Reversed polarity or bad neutral/ground at the burner (after rewiring or a generator switch-over)
+    systems: [fuel]
+    prior: uncommon
+    keywords: [reversed polarity, polarity, hot neutral swapped, bad ground, generator transfer]
+    signs:
+      blr.polarity: reversed!
+      blr.lockout: once|repeats
+      blr.start: {flame_lost: 0.35, nothing: 0.3, no_flame: 0.2, normal: 0.1, delayed: 0.05}
+      gen.recent_work: yes?
+      gen.after_outage: yes?
+      blr.cad_ohms: good?
+      blr.primary_line_in: present
+    confirm: White reads line voltage to ground, or black reads near zero; the control misbehaves or locks out for no
+      flame-related reason, often starting right after wiring work or a transfer to generator power.
+    fix: |
+      Correct hot and neutral at the service switch, the junction box and the primary's terminals, and make the
+      ground path solid. TM 5-642 ¶3-13d(6)(b) notes that a reversed hot and ground leaks enough through the
+      control to cause safety shutdowns. On generator-fed buildings check the transfer switch neutral bonding too.
+    safety: With hot and neutral swapped or the ground open, the burner's metal parts can be live. Meter before you
+      touch. After the wiring is corrected reset the primary once; if it locks out again, look into the chamber with
+      the burner off for liquid oil and find the cause before another reset (TM 5-642 ¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.low_voltage
+    name: Low or sagging supply voltage — nuisance lockouts and slow starts
+    systems: [fuel]
+    prior: occasional
+    keywords: [low voltage, voltage sag, voltage dip, brownout, nuisance lockout, lockouts at light-off, generator
+      loading, weak voltage, slow motor, voltage drop]
+    signs:
+      gen.voltage: low!
+      blr.lockout: once|repeats
+      blr.start: {normal: 0.15, nothing: 0.2, no_flame: 0.2, flame_lost: 0.3, delayed: 0.15}
+      gen.after_outage: yes?
+      gen.intermittent: yes?
+    confirm: Voltage at the burner during the start more than 10 percent under nameplate, or a recording voltmeter
+      left on for 24 hours or more (TM 5-642 ¶3-13d(6)(a)) catching dips at light-off, with nothing else wrong at
+      the burner.
+    fix: |
+      Find where the drop is: panel versus burner under load, loose or burnt connections, an undersized or overlong
+      run, a shared load starting. If the source is low (station power or a generator under load), report it — low
+      voltage slows the motor and the igniter and trips the primary. Do not replace the primary or the cell first.
+    safety: Reset the primary once. A lockout that keeps coming back at light-off is a reason to meter and find the
+      cause, not to keep resetting (TM 5-642 ¶7-9l), and each failed try can leave oil in the chamber, so look in with
+      the burner off for liquid oil first. A hot connection that drops voltage under load can burn.
+    refs: [tm-5-642, practice]
+  - id: blr.interlock_open
+    name: Call not reaching the burner — zone-valve end switch, circulator or flow interlock, proving switch, relay,
+      outdoor reset
+    systems: [fuel]
+    prior: occasional
+    keywords: [end switch, zone valve end switch, interlock, relay, no call at the burner, outdoor reset, proving
+      switch, louver end switch, damper end switch, draft proving switch, low oil switch]
+    signs:
+      gen.call: calling!
+      blr.tt: no!
+      blr.start: nothing!
+      blr.motor_v: missing
+      blr.primary_line_in: present
+      gen.control_v: present
+      gen.output: none
+    confirm: The thermostat is calling and the zone or relay shows it, but nothing closes T–T at the primary; the
+      burner starts the moment T–T is jumpered.
+    fix: |
+      Work back from T–T: zone-valve end switch (valve opens but the switch doesn't make — common), zone relay or
+      switching relay contacts, circulator/flow-switch interlock, outdoor-reset or warm-weather shutdown holding the
+      burner off, a broken wire. At a plant with ducted intakes also check the switches that stop a burner on
+      purpose: the combustion-air louver or damper end switch (iced or drifted shut), a draft-proving or
+      stack-damper switch, and a low-oil or low-fuel pressure switch. Replace the part that doesn't pass the call.
+
+      Confirm the circulator is running before you jumper T–T on a boiler, keep the jumper on for a few seconds only,
+      and take it off. Don't leave T–T jumpered.
+    safety: An open proving or flow interlock is doing its job until you know why it is open. Never jumper one to get
+      the burner running.
+    refs: [practice]
+
+  # ======================= limits and safeties =======================
+  - id: blr.limit_failed_open
+    name: High limit (aquastat / pressuretrol / furnace limit) open while not hot — failed, mis-set or sensor out
+    systems: [fuel]
+    prior: occasional
+    keywords: [aquastat bad, high limit bad, pressuretrol bad, limit open, limit failed, sensing bulb out of the well]
+    signs:
+      blr.limit_open: open_early!
+      blr.start: nothing!
+      blr.primary_line_in: missing!
+      blr.aquastat_set: too_low?
+      gen.short_cycle: yes?
+      blr.tt: yes?
+      gen.output: none|weak
+    confirm: Line voltage stops at the limit while the boiler water, steam pressure or plenum is well below the dial
+      setting; the element is loose, out of its well, or the switch simply won't close.
+    fix: |
+      Check the setting and differential first (someone may have turned it down), then that the sensing bulb is
+      fully in its well with heat-transfer compound, or the pressuretrol's pigtail siphon isn't plugged. A switch
+      that stays open cold is replaced — mercury-type controls must be level (TM 5-642 ¶7-11b(1)).
+
+      Prove it with a meter, not a jumper: line voltage across the open contacts with the boiler cold means the limit
+      is open, and you read the actual boiler temperature or pressure at the same moment. Never jumper a limit,
+      pressuretrol or low-water cutoff to get heat. A bad control is replaced.
+    safety: A jumpered limit or pressuretrol is how a boiler overheats or over-pressurizes. Never jumper one to test
+      it or to get heat.
+    refs: [tm-5-642, practice]
+  - id: blr.limit_cycling_no_flow
+    name: Boiler cycling on its high limit because heat isn't leaving it — circulator, zone valves, air-bound loop
+    systems: [fuel.boiler]
+    prior: common
+    keywords: [cycling on limit, boiler hot no heat, circulator not running, no flow, air bound]
+    signs:
+      blr.limit_open: open_overheat!
+      gen.output: none|weak
+      gen.short_cycle: 'yes'
+      blr.start: normal
+      blr.relief: weeping|popping?
+      blr.kettling: yes?
+      blr.lockout: 'no'
+    confirm: Burner fires fine, boiler sits at the limit and cycles on it, yet the building is cold — the water isn't
+      moving (circulator, zone valves, air, closed valve) or the steam isn't leaving (closed header valve, flooded
+      main).
+    fix: |
+      The burner side is healthy; go to the distribution side — circulator running and moving water (feel the
+      supply and return, check the pump), zone valves opening, air in the loop, closed isolation valves; on steam,
+      header and main valves, water line and pressuretrol. Fix the flow and the cycling stops. Confirm the limit
+      itself opens at its setting and the relief valve isn't being asked to do the limit's job.
+    refs: [tm-5-642, practice]
+  - id: blr.limit_stuck_closed
+    name: High limit / pressuretrol not shutting the burner off — boiler overheating or over-pressure
+    systems: [fuel]
+    prior: uncommon
+    keywords: [limit stuck closed, aquastat stuck, pressuretrol stuck, runaway boiler, plugged pigtail, boiler over
+      pressure]
+    signs:
+      blr.limit_open: closed_hot!
+      blr.relief: popping|weeping
+      blr.steam_press: high
+      blr.pressure_hw: high?
+      blr.plenum_f: high
+      blr.kettling: yes?
+      gen.runs_constantly: yes?
+      gen.water_leak: yes?
+    confirm: Boiler well past its setting (steaming, relief or safety valve lifting, plenum scorching) and the limit
+      still has the burner running; on steam, often a pigtail siphon packed with scale so the pressuretrol never
+      sees the pressure.
+    fix: |
+      Shut the burner off at the service switch and let it cool. Clean or replace the pressuretrol's pigtail siphon
+      and check the control's bellows; replace an aquastat or limit whose contacts have welded; make sure a
+      furnace limit isn't bypassed or its element pulled out of the airstream. Replace a relief or safety valve that
+      lifted more than once — its seat is cut. The hand-lift test belongs to the regular test schedule, at the
+      pressure the maker and TM 5-642 ¶4-41c specify (80 to 85 percent of the popping point), with the discharge piped
+      to a safe drain. Don't lever-test a valve on a boiler that is already over-pressured. Never raise a limit or
+      safety-valve setting to stop the nuisance.
+    safety: An overheating boiler can rupture or scald. Don't add cold water to a hot boiler. Treat a relief valve
+      that has been discharging steam or boiling water as a scald hazard.
+    refs: [tm-5-642, practice]
+  - id: blr.lwco_low_water
+    name: Low-water cutoff tripped on genuinely low water — leak, failed feeder, return not coming back
+    systems: [fuel.boiler]
+    prior: common
+    keywords: [low water, low water cutoff, lwco tripped, lost water, boiler dry]
+    signs:
+      blr.lwco: open_low!
+      blr.water_level: low!
+      blr.pressure_hw: low
+      blr.start: nothing!
+      blr.primary_line_in: missing
+      gen.water_leak: yes?
+      gen.output: none
+    confirm: LWCO contacts open and the glass is empty (steam) or the boiler pressure is at zero (hot water); the
+      burner is held off until water is restored.
+    fix: |
+      Let the boiler cool before adding water. Then find where the water went (TM 5-642 ¶4-78): a leak or broken
+      section, a return pump or feeder that failed, a broken or blocked return, a valve closed in the return,
+      a gauge glass valved off or drained (false low), or priming and surging from dirty water carrying it out.
+      Refill to the normal line, check the feeder with the broken-union test (¶4-35), and watch the level through
+      a full cycle before leaving. Blow down a float-type LWCO weekly in service.
+    safety: Low water is the most serious condition a boiler plant faces (TM 5-642 ¶4-78). Never feed cold water into
+      a hot, dry boiler — it can crack sections or flash to steam. Never bypass the cutoff.
+    refs: [tm-5-642, practice]
+  - id: blr.lwco_fooled
+    name: Low-water cutoff holding the burner off with the water level fine — dirty probe, sludged float, bad control
+    systems: [fuel.boiler]
+    prior: occasional
+    keywords: [lwco bad, probe dirty, float stuck, low water cutoff nuisance, lwco wont reset]
+    signs:
+      blr.lwco: open_fooled!
+      blr.water_level: normal|bouncing
+      blr.start: nothing!
+      blr.primary_line_in: missing
+      blr.water_cond: dirty?
+      gen.intermittent: yes?
+      gen.output: none
+    confirm: Contacts open, but water shows at the right level in the glass (after blowing it down) or the hot-water
+      boiler is full and pressurized.
+    fix: |
+      Burner off and locked out, the boiler cool and at zero pressure, and the water drained below the connection,
+      before you pull a probe or open a float chamber. To blow a float chamber down, close the top and bottom
+      connection valves, then open the blowoff (TM 5-642 ¶4-34).
+
+      Probe type: pull the probe and clean the scale off it; check the control's test button and the wiring; replace
+      the control if it still won't make with a clean probe in water. Float type: blow it down until the water runs
+      clear, then open the float chamber and clean out the mud if the switch still won't make (TM 5-642 ¶4-34,
+      ¶4-35c). A bouncing water line trips a cutoff intermittently — see surging. Steam boilers need two
+      independent cutoffs; don't jumper either (¶7-13b).
+
+      Before you leave, retest the cutoff (drain slowly until the burner drops out) and refill to the normal line.
+    safety: Never jumper the cutoff to keep the burner running while you chase the fault. A cutoff that has just been
+      cleaned and not retested is the one most likely to be trusted wrongly.
+    refs: [tm-5-642, practice]
+  - id: blr.lwco_failed_closed
+    name: Low-water cutoff failed to cut out (stuck, bridged, bypassed or not fitted) — burner firing with low or no
+      water
+    systems: [fuel.boiler]
+    prior: uncommon
+    keywords: [boiler ran dry, dry fired, lwco bypassed, lwco jumpered, no lwco, low water burner running, cutoff did
+      not trip, cutoff failed, glass empty burner running]
+    signs:
+      blr.lwco: stuck_closed!
+      blr.water_level: low!
+      blr.start: normal
+      blr.pressure_hw: low?
+      gen.water_leak: yes?
+      gen.output: weak|none
+    confirm: Glass empty (steam) or pressure at zero (hot water) with the burner still firing and the cutoff contacts
+      closed; a jumper across the cutoff, or no cutoff on the boiler.
+    fix: |
+      Burner off at the service switch now (TM 5-642 ¶4-78). Do not open the feed or make-up line — cold water on a
+      hot, dry boiler cracks sections or flashes to steam. Let it cool completely, then inspect for dry-fire damage
+      (cracked or warped sections, weeping joints, a sagging crown) before refilling. Find why the cutoff did not
+      trip (probe bridged with scale, float stuck, welded contacts, a jumper, wrong wiring), replace it, remove any
+      jumper, and prove it with a slow-drain test. A steam boiler needs two independent cutoffs, so test both (¶7-13b).
+    safety: Never add water to a hot, dry boiler. Treat the boiler as damaged until it has been inspected.
+    refs: [tm-5-642, practice]
+  - id: blr.surging
+    name: Steam boiler surging, priming or foaming — dirty or oily water, high water line, overfiring
+    systems: [fuel.boiler]
+    requires: {boiler_kind: steam}
+    prior: common
+    keywords: [surging, priming, foaming, bouncing water line, carryover, wet steam, dirty boiler water]
+    signs:
+      blr.water_level: bouncing!
+      blr.water_cond: dirty!
+      blr.lwco: open_fooled?
+      gen.short_cycle: yes?
+      blr.steam_press: none|normal
+      gen.output: weak
+      blr.start: normal
+    confirm: Water line bounces an inch or more while steaming, oily film or foam in a drawn sample, nuisance LWCO
+      trips, wet steam and hammer in the mains.
+    fix: |
+      Skim the boiler through the skim tapping with a slow fire until the water runs clean; blow down from the bottom
+      a little at a time until it runs clear, watching the glass — stop at the low-water mark and never leave a
+      blowdown valve open; on a new or repiped boiler expect to skim several times to clear cutting oil. Check the
+      water line isn't carried too high and the firing rate isn't above the boiler's rating (oversized nozzle).
+      Gauge-glass taps at a turbulent spot can fake a bounce (TM 5-642 ¶4-77a) — compare with the LWCO behavior. Fix
+      the leaks that keep bringing fresh water (and oxygen and dirt) into the boiler.
+    safety: A bottom blowdown on a small steam boiler can drop the water out of the glass and trip the cutoff. Watch the
+      glass the whole time, and have the blowdown piped to a safe drain.
+    refs: [tm-5-642, practice]
+  - id: blr.flooding
+    name: Steam boiler flooding — feeder leaking or over-feeding, return backing up, hand bypass left open
+    systems: [fuel.boiler]
+    requires: {boiler_kind: steam}
+    prior: occasional
+    keywords: [flooding, boiler flooded, overfilling, feeder leaking, too much water]
+    signs:
+      blr.water_level: high!
+      gen.output: weak
+      gen.water_leak: yes?
+      blr.water_cond: {clean: 0.6, dirty: 0.4}
+      blr.steam_press: normal|none
+      gen.short_cycle: yes?
+    confirm: Water above the top of the glass, wet steam or hammer; the broken-union test (TM 5-642 ¶4-35b) shows the
+      feeder valve trickling with the boiler full, or a hand bypass passing.
+    fix: |
+      Shut the feed, drain to the normal line, then prove where the water came from: broken-union test on the
+      feeder (a partly plugged feed line holds the valve off its seat — ¶4-35b(2)(a)), a leaky hand-bypass globe
+      valve, a swing check in the return that's failed, a condensate pump returning a slug, a tankless coil leaking
+      into the boiler, or city pressure needing a reducing valve. Repair that part, don't just keep draining.
+    refs: [tm-5-642, practice]
+  - id: blr.controls_misset
+    name: Operating control set wrong — aquastat or pressuretrol too low or differential too tight
+    systems: [fuel]
+    prior: occasional
+    keywords: [aquastat set low, differential, setting, turned down, pressuretrol setting, limit set too low]
+    signs:
+      blr.aquastat_set: too_low!
+      gen.short_cycle: 'yes'
+      gen.output: weak
+      blr.start: normal
+      blr.limit_open: open_early?
+      blr.lockout: 'no'
+      blr.stack_temp: normal?
+    confirm: Burner runs clean but only in short bursts and the building never catches up; dial set well under the
+      system's design (hot-water limit far below 180 °F, pressuretrol cut-out barely above cut-in, furnace limit
+      low).
+    fix: |
+      Set the controls to the system's design values and a sensible differential (TM 5-642 ¶3-13d(5)(d): a limit set
+      too low shuts the burner down before the building can get warm; ¶6-39b: furnace limit about 175–200 °F). Ask
+      who turned it down and why — sometimes it was covering an overheating or relief problem that needs fixing
+      instead. On steam, a pressuretrol that cycles the burner every few minutes wants a wider differential.
+    refs: [tm-5-642, practice]
+  - id: blr.controls_set_high
+    name: Operating control set too high — aquastat or pressuretrol turned up, relief or safety valve lifting
+    systems: [fuel]
+    prior: occasional
+    keywords: [aquastat set high, aquastat cranked up, pressuretrol set high, limit turned up, setting too high, dial
+      turned up, relief popping from high setting, safety valve lifting]
+    signs:
+      blr.aquastat_set: too_high!
+      blr.limit_open: open_overheat?
+      blr.relief: popping|weeping?
+      blr.steam_press: high?
+      blr.pressure_hw: high?
+      blr.plenum_f: high?
+      blr.start: normal
+    confirm: Dial or setpoint well above the system's design (hot-water limit well over 200 °F, a steam pressuretrol
+      cut-out turned up toward the 15 psi safety valve, a furnace limit above 200 °F), and the control is opening
+      where it is set — the boiler really is that hot.
+    fix: |
+      Set it back to design (aquastat 180–200 °F, pressuretrol cut-in ½–1 psi with a 1–2 psi differential, furnace
+      limit 175–200 °F per TM 5-642 ¶6-39b) and ask why it was turned up — an undersized radiator, a weak circulator
+      or a failing exchanger usually sits behind it. Replace a relief or safety valve that has lifted. Never raise a
+      limit or valve setting to stop a nuisance.
+    safety: A setpoint near the relief valve's rating leaves no margin. Do not raise a valve setting.
+    refs: [tm-5-642, practice]
+  - id: blr.control_cycling
+    name: Short cycling from the thermostat side — anticipator, wiring, location or an oversized unit
+    systems: [fuel]
+    prior: occasional
+    keywords: [short cycling, anticipator, thermostat cycling, cycles too often]
+    signs:
+      gen.short_cycle: yes!
+      blr.limit_open: 'no'
+      blr.aquastat_set: ok
+      blr.lockout: 'no'
+      blr.start: normal
+      gen.output: normal|weak
+    confirm: Burner starts and stops every few minutes with the limit never opening and the operating control set
+      right; the call itself comes and goes.
+    fix: |
+      TM 5-642 ¶3-13d(5): check the thermostat's anticipator is set to the primary control's amp draw and the heater
+      element screwed in tight; look for reversed or badly spliced wires at the stat and the primary; check the
+      stat's location (sun, drafts, a supply register) and its differential. A grossly oversized nozzle or boiler
+      also heats too fast — compare the nozzle with the load.
+    refs: [tm-5-642, practice]
+
+  # ======================= draft, flue, combustion air =======================
+  - id: blr.flue_blocked
+    name: Flue or chimney blocked or restricted — soot, debris, fallen liner, snow or ice at the cap
+    systems: [fuel]
+    prior: occasional
+    keywords: [blocked chimney, blocked flue, chimney plugged, frost on the chimney, chimney iced, snow on the vent,
+      bird nest]
+    signs:
+      blr.flue: restricted!
+      blr.draft_br: weak!
+      blr.draft_of: none_positive!
+      blr.soot_outside: 'yes'
+      blr.smoke: high|heavy?
+      blr.co: high|very_high?
+      blr.co_room: yes?
+      blr.spill_switch: tripped?
+      blr.start: {normal: 0.45, flame_lost: 0.25, delayed: 0.2, no_flame: 0.05, nothing: 0.05}
+      blr.flame_look: pulsing|smoky?
+      gen.burnt_smell: yes?
+    confirm: No draft at the breech, pressure over the fire, smoke and soot at the draft regulator and inspection door;
+      soot or debris at the chimney base, a collapsed liner, or a cap sealed with frost and ice.
+    fix: |
+      Shut the burner off, air out the room, and test for CO before anything else. Clear the smoke pipe, breeching and
+      chimney base; check the cap and the top of the liner for ice, frost and snow (cold flues frost shut from the
+      inside in deep cold — a low stack temperature makes it worse); repair a fallen or crushed liner. Then tune the
+      burner: the soot that blocked it came from a dirty fire. TM 5-642 ¶4-87 lists the boiler-room-smoke checks:
+      closed damper, stopped breeching or stack, soot-closed passages, leaky settings, too many sharp turns.
+    safety: A blocked flue dumps combustion products — including CO — into the building. Don't run it until the flue
+      is clear and draft is proven. If the burner has puffed or locked out, look into the chamber with the burner off
+      for liquid oil before the next start. A tripped spill or rollout switch is a safety too — find the cause before
+      you reset it, and never jumper or bypass it.
+    refs: [tm-5-642, practice]
+  - id: blr.draft_poor
+    name: Poor chimney draft — cold or oversized chimney, downdraft, leaks, barometric regulator mis-set or stuck open
+    systems: [fuel]
+    prior: occasional
+    keywords: [poor draft, no draft, downdraft, cold chimney, barometric damper, draft regulator]
+    signs:
+      blr.draft_br: weak!
+      blr.draft_of: none_positive
+      blr.flue: clear
+      blr.flame_look: pulsing
+      blr.start: delayed?
+      blr.soot_outside: yes?
+      blr.oil_smell: yes?
+      blr.smoke: high?
+      blr.co_room: yes?
+      blr.spill_switch: tripped?
+      gen.intermittent: yes?
+    confirm: Flue clear but draft at the breech is weak or reverses with the wind; flame pulses; smoke and odor on
+      start-up; the barometric gate hangs open or the chimney is leaky, cold, or exposed.
+    fix: |
+      Set the barometric regulator (weight and level) so the breech holds the draft the burner wants, with the gate
+      just floating. Seal chimney and cleanout leaks (TM 5-642 ¶3-13d(1)(b)), add a cap or extend the chimney if wind
+      reverses it, line an oversized cold masonry flue, or add a draft inducer listed for the appliance and
+      interlocked with draft proving. Too little draft puts pressure in the firebox and pushes odors and smoke out
+      (¶3-11b(11)). Re-tune the burner once draft is right.
+    safety: A poorly drafted burner puts CO in the building. With a CO complaint, shut it down, ventilate, and prove
+      the draft and the flue before another start. If the burner has puffed or locked out, look into the chamber with
+      the burner off for liquid oil before the next start. A tripped spill or rollout switch is a safety — find the
+      cause before you reset it, and never jumper it.
+    refs: [tm-5-642, practice]
+  - id: blr.draft_excessive
+    name: Excessive draft — tall chimney in extreme cold, regulator stuck shut or missing, over-strong inducer
+    systems: [fuel]
+    prior: occasional
+    keywords: [too much draft, excessive draft, draft too high, strong chimney, cold weather draft]
+    signs:
+      blr.draft_br: excessive!
+      blr.draft_of: excessive!
+      blr.stack_temp: high
+      blr.o2: high
+      blr.cold: extreme|cold
+      blr.flame_look: stringy|pulsing?
+      blr.start: delayed?
+      blr.lockout: once?
+      gen.output: weak?
+    confirm: Breech draft far past the burner's spec with the regulator gate shut or absent; O2 high and stack
+      temperature high for the air setting; worse the colder it gets.
+    fix: |
+      Chimney draft grows with the gap between flue and outdoor temperature, so a stack that behaves at 40 °F pulls
+      hard at −40 °F. Free up or replace the barometric regulator and weight it to hold the breech at spec; a very
+      tall stack may need a double-acting (or second) regulator, or a motorized draft damper interlocked with the
+      burner. Excess draft pulls extra air through the fire, lowers CO2 and efficiency and magnifies any leak (TM
+      5-642 ¶3-11b(11)); it can also lift the flame off the retention head at light-off. Re-tune the air afterward.
+    safety: A flame that lifts off the head at light-off can drop out and leave oil in the chamber. After a lockout
+      reset the primary once; if it locks out again, look into the chamber with the burner off for liquid oil and
+      find the cause before another reset (TM 5-642 ¶7-9l).
+    refs: [tm-5-642, practice]
+  - id: blr.combustion_air_short
+    name: Combustion air starved — intake drifted shut, louvers closed, tight room, exhaust fans pulling it negative
+    systems: [fuel]
+    prior: occasional
+    keywords: [combustion air, no makeup air, intake blocked, snow in the intake, room negative]
+    signs:
+      blr.combustion_air: restricted!
+      blr.o2: low
+      blr.smoke: high|heavy
+      blr.co: high|very_high
+      blr.flame_look: smoky
+      blr.draft_of: none_positive?
+      blr.co_room: yes?
+      blr.spill_switch: tripped?
+      blr.soot_outside: yes?
+      gen.intermittent: yes?
+    confirm: Intake louvers closed or drifted full of snow, a sealed-up boiler room, or exhaust fans that pull the
+      room negative; the burner smokes and the CO climbs when the room depressurizes.
+    fix: |
+      Open and clear the combustion-air path — dig out and screen a drifted intake, open louvers, add an outside-air
+      duct sized for the firing rate — and make sure exhaust fans and dryers can't pull the room negative while the
+      burner runs (interlock or make-up air). TM 5-642 ¶4-87c: enough door, window or other openings must be in use
+      for combustion air. Re-tune after.
+    safety: A starved burner makes CO and a flue under positive room-pressure spills it. Ventilate before working.
+    refs: [tm-5-642, practice]
+  - id: blr.too_little_air
+    name: Too little combustion air at the burner — air shutter closed down, dirty fan wheel, air tube or head carboned
+    systems: [fuel]
+    prior: common
+    keywords: [not enough air, running rich, smoky, air shutter closed, dirty fan wheel, sooting]
+    signs:
+      blr.o2: low!
+      blr.smoke: high|heavy!
+      blr.co: high|very_high
+      blr.flame_look: smoky
+      blr.soot_hx: {light: 0.5, heavy: 0.5}
+      blr.stack_temp: {normal: 0.5, high: 0.4, low: 0.1}
+      blr.combustion_air: ok
+      blr.co_room: yes?
+      blr.soot_outside: yes?
+      gen.recent_work: yes?
+    confirm: Low O2 (high CO2) with a smoke spot of 2 or more and CO rising; dark, lazy flame. Room air is fine — the
+      restriction is at the burner.
+    fix: |
+      Clean the burner fan wheel, air tube, retention head and the inlet screen; check the shutter and band haven't
+      slipped. Then set the air by the book: close the air until a trace of smoke shows, open it until the smoke just
+      disappears, then add a little more (TM 5-642 ¶3-11b(10)) and confirm with the analyzer — O2 about 4–6 %, smoke 1
+      or less, CO under 100 ppm. A burner that won't reach 5 % O2 without smoking is a replacement candidate
+      (¶3-23e). Brush out the soot it made.
+    safety: A rich burner puts CO in the building. With a CO complaint, shut it down, ventilate, and prove the draft and
+      the flue before another start.
+    refs: [tm-5-642, practice]
+  - id: blr.too_much_air
+    name: Too much combustion air — shutter wide open, lean fire, hard light-off
+    systems: [fuel]
+    prior: occasional
+    keywords: [too much air, running lean, excess air, air wide open, high o2]
+    signs:
+      blr.o2: high!
+      blr.flame_look: stringy
+      blr.start: delayed?
+      blr.smoke: normal
+      blr.stack_temp: high?
+      blr.draft_br: normal
+      blr.chamber: carbon_oil?
+      blr.cold: cold|extreme?
+      gen.output: weak?
+    confirm: O2 well over 8 % with the draft normal and no flue leak at the sample point; a sparky, stringy, noisy
+      flame; delayed or rough light-off; raw oil on the chamber floor. It often shows up when the weather turns cold
+      on a burner that draws outside air.
+    fix: |
+      Close the air shutter and band in steps toward the smoke-trace point and back off just past clean (TM 5-642
+      ¶3-11b(10), ¶3-13d(2)(a) — too much air makes a poor fire and soaks the brick with raw oil). Make sure a leaky
+      appliance setting or a sample taken past the barometric isn't faking the high O2 (¶3-13f, ¶3-23b). Target
+      O2 4–6 %, smoke 1 or less. Excess air carries heat up the stack — efficiency comes back as the O2 drops.
+
+      If the burner draws outside air, a shutter that was right in a warm room runs lean at −40 °F (cold air is about
+      a quarter denser, so the same fan delivers about a quarter more air by weight) and rich again in summer. Set
+      the air with the analyzer at the season's intake temperature and recheck when the weather swings. Enter the
+      actual intake temperature as the room / combustion air temperature.
+    safety: A lean fire that lights hard puffs. If the light-off has been rough, look into the chamber with the burner
+      off for liquid oil before the next start, and reset the primary once only.
+    refs: [tm-5-642, practice]
+  - id: blr.hx_sooted
+    name: Heat exchanger / flue passages sooted up
+    systems: [fuel]
+    prior: common
+    keywords: [sooted up, soot in the boiler, needs cleaning, flue passages plugged, dirty heat exchanger]
+    signs:
+      blr.soot_hx: heavy!
+      blr.stack_temp: high!
+      blr.draft_of: none_positive?
+      gen.output: weak
+      gen.runs_constantly: yes?
+      blr.smoke: high?
+      blr.co_room: yes?
+      blr.spill_switch: tripped?
+      blr.soot_outside: yes?
+      blr.o2: normal|low
+    confirm: Stack temperature high for the firing rate, passages narrowed with soot at the cleanout, draft falling off
+      over the fire, soot blowing out of the appliance.
+    fix: |
+      Shut down, brush and vacuum the flue passages, combustion chamber, smoke pipe and chimney base; replace the
+      gaskets and seal the cleanouts. Then find and fix what made the soot — air setting, nozzle, draft, combustion
+      air — and tune with the analyzer, or it's back in a month. Soot insulates: an eighth of an inch costs several
+      points of efficiency and shows up as stack temperature. TM 5-642 ¶4-79a(1), ¶4-87b.
+    safety: Soot-blocked passages push CO and smoke out of the appliance. With a CO complaint, shut it down, ventilate,
+      and prove the draft and the flue before another start. A tripped spill or rollout switch is a safety — find
+      the cause before you reset it, and never jumper it.
+    refs: [tm-5-642, practice]
+  - id: blr.underfired_condensing
+    name: Stack too cool — cold boiler or return water, uninsulated outdoor stack, oversized boiler, condensing flue
+    systems: [fuel]
+    prior: uncommon
+    keywords: [low stack temperature, condensing in the flue, wet flue, rusted smoke pipe, underfired, cold return
+      water, low aquastat setting, outdoor stack, flue gas dew point]
+    signs:
+      blr.stack_temp: low!
+      blr.flue: wet!
+      gen.output: weak?
+      blr.o2: high?
+      blr.nozzle: ok|wrong
+      blr.aquastat_set: too_low?
+      gen.runs_constantly: yes?
+      blr.draft_br: weak?
+    confirm: Net stack under about 275 °F with rust streaks, moisture or white deposits in the smoke pipe and chimney
+      base; usually cold boiler or return water, an outdoor stack that loses its heat, or a boiler far bigger than its
+      load running cold and short (or fired below the plate rating).
+    fix: |
+      Flue gas that falls below its dew point drops acid water in the pipe and chimney, and the sulfur in the oil
+      makes it acid (TM 5-642 ¶4-98a). Find out why the gas is cool before you touch the nozzle.
+      - Boiler or return water running cold (a low operating limit, outdoor reset, long cold starts): raise the
+      setpoint toward the design value (180 °F is typical) or add return-water protection that holds the boiler
+      maker's minimum return temperature, which the boiler's manual gives.
+      - An uninsulated outdoor stack in deep cold: insulate it or fit an insulated stainless liner.
+      - Too much excess air: trim to O2 4–6 %.
+      - A boiler far bigger than its load: confirm the nozzle matches the plate. Downsizing within the maker's range
+      lengthens the runs but lowers the stack temperature, so it does not cure a wet flue by itself.
+
+      Repair corroded pipe before it leaks flue gas.
+    refs: [tm-5-642, practice]
+  - id: blr.chamber_damaged
+    name: Combustion chamber / refractory damaged or oil-soaked
+    systems: [fuel]
+    prior: occasional
+    keywords: [cracked chamber, refractory, fire brick, chamber collapsed, oil soaked brick]
+    signs:
+      blr.chamber: damaged|carbon_oil!
+      blr.flame_look: impinging|smoky
+      blr.start: delayed?
+      blr.smoke: high?
+      blr.oil_smell: yes?
+      blr.stack_temp: high?
+      blr.nozzle: ok?
+    confirm: Through the port — cracked, collapsed or burned-through refractory, or a floor black with carbon and raw
+      oil; rumbling and puffing for minutes after a light-off is the soaked lining cooking off (TM 5-642
+      ¶3-11b(9)).
+    fix: |
+      Do not fire into oil-soaked refractory or onto a wet chamber floor. Burner and oil supply off, let it cool, soak
+      up and remove any liquid oil, scrape out the carbon, and replace any refractory or blanket that is saturated — it
+      cannot be burned out safely in a small gun-fired chamber (TM 5-642 ¶3-11b(9) describes letting oil-soaked soft
+      brick burn off with the relief door open; a small unit has no relief door, so do not copy that).
+
+      Repair or replace the chamber (wet-blanket or pre-formed liners for most gun burners) and re-set the air tube
+      insertion. Then fix what soaked it: failed ignitions, after-drip, a nozzle spraying onto the wall. A damaged
+      chamber lets the flame hit cold iron, which smokes and shortens the boiler's life.
+    safety: Raw oil in the chamber turns a normal light-off into a puffback. Do not relight until the chamber is dry and
+      clean. For the first light after the repair, keep the inspection door and port closed, everyone clear of the
+      front of the unit and one person at the switch; if it does not light on that one try, stop and look again.
+    refs: [tm-5-642, practice]
+
+  # ======================= boiler water side and trim =======================
+  - id: blr.scale
+    name: Water-side scale or sludge — kettling, hot spots, heat not getting into the water
+    systems: [fuel.boiler]
+    prior: occasional
+    keywords: [scale, kettling, lime, hard water, boiler scaled, sludge in the boiler]
+    signs:
+      blr.kettling: yes!
+      blr.stack_temp: high
+      gen.output: weak
+      blr.limit_open: open_overheat?
+      blr.water_cond: dirty?
+      blr.dhw: weak?
+      blr.soot_hx: light
+    confirm: Rumbling, percolating or banging while the burner runs, stack temperature high with clean flue passages,
+      and a history of fresh make-up water (leaks) or hard water.
+    fix: |
+      Scale insulates the water side: find and stop the make-up water first (every gallon brings new minerals), then
+      flush and, where the maker allows, chemically clean the boiler and rinse thoroughly; open handholes and remove
+      sludge from the mud ring and lower sections (TM 5-642 ¶4-85b, ¶4-88). Treat the water afterward. Kettling in
+      a hot-water boiler can also be low flow through the boiler — check the circulator and bypass before descaling.
+    refs: [tm-5-642, practice]
+  - id: blr.tankless_scaled
+    name: Tankless coil scaled or plugged — little domestic hot water
+    systems: [fuel.boiler]
+    prior: occasional
+    keywords: [tankless coil, no domestic hot water, coil scaled, no hot water at the tap]
+    signs:
+      blr.dhw: weak!
+      gen.output: normal
+      blr.aquastat_set: ok|too_low
+      blr.kettling: no?
+      blr.start: normal
+    confirm: |
+      Boiler holds temperature and heats the building, but the tap runs lukewarm or the flow is poor: scale
+      inside the coil (low flow) or outside it (poor heat transfer); or the low-limit/reverse-acting aquastat isn't
+      keeping the boiler hot between heating calls.
+    fix: |
+      Check the low-limit setting first (the boiler must be held around 160–180 °F for the coil to work). Then flow-test
+      the coil: poor flow means scale inside — acid-flush with a circulating pump and a descaler the coil maker
+      approves, or replace the coil (and its gasket). Fit a mixing valve on the outlet and a flow restrictor if the
+      coil is undersized for the draw. A coil that drips into the boiler shows up as rising boiler pressure.
+    refs: [practice]
+  - id: blr.tankless_leak
+    name: Tankless coil leaking domestic water into the boiler — pressure climbs, relief valve weeps
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    prior: uncommon
+    keywords: [coil leaking, tankless coil leak, pressure climbing, relief valve weeping]
+    signs:
+      blr.pressure_hw: high!
+      blr.fill_isolated: yes!
+      blr.relief: weeping|popping!
+      gen.water_leak: yes?
+      blr.limit_open: 'no'
+      gen.recent_work: 'no'
+    confirm: Boiler pressure keeps climbing with the make-up water valve shut and the burner off; the relief valve
+      weeps or lifts at normal boiler temperature.
+    fix: |
+      Isolate the coil (shut the domestic cold feed to it) and watch — pressure that stops climbing confirms it.
+      Replace the coil or plug it off and install an indirect or separate water heater. Replace a relief valve that
+      has been weeping for long; its seat is scored. A waterlogged expansion tank or a passing fill valve gives a
+      similar pressure rise, so rule them out first (see the expansion tank and fill valve causes). Only a leaking
+      coil keeps climbing with the make-up valve shut — that's why the fill-valve-shut test matters.
+    refs: [practice]
+  - id: blr.relief_valve_bad
+    name: Relief valve weeping at normal pressure — worn or fouled seat
+    systems: [fuel.boiler]
+    prior: occasional
+    keywords: [relief valve leaking, relief valve weeping, bad relief valve, safety valve dripping]
+    signs:
+      blr.relief: weeping!
+      blr.pressure_hw: normal!
+      blr.steam_press: normal
+      blr.limit_open: 'no'
+      gen.water_leak: 'yes'
+    confirm: Dripping or weeping with the boiler pressure and temperature well under the valve's rating — the seat is
+      scored or has debris on it.
+    fix: |
+      Do not lever-flush it as a repair. TM 5-642 ¶4-41c allows a hand lift only when the pressure is 80 to 85
+      percent of the popping point, and a boiler that is well under the valve's rating is not there. If the maker
+      allows a lever lift to clear debris, do it at working pressure with the full-size discharge pipe in place and
+      everyone clear of the outlet. If it still weeps, replace the valve with one of the same pressure rating and
+      capacity — never tighten the spring (¶4-41c) or plug the outlet. Pipe the discharge to a safe spot. If the
+      pressure ever reads high, the valve is doing its job: look at the expansion tank, fill valve, tankless coil or
+      limit instead (see the expansion tank and fill valve causes).
+    safety: A relief or safety valve is the last line against a boiler rupture. Replace, don't disable. A lever lift
+      throws boiler-temperature water or steam, so keep clear of the outlet.
+    refs: [tm-5-642, practice]
+  - id: blr.exp_tank_bad
+    name: Expansion tank waterlogged or lost its air charge — pressure climbs as the water heats
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    prior: very_common
+    keywords: [bad expansion tank, waterlogged expansion tank, expansion tank, ruptured bladder, relief popping when
+      hot, pressure climbs when hot, extrol, lost air cushion]
+    signs:
+      blr.exp_tank: waterlogged!
+      blr.pressure_hw: high!
+      blr.relief: weeping|popping
+      blr.fill_isolated: 'no'
+      blr.limit_open: 'no'
+      blr.fill_valve: ok?
+      gen.output: normal|weak
+      blr.start: normal
+    confirm: Pressure is normal cold but climbs toward the relief setting as the boiler heats, and the relief valve
+      weeps or lifts hot; the tank rings dull or solid all over, the air valve spits water or holds no air, and the
+      pressure holds steady with the fill valve shut.
+    fix: |
+      Isolate the tank and drain its water side before you test the air side. A bladder tank that spits water at the
+      air valve has a ruptured bladder — replace the tank rather than pumping it up, and set the new tank's air
+      precharge to the cold fill pressure (about 12 psi) before it goes onto the wet system. On a plain steel
+      compression tank, drain it and restore its air cushion, then find out why it keeps losing air. If the tank
+      tests good but the pressure still climbs to the relief setting on every heat-up, it is too small for the
+      water in the system. Replace a relief valve that has popped repeatedly; its seat is cut.
+    safety: The water in the tank is hot and under pressure. Let the system cool and the pressure down before you
+      isolate or drain the tank. A relief valve is the last line against a rupture; replace it, don't disable it.
+    refs: [practice]
+  - id: blr.fill_valve_passing
+    name: Fill (make-up) valve passing or set high — pressure creeps up even with the boiler cool
+    systems: [fuel.boiler]
+    requires: {boiler_kind: hw}
+    prior: occasional
+    keywords: [bad fill valve, fill valve leaking through, pressure reducing valve passing, high pressure cold, prv
+      leaking, makeup valve passing, fill valve set high]
+    signs:
+      blr.fill_valve: passing!
+      blr.pressure_hw: high!
+      blr.relief: weeping|popping
+      blr.fill_isolated: 'no'
+      blr.exp_tank: ok?
+      blr.limit_open: 'no'
+      blr.start: normal
+    confirm: Pressure creeps up toward the relief setting even with the boiler cool, the expansion tank tests good, and
+      closing the shutoff ahead of the fill valve stops the rise.
+    fix: |
+      Close the shutoff ahead of the fill valve and bleed the boiler back to the cold fill pressure (about 12 psi); if
+      it then holds, the fill valve is passing. Clean the valve's seat and strainer (scale under the seat lets supply
+      water creep through) or replace the pressure-reducing fill valve, and set its cold fill pressure to match the
+      expansion tank's air precharge. A relief valve that has popped repeatedly is replaced, not re-seated.
+    safety: A relief valve is the last line against a rupture; replace it, don't disable it. Let the boiler cool and the
+      pressure down before you work on the fill valve.
+    refs: [practice]
+
+  # ======================= warm-air furnace =======================
+  - id: blr.furnace_airflow
+    name: Furnace starved for airflow — dirty filter, slow blower, closed registers — tripping its limit
+    systems: [fuel.furnace]
+    prior: very_common
+    keywords: [dirty filter, limit tripping, furnace overheating, low airflow, closed registers]
+    signs:
+      blr.air_filter: dirty!
+      blr.limit_open: open_overheat!
+      blr.plenum_f: high!
+      blr.blower: {ok: 0.45, weak: 0.5, 'off': 0.03, constant: 0.02}
+      blr.ducts: restricted?
+      gen.short_cycle: 'yes'
+      gen.output: weak
+      blr.start: normal
+    confirm: |
+      Burner runs, the plenum gets very hot, the limit opens and the burner cycles; filter loaded, blower slow
+      or belt slipping, or registers shut (TM 5-642 ¶6-40g: outlet air over 160 °F for long is nearly always
+      airflow).
+    fix: |
+      Replace the filter and clean the blower wheel; check belt tension, pulley setting and that the blower isn't
+      running backward (¶6-36, ¶6-40a); open registers and dampers and fix crushed or blocked ducts. Then check
+      plenum temperature and the limit setting (about 175–200 °F — ¶6-39b). A furnace that still trips with full
+      airflow is overfired: check the nozzle against the plate.
+    refs: [tm-5-642, practice]
+  - id: blr.blower_failed
+    name: Furnace blower motor failed or weak — motor, capacitor, belt, bearings
+    systems: [fuel.furnace]
+    prior: common
+    keywords: [blower motor, blower dead, blower capacitor, belt broken, blower bearings]
+    signs:
+      blr.blower: off|weak!
+      blr.blower_v: present!
+      blr.limit_open: open_overheat
+      blr.plenum_f: high
+      blr.air_filter: clean?
+      gen.short_cycle: yes?
+      gen.output: none|weak
+      gen.burnt_smell: yes?
+    confirm: Voltage at the blower motor once the plenum is hot but it doesn't run (or barely turns); the burner then
+      cycles on the limit with the plenum scorching.
+    fix: |
+      Power off: spin the wheel for seized bearings, check the belt and pulleys, test the capacitor, ohm the windings,
+      press the motor's overload reset if it has one (TM 5-642 ¶6-40a(3)). Replace the motor (match hp, rpm, frame,
+      rotation and the speed taps or ECM program) or the belt and bearings. A too-tight belt or binding thrust
+      collars overload the motor (¶6-36a).
+    safety: Do not run the burner without airflow. Leave the furnace off (use other heat) until the blower runs; the
+      limit is a backup, not the control.
+    refs: [tm-5-642, practice]
+  - id: blr.fan_control_no_start
+    name: Fan control not switching the blower on (or on far too late)
+    systems: [fuel.furnace]
+    prior: occasional
+    keywords: [fan control, fan limit, fan switch, blower not coming on, fan control contacts]
+    signs:
+      blr.blower: off!
+      blr.blower_v: missing!
+      blr.limit_open: open_overheat
+      blr.plenum_f: high
+      gen.output: none|weak
+      gen.short_cycle: yes?
+    confirm: Plenum hot, no voltage out of the fan control to the blower; the blower runs when its switch is set to
+      manual/on. The fan contacts are burnt or the control's element is tired or set too high.
+    fix: |
+      Replace the fan-limit control (don't repair switches in the field — TM 5-642 ¶7-11a(8)); set fan-on about 115 °F
+      and fan-off about 100 °F with a 10–20 °F differential (¶7-11a(4)), limit about 175–200 °F. Mount the element
+      where it sees the plenum air, not the crown sheet. Until the part arrives, run the blower from the manual fan
+      switch so it moves air whenever the burner fires, with the limit still in the circuit. Do not jumper across
+      the limit terminals: TM 5-642 ¶6-40e treats that as an emergency-only measure, and ¶6-40d says not to operate a
+      forced warm-air furnace without the blower control.
+    safety: Never run the burner with no blower control and no manual fan; the heat exchanger overheats and the limit
+      is the only thing left. Don't bypass the limit to get heat.
+    refs: [tm-5-642, practice]
+  - id: blr.fan_control_setting
+    name: Blower running constantly — fan control stuck on, set too low, or switch left on manual
+    systems: [fuel.furnace]
+    prior: occasional
+    keywords: [blower runs all the time, fan runs constantly, cold air blowing, fan switch on]
+    signs:
+      blr.blower: constant!
+      blr.plenum_f: low?
+      gen.output: weak|normal
+      gen.runs_constantly: yes?
+      blr.limit_open: 'no'
+      blr.start: normal
+    confirm: The blower never stops, blowing cool air between burner cycles; the fan control's contacts are welded, the
+      fan-off setting is below room temperature, or the manual fan switch is on.
+    fix: |
+      Check the thermostat fan switch and the control's manual lever first. Set fan-off about 100 °F (TM 5-642 ¶6-39a,
+      ¶7-11a(4)); a control whose contacts won't open has been cooked by overheating — replace it and find the
+      overheating (airflow, overfiring). Frequent blower starts and stops shorten motor life: widen the differential
+      10 °F (¶6-40f).
+    refs: [tm-5-642, practice]
+  - id: blr.hx_cracked
+    name: Cracked heat exchanger — combustion gases into the supply air
+    systems: [fuel.furnace]
+    prior: uncommon
+    keywords: [cracked heat exchanger, co in the ducts, flame changes when blower starts, heat exchanger]
+    signs:
+      blr.hx_crack: cracked!
+      blr.co_room: yes?
+      blr.flame_look: pulsing?
+      blr.soot_outside: yes?
+      gen.burnt_smell: yes?
+      blr.start: normal
+      blr.limit_open: no?
+      blr.stack_temp: normal?
+    confirm: Flame jumps or rolls when the blower starts, CO or an O2 drop in the supply air with the analyzer, soot
+      streaks or a visible crack with a light and mirror; a CO alarm in the building. TM 5-642 ¶4-87 names a leak
+      in the furnace's heat exchanger as a source of CO in the building.
+    fix: |
+      Shut the furnace down, tag it out and ventilate. Replace the heat exchanger or the furnace — there is no
+      field repair. Find out why it cracked: years of limit trips from poor airflow, overfiring, flame impingement,
+      or thermal shock from a blower that never ran. Fix that on the replacement.
+    safety: Carbon monoxide. Red-tag it, and do not run it again until the heat exchanger is replaced.
+    refs: [tm-5-642, practice]

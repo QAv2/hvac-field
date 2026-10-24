@@ -1,0 +1,415 @@
+# Scenario tests for commercial refrigeration and ice machines (kb/refrigeration.yaml).
+# Covers every rf.* cause across walk-in coolers/freezers (vc.walkin), reach-ins/prep tables (vc.reachin),
+# and ice machines (vc.ice), plus measure classification tests and opening-move checks.
+
+# ======================= walk-in & reach-in: defrost failures =======================
+- name: Walk-in freezer iced solid — defrost timer motor stopped
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_frost: heavy, rf.ice_pattern: uniform_fin, rf.defrost_init: not_initiating}
+  inputs: {rf.box_f: 18, rf.setpoint_f: -10}
+  expect:
+    top: rf.defrost_timer_failed
+    measured: {rf.box_temp: high}
+
+- name: Walk-in freezer iced — voltage at heater terminals in defrost, zero amp draw
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_frost: heavy, rf.defrost_init: initiating, rf.defrost_power: present,
+    rf.defrost_limit: closed}
+  inputs: {rf.box_f: 15, rf.setpoint_f: -10, rf.def_amps: 0.0, rf.def_rated_amps: 18}
+  expect:
+    top: rf.defrost_heater_open
+    measured: {rf.box_temp: high, rf.defrost_heater_amps: zero}
+
+- name: Walk-in freezer partial defrost — one of two electric heater elements open (half rated amps)
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_frost: heavy, rf.defrost_init: initiating, rf.defrost_power: present,
+    rf.defrost_limit: closed}
+  inputs: {rf.box_f: 10, rf.setpoint_f: -10, rf.def_amps: 8.5, rf.def_rated_amps: 17}
+  expect:
+    top: rf.defrost_heater_open
+    measured: {rf.box_temp: high, rf.defrost_heater_amps: low}
+
+- name: Walk-in freezer enters defrost, but contactor contacts are open (no voltage to heaters)
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_frost: heavy, rf.defrost_init: initiating, rf.defrost_power: missing}
+  inputs: {rf.box_f: 16, rf.setpoint_f: -10, rf.def_amps: 0.0, rf.def_rated_amps: 16}
+  expect:
+    top: rf.defrost_contactor_failed
+    measured: {rf.box_temp: high, rf.defrost_heater_amps: zero}
+
+- name: Walk-in freezer defrost terminates after 4 minutes with ice still on coil
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_frost: heavy, rf.defrost_init: initiating, rf.defrost_term: early}
+  inputs: {rf.box_f: 12, rf.setpoint_f: -10}
+  expect:
+    top: rf.defrost_term_early
+    measured: {rf.box_temp: high}
+
+- name: Walk-in freezer steaming — defrost never terminates on temperature, runs to time fail-safe
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_frost: none, rf.defrost_init: initiating, rf.defrost_term: late_never}
+  inputs: {rf.box_f: 22, rf.setpoint_f: -5}
+  expect:
+    top: rf.defrost_term_stuck
+    measured: {rf.box_temp: high}
+
+- name: Walk-in freezer heaters cold — defrost safety high-limit Klixon open on a frozen coil
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_frost: heavy, rf.defrost_init: initiating, rf.defrost_power: present,
+    rf.defrost_limit: open}
+  inputs: {rf.def_amps: 0.0, rf.def_rated_amps: 15}
+  expect:
+    top: rf.defrost_klixon_open
+    measured: {rf.defrost_heater_amps: zero}
+
+- name: Hot-gas defrost walk-in iced up — hot-gas solenoid stuck closed in defrost
+  system: vc.walkin
+  ctx: {app: lt, defrost: hot_gas}
+  findings: {gen.output: weak, vc.evap_frost: heavy, rf.ice_pattern: uniform_fin, rf.defrost_init: initiating,
+    rf.hot_gas_valve: stuck_closed}
+  expect:
+    top: rf.hot_gas_solenoid_closed
+
+- name: Hot-gas defrost walk-in warm and running nonstop — hot-gas solenoid leaking through in cooling
+  system: vc.walkin
+  ctx: {app: lt, defrost: hot_gas}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.evap_sat: high, rf.hot_gas_valve: leaking_cooling}
+  expect:
+    top: rf.hot_gas_solenoid_leaking
+
+- name: Freezer drain pan and bottom of coil encased in clear ice — drain-line heater open
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {vc.evap_frost: heavy, rf.ice_pattern: pan_backup, rf.drain_line: frozen, rf.drain_heater: open_cold}
+  expect:
+    top: rf.drain_heater_failed
+
+# ======================= walk-in & reach-in: evaporator fan & door controls =======================
+- name: Freezer coil cold after defrost, evaporator fans never come back on — fan-delay Klixon stuck open
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, vc.evap_fan: 'off', vc.evap_frost: heavy, rf.fan_delay: stuck_open}
+  expect:
+    top: rf.fan_delay_stuck
+
+- name: Evaporator fan blade jammed against ice ridge in fan shroud
+  system: vc.walkin
+  ctx: {app: lt}
+  findings: {gen.output: weak, vc.evap_fan: 'off', rf.fan_blade_clear: hitting_ice, rf.box_temp: high}
+  expect:
+    top: rf.evap_fan_iced_shroud
+
+- name: Walk-in cooler warm — door plunger switch stuck holding evaporator fans off
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: weak, vc.evap_fan: 'off', rf.door_switch: stuck_fault, rf.box_temp: high}
+  expect:
+    top: rf.door_switch_stuck
+
+# ======================= walk-in & reach-in: box envelope & load =======================
+- name: Walk-in cooler running constantly with snow around doorway — torn door gasket and sagging hinge
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', rf.door_seal: leaking, rf.ice_pattern: snow_door,
+    rf.box_temp: high}
+  expect:
+    top: rf.door_gasket_torn
+
+- name: Reach-in freezer door freezing shut to jamb — mullion anti-sweat heater cold
+  system: vc.reachin
+  ctx: {app: lt}
+  findings: {rf.antisweat_heater: cold_failed, rf.box_temp: normal}
+  expect:
+    top: rf.antisweat_heater_failed
+
+- name: Galley freezer ceiling and fan guards coated in fluffy hoarfrost — strip curtains missing and relief port stuck
+  system: vc.walkin
+  ctx: {app: lt}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.evap_frost: heavy, rf.ice_pattern: snow_door,
+    rf.infiltration_path: open_breach}
+  expect:
+    top: rf.air_infiltration_heavy
+
+- name: Walk-in cooler warm — cartons stacked tight in front of evaporator discharge
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', rf.box_loading: blocked_or_hot}
+  inputs: {rf.box_f: 45, rf.setpoint_f: 36}
+  expect:
+    top: rf.product_airflow_blocked
+    measured: {rf.box_temp: high}
+
+# ======================= walk-in & reach-in: controls & regulating valves =======================
+- name: Walk-in cooler at 46 °F while controller display says 35 °F — drifted box probe
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: weak, gen.call: not_calling}
+  inputs: {rf.box_f: 46, rf.setpoint_f: 36, rf.probe_display_f: 35}
+  expect:
+    top: rf.box_probe_drifted
+    measured: {rf.box_temp: high, rf.probe_cal: drifted}
+
+- name: Walk-in compressor kicking on for 15 seconds every few minutes during off cycle — leaking pump-down solenoid
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.short_cycle: 'yes', gen.call: not_calling, rf.box_temp: normal, rf.llsv_state: leaking_through}
+  expect:
+    top: rf.llsv_leaking
+
+- name: Walk-in warm, compressor off on low-pressure switch while calling — liquid-line solenoid coil open
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: none, gen.call: calling, vc.comp: 'off', vc.lps_trip: 'yes', rf.llsv_state: stuck_closed}
+  expect:
+    top: rf.llsv_stuck_closed
+
+- name: Walk-in cooler short-cycling on low-pressure control before reaching setpoint — LPC differential too tight
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: weak, gen.short_cycle: 'yes', vc.lps_trip: 'yes', rf.lpc_setting: wrong_tight,
+    rf.box_temp: high}
+  expect:
+    top: rf.lpc_misadjusted
+
+- name: Outdoor condensing unit banging on start-up with foamy oil sight glass — crankcase heater open
+  system: vc.walkin
+  ctx: {app: lt, condenser: air}
+  findings: {vc.low_ambient: 'yes', vc.comp_noise: knock, rf.oil_sight: foaming_low, rf.crankcase_heater: cold_failed}
+  expect:
+    top: rf.crankcase_heater_failed
+
+- name: Multi-box walk-in cooler warm while compressor suction is low — EPR valve stuck high/closed
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.evap_sat: low, rf.box_temp: high,
+    rf.epr_valve: stuck_high}
+  expect:
+    top: rf.epr_stuck_closed
+
+- name: Produce walk-in freezing lettuce at 27 °F with iced coil — EPR valve stuck wide open
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {vc.evap_frost: heavy, vc.evap_sat: low, rf.epr_valve: stuck_low}
+  inputs: {rf.box_f: 27, rf.setpoint_f: 36}
+  expect:
+    top: rf.epr_stuck_open
+    measured: {rf.box_temp: low}
+
+- name: Walk-in freezer slow pull-down after defrost with big pressure drop at compressor inlet — CPR set too low
+  system: vc.walkin
+  ctx: {app: lt}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.evap_sat: low, rf.box_temp: high,
+    rf.cpr_valve: throttling_low}
+  expect:
+    top: rf.cpr_misadjusted
+
+# ======================= cold-ambient, water-cooled head pressure & oil safety =======================
+- name: Warm mechanical room, high head pressure and bubbling sight glass — Headmaster stuck in bypass
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, condenser: air, hpc: flooding, receiver: 'yes'}
+  findings: {gen.output: weak, vc.cond_sat: high, vc.subcool: low, vc.sight_glass: bubbles,
+    rf.headmaster_state: stuck_bypass}
+  expect:
+    top: rf.headmaster_bypass_stuck
+
+- name: McMurdo outdoor condenser at -40 °F — flashing sight glass and collapsing head pressure from low winter charge
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, app: lt, metering: txv, condenser: air, hpc: flooding, receiver: 'yes'}
+  findings: {gen.output: weak, vc.low_ambient: 'yes', vc.sight_glass: bubbles, rf.headmaster_state: starving_cold}
+  inputs: {vc.ambient_f: -40, vc.air_in_f: -5, vc.suction_psig: 8, vc.suction_line_f: -10, vc.liquid_psig: 95,
+    vc.liquid_line_f: 44}
+  expect:
+    top: rf.headmaster_starving_cold
+    measured: {vc.cond_sat: low, vc.evap_sat: low, vc.superheat: high}
+
+- name: Outdoor condensing unit fan running nonstop in subzero weather — fan-cycling pressure switch stuck closed
+  system: vc.walkin
+  ctx: {condenser: air, hpc: fan_cycling}
+  findings: {gen.output: weak, vc.cond_sat: low, vc.cond_fan: running, rf.fan_cycle_ctrl: failed_stuck}
+  expect:
+    top: rf.fan_cycling_switch_stuck
+
+- name: Water-cooled walk-in tripping high pressure with scalding trickle of leaving water — WRV / strainer plugged
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, condenser: water}
+  findings: {gen.output: weak, vc.cond_sat: high, vc.hps_trip: 'yes', rf.wrv_state: stuck_closed}
+  inputs: {rf.water_in_f: 60, rf.water_out_f: 92}
+  expect:
+    top: rf.water_reg_valve_closed
+    measured: {rf.water_flow: low_hot}
+
+- name: Water-cooled condenser pouring cold water to drain in off cycle with low head — WRV stuck open
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, condenser: water}
+  findings: {vc.cond_sat: low, rf.wrv_state: stuck_open}
+  inputs: {rf.water_in_f: 54, rf.water_out_f: 55.5}
+  expect:
+    top: rf.water_reg_valve_open
+    measured: {rf.water_flow: continuous_cold}
+
+- name: Glycol-cooled condenser running high head pressure with normal flow and 35 °F approach — scaled tubes
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, condenser: water}
+  findings: {gen.output: weak, vc.cond_sat: high, vc.discharge_temp: high}
+  inputs: {vc.liquid_psig: 275, rf.water_in_f: 65, rf.water_out_f: 77}
+  expect:
+    top: rf.water_condenser_fouled
+    measured: {rf.cond_approach: high, rf.water_flow: normal}
+
+- name: Semi-hermetic walk-in compressor off on Sentronic oil safety lockout with empty oil glass
+  system: vc.walkin
+  ctx: {app: lt}
+  findings: {gen.output: none, vc.comp: 'off', rf.oil_safety: tripped, rf.oil_sight: low_empty, rf.box_temp: high}
+  expect:
+    top: rf.oil_safety_lockout
+
+# ======================= reach-in & prep-table specifics =======================
+- name: Reach-in cooler holding 36 °F, but water puddling on kitchen floor from overflowing bottom evaporation pan
+  system: vc.reachin
+  ctx: {app: mt}
+  findings: {gen.output: normal, gen.water_leak: 'yes', rf.evap_pan_wick: overflowing_dead}
+  inputs: {rf.box_f: 36, rf.setpoint_f: 36}
+  expect:
+    top: rf.reachin_wick_pan_overflow
+    measured: {rf.box_temp: normal}
+
+- name: Sandwich prep table warm and coil icing — food pans missing from top rail and hood left open
+  system: vc.reachin
+  ctx: {app: mt}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.evap_frost: heavy, rf.prep_rail: open_blocked}
+  inputs: {rf.box_f: 48, rf.setpoint_f: 36}
+  expect:
+    top: rf.prep_table_rail_open
+    measured: {rf.box_temp: high}
+
+# ======================= ice machine: water, freeze & harvest =======================
+- name: Ice machine making no ice, sump dry — plugged inlet water filter dropping pressure to zero
+  system: vc.ice
+  findings: {gen.output: none, rf.ice_sump_level: empty, rf.ice_water_in: none_low}
+  expect:
+    top: rf.ice_water_supply_off
+
+- name: Ice machine sump dry with full water supply pressure — water inlet solenoid valve failed closed
+  system: vc.ice
+  findings: {gen.output: none, rf.ice_sump_level: empty, rf.ice_water_in: good, rf.ice_wv_state: failed_closed}
+  expect:
+    top: rf.ice_inlet_valve_closed
+
+- name: Ice machine slow to freeze with sump overflowing down drain during freeze — inlet water valve weeping
+  system: vc.ice
+  findings: {gen.output: weak, rf.ice_sump_level: overflowing, rf.ice_wv_state: leaking_through}
+  inputs: {rf.freeze_min: 32}
+  expect:
+    top: rf.ice_inlet_valve_leaking
+    measured: {rf.ice_cycle_time: long}
+
+- name: Ice machine stopping on false water-level fault — float switch crusted with mineral scale
+  system: vc.ice
+  findings: {gen.output: none, rf.ice_sump_level: empty, rf.ice_level_sensor: fouled_stuck}
+  expect:
+    top: rf.ice_float_probe_fouled
+
+- name: Ice machine sump full in freeze, but no water flowing over evaporator — circulation pump dead
+  system: vc.ice
+  findings: {gen.output: none, rf.ice_sump_level: full_normal, rf.ice_pump: off_weak}
+  expect:
+    top: rf.ice_water_pump_failed
+
+- name: Ice machine dropping hollow shell cubes and running sump dry mid-cycle — water curtain hanging crooked
+  system: vc.ice
+  findings: {gen.output: weak, rf.ice_sump_level: empty, rf.ice_cube_shape: hollow_thin,
+    rf.ice_curtain: leaking_bypass}
+  expect:
+    top: rf.ice_curtain_trough_leak
+
+- name: Ice machine taking 30 min to freeze cloudy cubes that stick in grid — heavy mineral scale on evaporator
+  system: vc.ice
+  findings: {gen.output: weak, rf.ice_cube_shape: cloudy_stuck, rf.ice_evap_surface: scaled_rough}
+  inputs: {rf.freeze_min: 30}
+  expect:
+    top: rf.ice_evap_scale
+    measured: {rf.ice_cycle_time: long}
+
+- name: Ice machine running 34-minute freeze cycles with 82 °F incoming water from galley mixing-valve backfeed
+  system: vc.ice
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', rf.ice_cube_shape: normal}
+  inputs: {rf.freeze_min: 34, rf.ice_water_in_f: 82}
+  expect:
+    top: rf.ice_warm_water
+    measured: {rf.ice_cycle_time: long, rf.ice_water_temp: hot}
+
+- name: Ice machine bridged into a solid 2-inch block of ice and never entering harvest — scaled thickness probe
+  system: vc.ice
+  findings: {gen.output: none, rf.ice_cube_shape: solid_slab, rf.ice_harvest_init: stuck_in_freeze}
+  inputs: {rf.freeze_min: 45}
+  expect:
+    top: rf.ice_thickness_probe_freezeup
+    measured: {rf.ice_cycle_time: long}
+
+- name: Ice machine enters harvest mode, but evaporator stays cold and slab won't drop — hot-gas valve coil open
+  system: vc.ice
+  findings: {gen.output: none, rf.ice_harvest_init: initiates_no_drop, rf.ice_cube_shape: solid_slab,
+    rf.ice_hgv: stuck_closed}
+  expect:
+    top: rf.ice_hgv_stuck_closed
+
+- name: Ice machine taking 38 min to freeze hollow cubes with hot suction — hot-gas harvest valve leaking in freeze
+  system: vc.ice
+  findings: {gen.output: weak, vc.evap_sat: high, rf.ice_cube_shape: hollow_thin, rf.ice_hgv: leaking_in_freeze}
+  inputs: {rf.freeze_min: 38}
+  expect:
+    top: rf.ice_hgv_leaking
+    measured: {rf.ice_cycle_time: long}
+
+- name: Ice machine warms evaporator in harvest, but slab hangs until timeout — harvest-assist air pump dead
+  system: vc.ice
+  findings: {gen.output: none, rf.ice_harvest_init: initiates_no_drop, rf.ice_hgv: ok, rf.ice_harvest_assist: failed}
+  expect:
+    top: rf.ice_harvest_assist_failed
+
+- name: Ice machine sitting idle on Bin Full with an empty bin — curtain reed switch stuck open
+  system: vc.ice
+  findings: {gen.output: none, vc.comp: 'off', rf.ice_bin_ctrl: faulted}
+  expect:
+    top: rf.ice_bin_control_fault
+
+# ======================= opening-move scenarios =======================
+- name: Opening move — walk-in freezer warm, coil heavily iced, evaporator fans running
+  system: vc.walkin
+  ctx: {app: lt, defrost: electric}
+  findings: {gen.output: weak, rf.box_temp: high, vc.evap_frost: heavy, vc.evap_fan: running}
+  expect:
+    next_any: [rf.ice_pattern, rf.defrost_init, rf.drain_line, rf.infiltration_path, rf.door_seal]
+
+- name: Opening move — walk-in cooler warm, nothing else entered yet
+  system: vc.walkin
+  ctx: {app: mt}
+  findings: {gen.output: weak, rf.box_temp: high}
+  expect:
+    next_any: [vc.evap_frost, vc.evap_fan, rf.door_seal, rf.box_loading, rf.ice_pattern, vc.comp]
+
+- name: Opening move — reach-in prep table warm and running nonstop
+  system: vc.reachin
+  ctx: {app: mt}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', rf.box_temp: high}
+  expect:
+    next_any: [rf.prep_rail, rf.door_seal, vc.evap_frost, rf.box_loading, vc.cond_dirty]
+
+- name: Opening move — ice machine making no ice at all
+  system: vc.ice
+  findings: {gen.output: none}
+  expect:
+    next_any: [rf.ice_sump_level, rf.ice_water_in, rf.ice_cube_shape, vc.comp, rf.ice_bin_ctrl, rf.ice_pump]
+
+- name: Opening move — ice machine slow ice production
+  system: vc.ice
+  findings: {gen.output: weak}
+  expect:
+    next_any: [rf.ice_cube_shape, rf.ice_sump_level, rf.ice_evap_surface, rf.ice_water_temp, vc.cond_dirty]

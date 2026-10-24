@@ -1,0 +1,17 @@
+{
+  "name": "Field Dx — HVAC/R diagnostics",
+  "short_name": "Field Dx",
+  "description": "Offline HVAC/R field diagnostics: type the symptoms, get the likely causes and the next best check.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d1215",
+  "theme_color": "#0d1215",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml" }
+  ]
+}

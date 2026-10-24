@@ -1,0 +1,226 @@
+# Scenario tests for the vapor-compression core. Each case is a service call: what the tech typed or
+# saw (findings), what the gauges and probes read (inputs → measures), and where the engine must land.
+# expect.top = must be #1 · top3 = must be in the top three · measured = what the numbers must classify as
+# · next_any = one of the first three suggested checks must be among these.
+
+- name: A/C piston, low charge from the gauges alone
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: fixed, sh_location: comp, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 95, vc.air_in_f: 78, vc.air_in_rh: 50, vc.air_out_f: 65,
+    vc.suction_psig: 101, vc.suction_line_f: 60, vc.liquid_psig: 313, vc.liquid_line_f: 97}
+  expect:
+    top: vc.undercharge
+    measured: {vc.superheat: high, vc.subcool: low, vc.cond_sat: low, vc.evap_sat: low, vc.evap_split: low}
+
+- name: A/C piston, overcharged after a top-off
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: fixed, sh_location: comp, condenser: air}
+  findings: {gen.recent_work: 'yes'}
+  inputs: {vc.ambient_f: 85, vc.air_in_f: 75, vc.air_in_rh: 50, vc.suction_psig: 142.6, vc.suction_line_f: 53,
+    vc.liquid_psig: 392, vc.liquid_line_f: 96}
+  expect:
+    top: vc.overcharge
+    measured: {vc.superheat: low, vc.subcool: high}
+
+- name: A/C TXV, dirty condenser
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air, ac_eff: standard}
+  findings: {vc.cond_dirty: 'yes'}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 76, vc.suction_psig: 133, vc.suction_line_f: 58, vc.liquid_psig: 482,
+    vc.liquid_line_f: 118}
+  expect:
+    top: vc.dirty_condenser
+    measured: {vc.cond_sat: high, vc.superheat: normal}
+
+- name: A/C TXV, plugged filter-drier
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 76, vc.suction_psig: 95, vc.suction_line_f: 55, vc.liquid_psig: 341,
+    vc.liquid_line_f: 86, vc.drier_in_f: 92, vc.drier_out_f: 83}
+  expect:
+    top: vc.liquid_restriction
+    measured: {vc.superheat: high, vc.subcool: high, vc.drier_dt: high}
+
+- name: A/C TXV, starving with no drier drop → valve is a contender
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 76, vc.suction_psig: 95, vc.suction_line_f: 55, vc.liquid_psig: 341,
+    vc.liquid_line_f: 86, vc.drier_in_f: 88, vc.drier_out_f: 87.5}
+  expect:
+    top3: [vc.txv_underfeed]
+
+- name: A/C, dirty filter and iced coil
+  system: vc.ac
+  findings: {gen.output: weak, vc.filter: dirty, vc.evap_frost: heavy}
+  expect:
+    top: vc.dirty_filter
+
+- name: A/C, blower dead, coil iced
+  system: vc.ac
+  findings: {gen.output: none, vc.evap_fan: 'off', vc.evap_frost: heavy}
+  expect:
+    top: vc.evap_fan_off
+
+- name: Compressor hums and trips, capacitor tests low
+  system: vc.ac
+  findings: {vc.comp: hums, vc.cap: bad}
+  expect:
+    top: vc.comp_cap
+
+- name: Unit dead, no voltage at the disconnect
+  system: vc.ac
+  findings: {gen.dead: 'yes', gen.power: missing}
+  expect:
+    top: gen.no_line_power
+
+- name: Calling, contactor won't pull in, no 24 V at its coil
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', vc.cond_fan: 'off', vc.contactor: not_pulling, vc.coil_24v: 'no',
+    gen.call: calling}
+  expect:
+    top: vc.safety_open
+
+- name: Calling, 24 V on the coil but contactor won't pull in
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', vc.contactor: not_pulling, vc.coil_24v: 'yes'}
+  expect:
+    top: vc.contactor
+
+- name: Water on the floor, pan full
+  system: vc.ac
+  findings: {gen.water_leak: 'yes', vc.drain: clogged}
+  expect:
+    top: vc.drain_clogged
+
+- name: Air in the system after a repair (standing pressure test)
+  system: vc.ac
+  ctx: {refrigerant: R-410A}
+  findings: {gen.recent_work: 'yes'}
+  inputs: {vc.standing_psig: 232, vc.standing_temp_f: 70}
+  expect:
+    top: vc.noncondensables
+    measured: {vc.standing: high}
+
+- name: Compressor not pumping (TXV)
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak, vc.pumpdown: weak}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 75, vc.suction_psig: 155, vc.suction_line_f: 66, vc.liquid_psig: 300,
+    vc.comp_amps_meas: 8, vc.comp_rla: 18}
+  expect:
+    top: vc.comp_inefficient
+    measured: {vc.evap_sat: high, vc.cond_sat: low, vc.comp_amps: low}
+
+- name: Short cycling with normal pressures and no safety trips
+  system: vc.ac
+  findings: {gen.short_cycle: 'yes', vc.lps_trip: 'no', vc.hps_trip: 'no', vc.comp_hot: 'no'}
+  expect:
+    top3: [vc.control_cycling]
+
+- name: Server-room A/C icing in cold weather
+  system: vc.ac
+  ctx: {condenser: air}
+  findings: {vc.low_ambient: 'yes', vc.evap_frost: heavy, vc.filter: clean, vc.evap_fan: running}
+  expect:
+    top: vc.low_ambient
+
+- name: Condenser drifted in with snow
+  system: vc.walkin
+  ctx: {condenser: air}
+  findings: {vc.cond_airpath: blocked, vc.hps_trip: 'yes'}
+  expect:
+    top: vc.cond_blocked
+
+- name: Opening move — weak cooling, nothing else known → cheap looks come first
+  system: vc.ac
+  findings: {gen.output: weak}
+  expect:
+    next_any: [vc.filter, vc.evap_frost, vc.cond_dirty, vc.evap_fan, vc.cond_fan, vc.comp, vc.drain, vc.cond_airpath]
+
+- name: Refrigerant identifier says mixed after someone topped it off
+  system: vc.walkin
+  findings: {vc.identifier: mixed, gen.recent_work: 'yes'}
+  expect: {top: vc.wrong_refrigerant}
+
+- name: TXV flooding — low superheat, sweating compressor, bulb hanging loose
+  system: vc.walkin
+  ctx: {metering: txv}
+  findings: {vc.superheat: low, vc.comp_sweat: 'yes', vc.bulb_mount: poor}
+  expect: {top: vc.txv_overfeed}
+
+- name: New coil, wrong piston — low superheat and low subcooling
+  system: vc.ac
+  ctx: {metering: fixed}
+  findings: {gen.recent_work: 'yes', vc.superheat: low, vc.subcool: low, vc.evap_sat: high}
+  expect: {top3: [vc.piston_large]}
+
+- name: Cap-tube reach-in starving — high superheat, high subcooling, no drier drop
+  system: vc.reachin
+  ctx: {metering: captube}
+  findings: {gen.output: weak, vc.superheat: high, vc.subcool: high, vc.drier_dt: normal}
+  expect: {top3: [vc.metering_small]}
+
+- name: Wet moisture indicator, feed comes and goes
+  system: vc.walkin
+  findings: {vc.moisture_ind: wet, gen.intermittent: 'yes'}
+  expect: {top: vc.moisture}
+
+- name: Matted evaporator, big temperature split
+  system: vc.ac
+  findings: {gen.output: weak, vc.evap_dirty: 'yes', vc.evap_split: high}
+  expect: {top: vc.dirty_evap}
+
+- name: Blower turning but weak, filter and coil clean
+  system: vc.ac
+  findings: {gen.output: weak, vc.evap_fan: weak, vc.filter: clean, vc.evap_dirty: 'no'}
+  expect: {top: vc.evap_fan_weak}
+
+- name: Closed registers and high static
+  system: vc.ac
+  findings: {vc.ducts: restricted, vc.static: high, vc.filter: clean}
+  expect: {top: vc.duct_restriction}
+
+- name: Return duct pulled loose in the attic
+  system: vc.ac
+  findings: {gen.output: weak, vc.ducts: leaking}
+  expect: {top: vc.duct_leak}
+
+- name: Runs nonstop on a hot day, everything high but in proportion (TXV)
+  system: vc.ac
+  ctx: {metering: txv}
+  findings: {gen.runs_constantly: 'yes', vc.evap_sat: high, vc.cond_sat: high, vc.superheat: normal, vc.filter: clean}
+  expect: {top3: [vc.excess_load]}
+
+- name: Condenser fan stopped, head pressure way up
+  system: vc.walkin
+  ctx: {condenser: air}
+  findings: {vc.cond_fan: 'off', vc.cond_sat: high}
+  expect: {top3: [vc.cond_fan_failed, vc.fan_cap]}
+
+- name: Condenser fan crawling, capacitor fine
+  system: vc.ac
+  findings: {vc.cond_fan: slow, vc.cap: ok, vc.cond_sat: high}
+  expect: {top: vc.cond_fan_slow}
+
+- name: Condenser fan hums, capacitor tests low
+  system: vc.ac
+  findings: {vc.cond_fan: 'off', vc.cap: bad, vc.comp: running}
+  expect: {top: vc.fan_cap}
+
+- name: Compressor hums on a good capacitor with good windings
+  system: vc.ac
+  findings: {vc.comp: hums, vc.cap: ok, vc.windings: ok}
+  expect: {top: vc.comp_locked}
+
+- name: Compressor terminal reads to ground, breaker trips again
+  system: vc.ac
+  findings: {vc.comp: 'off', vc.windings: grounded, gen.breaker: retrips}
+  expect: {top: vc.comp_windings}
+
+- name: Compressor too hot to touch, cycling on its overload
+  system: vc.walkin
+  findings: {vc.comp_hot: 'yes', gen.short_cycle: 'yes', vc.windings: overload_open}
+  expect: {top3: [vc.overheat_overload]}

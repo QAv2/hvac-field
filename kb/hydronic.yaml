@@ -1,0 +1,2534 @@
+module: hydronic
+title: Hot-water, glycol & low-pressure steam distribution
+notes: |
+  Covers water-side and steam-side distribution from the boiler or heat-recovery exchanger out to the
+  terminal units and back. Built for both cold-region central heat-recovery / glycol loops (McMurdo Station
+  jacket-water heat recovery, plate heat exchangers, freeze-protection life safety) and standard commercial
+  and residential hydronic and low-pressure steam heating. Burner, draft, and boiler low-water cutoff faults
+  live in boiler-oil.yaml.
+
+context:
+  - id: fluid
+    ask: What fluid is in the hydronic loop?
+    hint: Glycol loops use inhibited propylene glycol (PG) or ethylene glycol (EG) for freeze protection. Not sure? Leave it on Don't know and the glycol checks stay in play.
+    systems: [hydronic]
+    options:
+      - {id: water, label: Plain water, words: [plain water, water only, straight water]}
+      - {id: glycol, label: 'Glycol, type not known', words: [glycol, glycol loop, antifreeze, brine]}
+      - {id: pg, label: 'Propylene glycol (PG, low toxicity)', words: [propylene glycol, pg, dowfrost]}
+      - {id: eg, label: 'Ethylene glycol (EG, poisonous)', words: [ethylene glycol, eg, dowtherm]}
+
+features:
+  # ==================== HYDRONIC & GLYCOL (hydronic) ====================
+  - id: hyd.scope
+    name: Area affected
+    ask: Is the heating problem in a single zone/unit or the whole building loop?
+    systems: [hydronic]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      normal: Heating normally across zones
+      one_zone: One zone, coil, or room stays cold
+      whole_loop: Whole building or main loop is cold
+      overheating: A zone overheats with its thermostat off (ghost heat)
+    normal: normal
+    phrases:
+      one_zone: [one zone cold, single zone cold, one room cold, one unit heater cold, one fan coil cold,
+        one baseboard cold, one branch cold]
+      whole_loop: [whole building cold, all zones cold, entire building cold, whole loop cold, no heat in building]
+      overheating: [zone overheating, room overheating, heating with stat off, ghost flow, gravity flow,
+        thermosiphoning, zone too hot]
+
+  - id: hyd.circ
+    name: Circulator pump
+    ask: What is the circulator pump doing when the loop calls for heat?
+    how: |
+      Listen and feel carefully at the pump housing (or touch a screwdriver tip to the bearing bracket and
+      the handle to your ear). A wet-rotor pump runs very quietly; check amp draw if unsure.
+    systems: [hydronic]
+    cost: 1
+    states:
+      running: Running smoothly
+      'off': Silent — not running
+      hums: Hums, gets hot, or trips overload without spinning
+      noisy: Running with rattling, gurgling, or gravel noise
+    normal: running
+    phrases:
+      'off': [circulator not running, pump not running, circ pump off, circulator off, pump dead, pump silent]
+      hums: [circulator humming, pump humming, pump hot not pumping, circulator seized, pump buzzing]
+      noisy: [noisy circulator, pump noisy, pump rattling, pump gurgling, pump cavitating, gravel sound in pump]
+      running: [circulator running, pump running, circ pump running]
+
+  - id: hyd.circ_volts
+    name: Line voltage at circulator
+    ask: Is there full line voltage at the circulator motor terminals when calling?
+    how: |
+      Meter L1 to N (or L1 to L2 on 208/230/460 V pumps) inside the pump junction box or at the load side of
+      the switching relay.
+    systems: [hydronic]
+    ask_if: {hyd.circ: 'off'}
+    needs: meter
+    cost: 2
+    states:
+      present: Line voltage present
+      missing: No voltage reaching the pump
+    normal: present
+    phrases:
+      missing: [no voltage at pump, no power to circulator, relay not sending voltage, no power at circ pump]
+      present: [voltage at pump, power at circulator]
+
+  - id: hyd.circ_cap
+    name: Circulator run capacitor
+    ask: How does the circulator motor's run capacitor test (µF vs rating)?
+    how: |
+      Lock out power, discharge the capacitor in the motor terminal box, disconnect one lead, and measure
+      capacitance in µF. Replace if more than 7% below rating or swollen.
+    systems: [hydronic]
+    ask_if: {hyd.circ: [hums, 'off']}
+    needs: meter
+    cost: 2
+    states:
+      ok: Within rating
+      bad: Low, open, or bulged
+    normal: ok
+    phrases:
+      bad: [bad pump capacitor, circulator capacitor bad, weak capacitor on circulator, swollen cap on pump]
+
+  - id: hyd.circ_windings
+    name: Circulator motor windings
+    ask: What do the circulator motor windings read with power locked out?
+    how: |
+      Disconnect motor leads and ohm across the windings and from each lead to ground. An open winding reads
+      infinite; a grounded winding reads continuity to the motor shell.
+    systems: [hydronic]
+    ask_if: {hyd.circ: ['off', hums]}
+    needs: meter
+    cost: 3
+    states:
+      ok: Normal winding resistance and open to ground
+      failed: Open, shorted, or grounded winding
+    normal: ok
+    phrases:
+      failed: [pump motor burned out, open winding on pump, shorted circulator motor, grounded pump motor]
+
+  - id: hyd.circ_shaft
+    name: Pump coupling, shaft & impeller
+    ask: Inspect the pump coupler, shaft rotation, and impeller — what do you find?
+    how: |
+      Look through the bearing-assembly window on a 3-piece pump to see if the coupler is intact and turning
+      the pump shaft. On a wet-rotor pump, isolate it first (close both isolation flanges; with no flanges,
+      drain the loop down below the pump), let it cool below about 120 °F and relieve it to 0 psig at its
+      drain, and only then remove the center vent plug or pull the cartridge to check if the rotor is seized
+      or the impeller has spun loose on the shaft. Catch the fluid.
+    caution: Close both pump isolation flanges, let the pump cool below about 120 °F and relieve it to 0 psig at its drain before a vent plug or cartridge comes out. A pump on a live hot loop sprays.
+    systems: [hydronic]
+    needs: tools
+    cost: 2
+    states:
+      ok: Coupling intact, shaft turns freely, impeller tight
+      sheared: Coupling sheared or broken (motor spins, pump shaft stays still)
+      seized: Rotor or pump shaft seized / bound up
+      impeller_slip: Shaft spins, but impeller is stripped, loose, or broken
+    normal: ok
+    phrases:
+      sheared: [broken coupler, sheared coupling, pump coupler broken, motor runs shaft not turning, bad coupler]
+      seized: [seized circulator, seized cartridge, pump rotor stuck, seized bearing assembly]
+      impeller_slip: [broken impeller, loose impeller, stripped impeller, impeller spun off shaft]
+
+  - id: hyd.circ_amps
+    name: Circulator amp draw
+    ask: How does the circulator's running amp draw compare with nameplate FLA?
+    how: |
+      Clamp one motor lead with the pump running at normal flow. Small circulators normally run about 50–90 %
+      of FLA, so compare with this pump's own known-good running amps if you have them.
+    systems: [hydronic]
+    ask_if: {hyd.circ: [running, hums, noisy]}
+    needs: clamp
+    cost: 2
+    states:
+      normal: Roughly 60–100 % of nameplate FLA
+      low: Under about half of FLA, or well under this pump's known-good amps (unloaded — no flow or broken coupling/impeller)
+      high: Over FLA or pulling locked-rotor amps
+    normal: normal
+    phrases:
+      low: [low pump amps, circulator amps low, unloaded pump]
+      high: [high pump amps, circulator overamping, locked rotor amps on pump]
+
+  - id: hyd.pump_head
+    name: Pump differential head
+    ask: How does the pressure rise across the running pump compare with its rated head?
+    how: |
+      Measure discharge minus suction pressure across the pump and convert to feet of head (psig × 2.31 ÷
+      the fluid's specific gravity; about 1.03–1.06 for 40–55 % glycol, about 0.97 for 180 °F water). Compare
+      it with the design head on the pump tag or curve. Cold glycol is viscous and derates the curve, so judge
+      "low" against the pump curve at the fluid temperature.
+    systems: [hydronic]
+    needs: gauges
+    cost: 3
+    states:
+      normal: Near design head (on the pump curve at the fluid temperature)
+      zero: Near zero (under 3 ft — pump not moving fluid)
+      low: Low (under 65% of design head)
+      high: High / deadheaded (at shutoff head — flow blocked downstream)
+    normal: normal
+    phrases:
+      zero: [zero pump head, no differential pressure across pump, no pressure rise across circulator]
+      low: [low pump head, low differential pressure, weak pump pressure]
+      high: [high pump head, pump deadheaded, shutoff head, high differential across pump]
+
+  - id: hyd.loop_dt
+    name: Loop temperature drop (supply − return ΔT)
+    ask: How does the supply-minus-return temperature drop (ΔT) compare with the design ΔT on the tag or commissioning sheet?
+    how: |
+      Measure supply and return pipe temperatures with clamp/strap probes or an IR thermometer on dull tape.
+      Read it with every zone or coil calling, the supply at its design or reset temperature and the fans
+      running. At light load a healthy constant-flow loop reads only 5–10 °F, so do not enter a light-load
+      reading. Wide ΔT (more than about 8 °F over design) means low water flow; narrow ΔT (under about half
+      of design) means short-circuiting or no heat transfer.
+    systems: [hydronic]
+    needs: thermometer
+    cost: 2
+    states:
+      normal: From about 45 % of the design ΔT up to 8 °F over it, read at design load
+      high: High / wide ΔT (more than about 8 °F over design — supply hot, return cold, low flow)
+      low: Low / narrow ΔT (under about 45 % of design — supply and return nearly the same temperature)
+    normal: normal
+    phrases:
+      high: [high delta t, wide delta t, supply hot return cold, return line cold, large temperature drop]
+      low: [low delta t, narrow delta t, return as hot as supply, no delta t, small temperature drop]
+
+  - id: hyd.supply_temp
+    name: Loop supply temperature
+    ask: How hot is the supply water leaving the header, mixing valve, or heat exchanger?
+    how: Read it on the supply pipe with a separate thermometer, not just the controller display.
+    systems: [hydronic]
+    needs: thermometer
+    cost: 1
+    states:
+      normal: At expected temperature for the current load (typically 140–190 °F)
+      low: Cold or lukewarm (well below what the space load requires)
+      high: Too hot (above the controller setpoint or the high limit)
+    normal: normal
+    phrases:
+      low: [supply pipe cold, lukewarm supply water, low supply temperature, cold header]
+      high: [supply water too hot, loop temperature too high, loop overheating, supply above setpoint, aquastat not shutting off]
+
+  - id: hyd.pressure
+    name: System pressure
+    ask: What does the hydronic pressure gauge read compared with the cold-fill target for this building?
+    how: |
+      Read the boiler/loop pressure gauge; verify with a known test gauge on a drain or boiler drain cock
+      (hose any discharge to a container) because tridicators often stick. Read it hot and cold: a rise of
+      more than about 10 psig from cold to operating temperature means the expansion tank is not taking
+      water. The cold-fill target is the height of the highest point above the gauge (ft) × fluid SG ÷ 2.31,
+      plus 4–5 psig.
+    caution: If you check the gauge against a test gauge on a drain cock, open it slowly with a hose to a container. The fluid can be hot, and ethylene glycol is poisonous.
+    systems: [hydronic]
+    cost: 1
+    states:
+      normal: Steady, at the cold-fill target (a few psi higher hot)
+      low: 5+ psig under the cold-fill target, or under the highest point's static head + 4 psig (under 8 psig is low on any loop)
+      high: Within 5 psig of the relief setting, or 10+ psig over the cold-fill target
+    normal: normal
+    phrases:
+      low: [low loop pressure, low water pressure, low system pressure, low boiler pressure, low pressure, zero psi on boiler, losing system pressure, pressure dropped, pressure keeps dropping]
+      high: [high loop pressure, high system pressure, pressure near relief setting, high boiler pressure, high pressure when hot, pressure climbs when hot, pressure rises when hot]
+
+  - id: hyd.relief_weeping
+    name: Pressure relief valve
+    ask: What is the pressure relief valve doing — dry, weeping, or running?
+    how: A seat that drips at normal loop pressure is maintenance. A valve that is running or blowing hot water, glycol or steam is an overpressure or overtemperature event, so shut the heat source off first and then find the cause.
+    systems: [hydronic]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': Dry — holding tight
+      weeping: Dripping or weeping, loop pressure normal
+      discharging: Running or blowing hot water, glycol or steam (shut the heat source off)
+    normal: 'no'
+    phrases:
+      weeping: [relief valve dripping, relief valve weeping, pop off valve leaking, water from relief pipe, relief valve leaks a little]
+      discharging: [relief valve popping, relief valve blowing off, relief valve running, relief valve discharging, relief valve spitting, relief blowing, steam from relief valve, water pouring from relief pipe]
+
+  - id: hyd.exp_tank
+    name: Expansion tank check
+    ask: What do you find when you check the expansion tank (connection, tap test, and the air side at the Schrader valve)?
+    how: |
+      First look at the tank's connection: is its isolation valve open, and is the connection pipe warm when
+      the loop is hot? Tap the shell from top to bottom (a bladder tank should ring hollow on the air end).
+      Then valve the tank off and drain its water side to 0 psig (no valve: cool the loop and relieve it to
+      0 psig) before you press the Schrader core or put a gauge on it, and stand to the side with eye
+      protection on. Water from the Schrader means a ruptured bladder or diaphragm. With the water side at
+      0 psig, the air side should read the cold-fill pressure.
+    caution: Valve the tank off and drain its water side to 0 psig before pressing the Schrader valve or fitting a gauge. A ruptured bladder sprays hot fluid at face height. Stand to the side, eye protection on.
+    systems: [hydronic]
+    needs: gauges
+    cost: 2
+    states:
+      ok: Air side holds the cold-fill pressure (tank valved off, water side at 0 psig, gauge on the Schrader)
+      ruptured: Water comes out of the Schrader (bladder or diaphragm failed), or the tank is dead solid top to bottom
+      low_precharge: Schrader dry but the air side reads under the cold-fill pressure (bladder intact)
+      waterlogged: Plain steel compression tank full of water (air cushion gone)
+      isolated: Tank valved off, or its connection pipe is cold, frozen or plugged
+    normal: ok
+    phrases:
+      ruptured: [ruptured bladder, burst bladder, bad bladder, burst diaphragm, bad expansion tank, water out of schrader, water at the schrader]
+      low_precharge: [flat expansion tank, expansion tank low precharge, no air in expansion tank, flat bladder tank, lost air cushion]
+      waterlogged: [expansion tank waterlogged, waterlogged extrol, steel tank full of water, compression tank full of water]
+      isolated: [expansion tank valve closed, expansion tank isolated, expansion tank valved off, tank connection frozen, tank connection plugged]
+
+  - id: hyd.fill_valve
+    name: Make-up / fill valve (PRV)
+    ask: How is the automatic fill / pressure-reducing valve (or glycol make-up feeder) behaving?
+    how: |
+      If pressure is low, check that the supply isolation valve is open and the glycol reservoir is not empty.
+      On a water loop, lift the fast-fill lever to see if fluid feeds in; on a glycol loop use the glycol
+      feeder, not the domestic fast-fill lever. If pressure is high, close the isolation valve ahead of the
+      fill valve and bleed pressure down to the cold-fill target through a hose to a container — if it stays
+      steady with the valve shut, the PRV was passing.
+    caution: Bleed through a hose to a container, never onto the floor. The fluid can be hot, and ethylene glycol is poisonous. On a glycol loop use the glycol feeder, not the domestic fast-fill lever.
+    systems: [hydronic]
+    cost: 2
+    states:
+      ok: Feeds to target pressure and shuts off tight
+      blocked: Valved off, inlet screen plugged, failed closed, or glycol tank empty
+      passing: Passing / leaking through — creeps pressure up even when cool
+    normal: ok
+    phrases:
+      blocked: [fill valve closed, prv stuck closed, plugged prv screen, glycol feeder empty, no makeup water]
+      passing: [fill valve passing, prv leaking through, bad fill valve overpressurizing, pressure creeps up cold]
+
+  - id: hyd.loop_noise
+    name: Sound in pipes or pump
+    ask: What sound do you hear in the hydronic pipes, coils, or pump?
+    systems: [hydronic]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      quiet: Quiet normal operation
+      gurgling: Gurgling, sloshing, or rushing water sound in pipes/coils
+      gravel: Gravel or marbles rattling at the pump suction (cavitation)
+    normal: quiet
+    phrases:
+      gurgling: [gurgling in pipes, water rushing noise, sloshing in radiators, air noise in baseboard,
+        bubbling sound in loop]
+      gravel: [pumping gravel, marbles in pump, pump cavitating sound, rattling at pump inlet]
+
+  - id: hyd.air_bleed
+    name: Bleeding / purging test
+    ask: What comes out when you open the coin vent, purge valve, or pump bleed screw?
+    caution: Hot fluid can spray from a vent or bleed port. Open it slowly with a hose to a container, face away, and collect glycol (ethylene glycol is poisonous).
+    systems: [hydronic]
+    cost: 2
+    states:
+      water: Solid stream of water or glycol right away
+      air: Air hisses or sputters out before liquid
+      nothing: Nothing comes out (zero pressure or frozen/blocked line)
+    normal: water
+    phrases:
+      air: [air from bleeder, hissing air at vent, air bound coil, spitting air when bled]
+      nothing: [nothing comes out of bleeder, dry vent, no water at coin vent]
+
+  - id: hyd.auto_vent
+    name: Automatic air vent (hyvent)
+    ask: Inspect the automatic air vent(s) at the air separator and high points — what do you find?
+    systems: [hydronic]
+    cost: 1
+    states:
+      ok: Cap loose 1 turn, venting air cleanly, dry
+      stuck_closed: Cap screwed down tight or float stuck shut (trapping air)
+      leaking: Spitting or dripping water/glycol from the vent cap
+    normal: ok
+    phrases:
+      stuck_closed: [hyvent cap closed, air vent cap tight, stuck float in air vent, clogged hyvent]
+      leaking: [hyvent leaking, automatic air vent dripping, water leaking from hyvent]
+
+  - id: hyd.iso_valves
+    name: Isolation & balancing valves
+    ask: Check the isolation, service, and balancing valves in the loop — how are they set?
+    systems: [hydronic]
+    cost: 1
+    states:
+      open: Open and balanced normally
+      closed: An isolation or service valve is closed (or gate dropped off stem)
+      bypass_open: Bypass valve left wide open or near-branch balancing valves wide open
+    normal: open
+    phrases:
+      closed: [isolation valve closed, ball valve shut, service valve left closed, dropped gate valve]
+      bypass_open: [bypass valve open, loop unbalanced, balancing valves wide open, short circuiting bypass]
+
+  - id: hyd.strainer
+    name: Y-strainer / dirt separator
+    ask: Is the Y-strainer or dirt-separator screen plugged with scale, rust, or sludge?
+    how: |
+      Feel or measure for a temperature/pressure drop across the strainer body, then isolate, let it cool,
+      relieve it to 0 psig, and blow down or pull the screen to inspect.
+    caution: Isolate the strainer, let it cool and relieve it to 0 psig before backing out the plug or cover. Catch the fluid.
+    systems: [hydronic]
+    needs: tools
+    cost: 2
+    states:
+      clean: Clean screen, free flow
+      clogged: Plugged with debris, scale, magnetite, or sludge
+    normal: clean
+    phrases:
+      clogged: [clogged y strainer, plugged strainer, dirty strainer screen, restricted strainer]
+
+  - id: hyd.zone_valve
+    name: Zone valve operation
+    ask: With the zone calling for heat, what is the zone valve doing?
+    how: |
+      Push the manual opener lever on the actuator head: if the valve is already open, the lever moves freely
+      with no resistance; if closed, you feel spring resistance pushing the ball/poppet open.
+    systems: [hydronic]
+    cost: 1
+    states:
+      ok: Opens on call and closes when satisfied
+      stays_closed: Stays closed on call (lever has spring resistance; heats when latched open manually)
+      jammed_closed: Mechanically jammed closed (seized stem/cartridge; no flow even with head removed)
+      stuck_open: Stuck open or latched in manual-open (heats zone when not calling)
+    normal: ok
+    phrases:
+      stays_closed: [zone valve wont open, bad zone valve motor, dead zone valve head, actuator not opening]
+      jammed_closed: [zone valve stuck closed, seized zone valve body, cartridge jammed shut]
+      stuck_open: [zone valve stuck open, manual lever latched open, zone valve wont close]
+
+  - id: hyd.zv_endswitch
+    name: Zone valve end switch
+    ask: When the zone valve is driven full open, does its auxiliary end switch close?
+    how: |
+      Meter continuity (or 24 V drop) across the two end-switch terminals on the valve head while the valve is
+      fully open. Closed switch = 0 V across it (or 0 Ω isolated).
+    systems: [hydronic]
+    needs: meter
+    cost: 2
+    states:
+      closes: Closes cleanly when valve opens
+      open: Stays open even when valve is full open
+    normal: closes
+    phrases:
+      open: [bad end switch, zone valve opens pump stays off, auxiliary switch open, end switch not making]
+
+  - id: hyd.mixing_valve_state
+    name: 3-way mixing valve
+    ask: How is the 3-way mixing valve positioned when the loop calls for heat?
+    how: |
+      Compare pipe temperatures on all three ports (hot supply in, return bypass in, mixed loop out) and check
+      whether the actuator drives the stem toward the hot port.
+    systems: [hydronic]
+    cost: 2
+    states:
+      ok: Blending hot supply into the loop normally
+      stuck_bypass: Stuck in full bypass / closed to hot port (hot port is hot, mixed outlet stays cool)
+      stuck_hot: Stuck open to the hot port (mixed outlet runs at primary temperature)
+    normal: ok
+    phrases:
+      stuck_bypass: [3 way valve stuck, mixing valve stuck in bypass, bad mixing valve actuator, three way valve not opening]
+      stuck_hot: [3 way valve stuck hot, mixing valve stuck open to hot, mixing valve full hot, loop running at primary temperature]
+
+  - id: hyd.check_valve
+    name: Flow-check / check valve
+    ask: How is the flow-check or spring/swing check valve operating?
+    how: |
+      If a zone heats with its pump off, check whether the flow-check thumbscrew is turned down to "manual
+      open" or trash is holding the weight/clapper up. If a running pump gets no flow through the branch, check
+      for a stuck-shut clapper or a check valve installed backwards.
+    systems: [hydronic]
+    cost: 2
+    states:
+      ok: Opens with pump running and seats when pump stops
+      stuck_open: Stuck open or thumbscrew left in manual-open (gravity/ghost flow)
+      stuck_closed: Stuck closed or installed backwards (blocks pumped flow)
+    normal: ok
+    phrases:
+      stuck_open: [flow check stuck open, check valve stuck open, thumbscrew open on flow check, gravity circulation]
+      stuck_closed: [flow check stuck closed, check valve stuck shut, check valve backwards]
+
+  - id: hyd.hx_approach
+    name: Heat exchanger approach temperature
+    ask: What is the hot-end approach across the heat exchanger (primary hot inlet minus secondary heated outlet), with the primary control valve wide open?
+    how: |
+      Hot-end approach = the primary fluid entering the plate/tube heat exchanger minus the secondary supply
+      leaving it, read with the primary control valve at 95–100 % open (drive it open by hand if you can do
+      so safely) and the secondary at design flow. A modulating primary valve at part load throttles to hold
+      the secondary setpoint, which makes this number large by design. Data sheets often quote the cold-end
+      figure, so compare like with like. A clean exchanger typically runs a 5–15 °F hot-end approach; over
+      20 °F points to fouling or poor primary flow.
+    systems: [hydronic]
+    needs: thermometer
+    cost: 2
+    states:
+      normal: Normal (20 °F or less, primary valve wide open)
+      high: High (over 20 °F with the primary valve wide open — poor heat transfer across the exchanger)
+    normal: normal
+    phrases:
+      high: [high approach temperature, plate hx fouled, heat exchanger not transferring heat, cold leaving hx]
+
+  - id: hyd.hx_dp
+    name: Pressure drop across heat exchanger
+    ask: How does the waterside pressure drop (inlet minus outlet psi) across the heat exchanger compare with its data sheet or commissioning value at the same flow?
+    how: Read inlet and outlet pressure with the secondary at design flow, on one gauge or a matched pair.
+    systems: [hydronic]
+    needs: gauges
+    cost: 3
+    states:
+      normal: Within about 25 % of the data-sheet or commissioning ΔP at the same flow
+      high: More than ~25–30 % above the data-sheet or commissioning ΔP at the same flow (no absolute figure applies — plates or tubes plugged)
+    normal: normal
+    phrases:
+      high: [high pressure drop across heat exchanger, plugged plate exchanger, scaled hx plates]
+
+  - id: hyd.hx_primary_dt
+    name: Primary-side temperature drop across the exchanger
+    ask: With the exchanger working, how does the primary-side temperature drop (primary in minus primary out) compare with its design?
+    how: |
+      Read primary in and primary out at the exchanger with the primary valve wide open. A drop much wider
+      than design with the secondary leaving cool means too little primary flow (pump off, valve throttled,
+      strainer plugged). A drop much narrower than design with the secondary still leaving cool means the
+      plates are not passing heat (fouled).
+    systems: [hydronic]
+    needs: thermometer
+    cost: 2
+    states:
+      normal: Close to design
+      wide: Much wider than design (not enough primary flow)
+      narrow: Much narrower than design (heat is not crossing the plates)
+    normal: normal
+    phrases:
+      wide: [wide primary delta t, primary return cold, low primary flow, primary valve throttled, primary pump off]
+      narrow: [narrow primary delta t, primary return hot, primary not giving up heat, plates not transferring]
+
+  - id: hyd.freeze_point
+    name: Glycol freeze protection
+    ask: How does the measured glycol freeze point compare with the required freeze protection?
+    how: |
+      Sample from a flowing part of the loop (not the feeder tank or a dead leg), let the drop cool to room
+      temperature, and put it on a temperature-compensated glycol refractometer; read the freeze point on the
+      scale matching the loop fluid (PG or EG). Wipe the prism between samples. Never trust color alone.
+    caution: Sample from a flowing part of the loop and let the drop cool before it goes on the prism; hot fluid scalds. Ethylene glycol is poisonous, so keep it off skin, food and drinking water, and collect what you draw.
+    systems: [hydronic]
+    needs: refractometer
+    cost: 2
+    states:
+      ok: Protected (freeze point at or below required target)
+      weak: Too weak — freeze point warmer than the target (slush forms at the freeze point and coils stop flowing; burst protection is colder, do not rely on it)
+      rich: Over-concentrated (above ~60 % the freeze point turns back up; thick, poor heat transfer)
+    normal: ok
+    base: {ok: 0.9, weak: 0.08, rich: 0.02}
+    phrases:
+      weak: [weak glycol, glycol percentage low, freeze point too warm, diluted glycol, slush in glycol loop]
+      rich: [glycol too strong, too much glycol, neat glycol, over concentrated glycol, glycol over 60, topped off with concentrate, thick glycol]
+
+  - id: hyd.glycol_cond
+    name: Glycol pH and visual condition
+    ask: What do a pH strip and a jar sample of the glycol show?
+    how: |
+      Draw a sample from a drain port into a container after flushing dead leg water. Inhibited glycol should
+      read about pH 8.0–10.5 with no sediment or odor; it is usually dyed, so color alone tells you nothing.
+      Below pH 8.0 means organic acids have formed and the inhibitors are spent.
+    caution: Draw the sample slowly into a container. Hot fluid scalds, and ethylene glycol is poisonous, so keep it off skin and out of drains, and collect it.
+    systems: [hydronic]
+    cost: 2
+    states:
+      good: pH 8.0–10.5 and no sediment or odor (color does not matter)
+      degraded: pH under 8.0, dark sludge, or burnt smell
+    normal: good
+    phrases:
+      degraded: [acidic glycol, low ph glycol, degraded glycol, black sludge in glycol, depleted glycol inhibitor]
+
+  - id: hyd.pipe_frost
+    name: Frozen or burst pipe / coil
+    ask: Is a pipe or coil iced up, slushy, blocked with ice, or split? (On a glycol loop, being below 32 °F is normal.)
+    caution: Treat every frozen coil or pipe as split. Never thaw it while it is connected to a live supply. Lock out the unit, close and verify both isolation valves, and open its drain or vent first.
+    systems: [hydronic]
+    cost: 1
+    states:
+      'no': No ice or slush, and intact (cold pipe is normal on a glycol loop)
+      iced: Ice or slush in the fluid, or an ice plug (on a water loop, below 32 °F counts)
+      split: Split or burst from freezing
+    normal: 'no'
+    phrases:
+      iced: [frozen pipe, frozen hydronic coil, ice plug in pipe, frozen heating coil, slush in pipe, iced up coil]
+      split: [burst baseboard, split copper pipe, burst coil, split coil, frozen and split, burst pipe]
+
+  - id: hyd.seal_leak
+    name: Circulator shaft seal leak
+    ask: Is water or glycol dripping from the weep hole between the pump volute and motor bracket?
+    systems: [hydronic]
+    ask_if: {gen.water_leak: 'yes'}
+    cost: 1
+    states:
+      'no': Pump shaft seal is dry
+      pump_seal: Dripping or spraying from the pump shaft seal / bracket weep hole
+    normal: 'no'
+    phrases:
+      pump_seal: [pump seal leaking, leaky mechanical seal, water dripping from pump bracket, glycol crust on pump shaft]
+
+  - id: hyd.terminal_air
+    name: Terminal unit fan or fin airflow
+    ask: With hot water at the terminal unit, how is air moving across the coil or baseboard fins?
+    systems: [hydronic]
+    cost: 1
+    states:
+      good: Fan running at full speed / baseboard fins clean and damper open
+      fan_off: Unit-heater or fan-coil fan motor is dead (coil pipes hot, fan not spinning)
+      fins_blocked: Baseboard/convector fins matted with dust, louver shut, or blocked by furniture
+      coil_fouled: Unit-heater or fan-coil airflow is poor with the fan running (filter plugged, coil fins matted with dust or lint, or coil tubes scaled or air-bound)
+    normal: good
+    phrases:
+      fan_off: [unit heater fan dead, fan coil blower off, fan motor not running on unit heater, pipes hot fan off]
+      fins_blocked: [baseboard blocked, dirty baseboard fins, convector damper closed, blocked fin tube]
+      coil_fouled: [dirty unit heater coil, plugged fan coil filter, matted coil fins, lint on coil, fouled fan coil, weak air off unit heater]
+
+  - id: hyd.reset_setpoint
+    name: Outdoor-reset / supply setpoint
+    ask: What supply water temperature is the outdoor-reset controller calling for vs actual outdoor weather?
+    how: |
+      Read the controller's calculated target supply temperature and its outdoor sensor reading. Compare the
+      sensor reading with a thermometer outdoors and check the reset curve settings.
+    systems: [hydronic]
+    cost: 2
+    states:
+      ok: Setpoint matches outdoor conditions and curve
+      too_low: Setpoint is far too low (outdoor sensor drifted warm, in sun/exhaust, or curve mis-set)
+    normal: ok
+    phrases:
+      too_low: [outdoor reset sensor bad, supply setpoint too low, reset curve wrong, outdoor sensor reading high]
+
+  - id: hyd.primary_source
+    name: Primary heat-recovery loop & backup boiler staging
+    ask: On a heat-recovery plant, is the primary jacket-water/waste-heat loop hot, and did the backup boiler stage on?
+    systems: [hydronic]
+    cost: 2
+    states:
+      ok: Primary heat source hot (or backup boiler staged on normally)
+      cold_no_stage: Primary heat-recovery loop is cold AND backup boiler did not stage on
+    normal: ok
+    phrases:
+      cold_no_stage: [heat recovery loop cold, waste heat down backup boiler off, backup boiler not staging,
+        jacket water cold]
+
+  - id: hyd.dhw_status
+    name: Indirect domestic hot water (DHW) check
+    ask: On an indirect water heater, what do you find at the tank coil, DHW priority zone, and tempering valve?
+    systems: [hydronic]
+    cost: 2
+    states:
+      ok: Domestic hot water normal
+      fault: Domestic water cold/lukewarm — DHW pump/valve off, scaled coil, or failed tempering valve
+    normal: ok
+    phrases:
+      fault: [no domestic hot water, indirect tank cold, bad tempering valve, dhw mixing valve failed, dhw zone cold]
+
+  # ==================== LOW-PRESSURE STEAM & CONDENSATE (steam) ====================
+  - id: hyd.steam_scope
+    name: Steam problem area
+    ask: Where is the steam heating or condensate problem showing up?
+    systems: [steam]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      normal: Heating evenly across the building
+      one_unit: A single radiator, convector, or steam coil stays cold
+      main_slow: A whole branch or far end of a steam main heats slowly or stays cold
+      return_issue: Steam blowing from receiver vent, hot return header, or overflowing receiver
+    normal: normal
+    phrases:
+      one_unit: [one radiator cold, single radiator cold, steam unit heater cold, one convector cold]
+      main_slow: [end of main cold, far radiators cold, uneven steam heat, slow steam main]
+      return_issue: [steam blowing from vent, hot condensate return, receiver overflowing, steam in return line]
+
+  - id: hyd.water_hammer
+    name: Water hammer (banging pipes)
+    ask: Are the steam pipes or radiators banging, clanking, or pounding (water hammer)?
+    systems: [steam]
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'no': Quiet (or light ticking from normal thermal expansion)
+      'yes': Loud banging, pounding, or violent water hammer
+    normal: 'no'
+    phrases:
+      'yes': [water hammer, banging steam pipes, pounding radiator, pipes clanking, loud bang in steam line]
+
+  - id: hyd.boiler_level
+    name: Boiler water line
+    ask: Is the boiler water line steady in the gauge glass?
+    how: |
+      Watch the gauge glass for a minute at the normal firing rate and compare it with the normal water line
+      mark. Dirty, oily or heavily treated boiler water foams and carries over, and so does a line held too
+      high.
+    systems: [steam]
+    cost: 1
+    states:
+      steady: Steady at the normal line
+      bouncing: Bouncing or surging in the glass (priming or foaming)
+      high: Held above the normal line
+    normal: steady
+    phrases:
+      bouncing: [bouncing water line, water level bouncing, priming, foaming boiler, carryover, surging gauge glass]
+      high: [water level too high, high water line, boiler overfilled, flooded boiler]
+
+  - id: hyd.cond_temp
+    name: Condensate return temperature
+    ask: What is the temperature of the condensate return header or receiver tank?
+    how: |
+      Measure the condensate return pipe entering the receiver with a contact probe or IR thermometer on tape.
+      Compare it with this plant's own logged baseline: F&T and bucket-trap systems routinely return 195–205 °F
+      after flashing, while thermostatic-trap systems with bare returns run cooler (150–185 °F). A vented
+      receiver tops out near 212 °F, so temperature alone cannot separate flash steam from live steam. Confirm
+      with the vent plume and by listening to the traps.
+    systems: [steam]
+    needs: thermometer
+    cost: 2
+    states:
+      normal: Below about 205 °F (F&T and bucket-trap systems routinely run 195–205, so judge by the vent plume and trap tests)
+      high: 205 °F or more, or 15–20 °F above this plant's own logged baseline
+    normal: normal
+    phrases:
+      high: [hot condensate return, return over 205, boiling condensate tank, hot condensate tank, steam in condensate line]
+
+  - id: hyd.vent_plume
+    name: Condensate receiver vent plume
+    ask: What is coming out of the condensate receiver's atmospheric vent pipe?
+    how: |
+      Distinguish flash steam from live steam: lazy white vapor drifting gently from the vent is normal flash
+      steam; a strong, noisy jet with a clear gap right at the pipe lip is live steam from a blowing trap.
+    systems: [steam]
+    cost: 1
+    states:
+      normal: Nothing or lazy drifting vapor (normal flash steam)
+      live_steam: Strong, noisy jet of live steam blowing out
+      water: Liquid water spitting or overflowing from the receiver/vent
+    normal: normal
+    phrases:
+      live_steam: [live steam from receiver vent, vent pipe blowing steam, roaring steam at receiver vent]
+      water: [receiver overflowing, water pouring out of condensate tank, condensate receiver flooded]
+
+  - id: hyd.trap_check
+    name: Unit steam trap test
+    ask: What do the sound and temperature checks on the radiator/coil steam trap show?
+    how: |
+      Listen first with a mechanic's stethoscope or ultrasonic detector on the trap body: a failed-open trap
+      hisses or roars continuously with no cycling, and a failed-closed trap is silent. Temperature is a
+      backup only. Thermostatic traps run 15–30 °F cooler on the outlet; F&T, bucket and disc traps show
+      little drop, so a small drop alone is not a failure.
+    caution: Test by sound and surface temperature only. Never open a trap cap, strainer plug or union while the line holds steam.
+    systems: [steam]
+    needs: thermometer
+    cost: 2
+    states:
+      ok: Steam held back; condensate flow intermittent or smooth; outlet at or below ~212 °F
+      failed_open: Hissing or roaring continuously, hot on both sides, outlet pipe at about 212 °F
+      failed_closed: Silent and cold on both sides while steam is available in the supply main
+    normal: ok
+    phrases:
+      failed_open: [steam trap failed open, trap blowing steam, bad trap blowing through, trap hot both sides]
+      failed_closed: [steam trap failed closed, cold steam trap, plugged steam trap, waterlogged coil trap]
+
+  - id: hyd.drip_trap
+    name: Main or riser drip trap
+    ask: Check the steam main / riser drip leg strainer and drip trap — is it hot and draining condensate?
+    how: |
+      Every steam main low point and riser heel has a drip leg and trap draining into the wet/dry return. If
+      that drip trap is cold while the main is hot, condensate is backing up into the steam main.
+    caution: Check by sound and surface temperature. Verify the drip leg is isolated and at 0 psig before opening a strainer plug, trap cap or blowdown.
+    systems: [steam]
+    needs: thermometer
+    cost: 2
+    states:
+      ok: Hot and passing condensate cleanly
+      cold_plugged: Cold — trap failed closed or drip-leg dirt pocket/strainer plugged
+    normal: ok
+    phrases:
+      cold_plugged: [main drip trap cold, plugged drip trap, flooded steam main drip, bad f and t drip trap]
+
+  - id: hyd.steam_vent
+    name: Radiator / main air vent
+    ask: How does the automatic air vent (on the radiator or end of the steam main) behave when steam comes on?
+    caution: Watch it, do not unscrew it. Never remove a vent, plug or union from anything holding steam. Close the supply valve, let it cool, and confirm 0 psig first.
+    systems: [steam]
+    cost: 1
+    states:
+      ok: Hisses air out while cold, then closes tight when steam hits it
+      stuck_closed: Never hisses air out — stays cold and keeps the radiator/main air-bound
+      stuck_open: Spits live steam and water into the room after the radiator is hot
+    normal: ok
+    phrases:
+      stuck_closed: [air vent stuck closed, radiator vent clogged, painted air vent, air bound steam radiator]
+      stuck_open: [air vent spitting steam, radiator vent spitting water, hissing steam from radiator vent]
+
+  - id: hyd.pipe_pitch
+    name: Steam pipe pitch & hangers
+    ask: Check the pitch of the steam main, runout, or radiator with a level — are there sags, pockets, or un-trapped lifts?
+    systems: [steam]
+    cost: 2
+    states:
+      good: Pitched continuously toward the drain or trap, with no low pockets
+      sagged: Sagging hanger, back-pitched runout, tilted radiator, or condensate lifted to an overhead return
+    normal: good
+    phrases:
+      sagged: [sagging steam pipe, back pitched pipe, broken pipe hanger, pocketed steam line, lifted condensate return]
+
+  - id: hyd.rad_valve
+    name: Radiator / coil steam supply valve
+    ask: Is the manual steam supply valve at the radiator or coil wide open and passing steam?
+    how: |
+      On one-pipe steam, a supply valve must be 100% open or 100% closed — never throttled part-way. Also
+      check whether the handwheel turns freely with a detached disc sitting on the seat.
+    systems: [steam]
+    cost: 1
+    states:
+      open: Fully open and passing steam
+      closed_or_throttled: Closed, partly throttled, or valve disc detached on the seat
+    normal: open
+    phrases:
+      closed_or_throttled: [radiator valve closed, steam valve throttled, disc off stem on steam valve]
+
+  - id: hyd.cond_pump
+    name: Condensate return pump operation
+    ask: What is the condensate return pump doing when the receiver fills?
+    systems: [steam]
+    cost: 1
+    states:
+      normal: Starts when full, pumps down in ~20–40 s, shuts off
+      off_full: Receiver full or overflowing, but pump motor does not run
+      runs_no_pump: Pump motor runs nonstop, but receiver stays full or overflows
+      short_cycles: Pumps down, shuts off, and immediately refills from the discharge line
+    normal: normal
+    phrases:
+      off_full: [condensate pump not running, receiver overflowing pump dead, condensate pump off]
+      runs_no_pump: [condensate pump runs nonstop, condensate pump not pumping, vapor bound condensate pump]
+      short_cycles: [condensate pump short cycling, water running back into receiver, rapid cycling condensate pump]
+
+  - id: hyd.cond_float
+    name: Condensate pump float switch
+    ask: With the receiver tank full, is the float switch closed and sending voltage to the pump motor?
+    how: |
+      Move the float linkage by hand to feel for binding or a waterlogged float ball, then meter voltage into
+      and out of the float switch.
+    caution: Lock out the pump and let the receiver cool before you reach in or open the cover. The water can be 180–210 °F.
+    systems: [steam]
+    ask_if: {hyd.cond_pump: [off_full, runs_no_pump, short_cycles]}
+    needs: meter
+    cost: 2
+    states:
+      ok: Float moves freely and switch closes when tank is full
+      stuck: Float stuck/waterlogged or switch contacts stay open when full
+    normal: ok
+    phrases:
+      stuck: [float switch stuck, bad condensate float switch, waterlogged float in receiver, float rod binding]
+
+  - id: hyd.cond_check
+    name: Condensate pump discharge check valve
+    ask: When the condensate pump stops, does hot water or steam back-flow through the discharge check valve into the receiver?
+    how: |
+      Feel and listen at the discharge check valve right as the pump shuts off. If boiler water/steam rushes
+      backward through the check, the receiver refills rapidly and the pump short-cycles.
+    caution: Feel and listen only. Boiler-pressure water sits behind this check valve, so do not open it until the isolation valve downstream is closed and the line is relieved.
+    systems: [steam]
+    cost: 2
+    states:
+      holds: Holds tight when pump stops
+      leaks_back: Leaks backward — refills receiver from the discharge line
+    normal: holds
+    phrases:
+      leaks_back: [condensate check valve leaking, discharge check leaking back, boiler water backing into receiver]
+
+  - id: hyd.vac_reading
+    name: Vacuum return gauge reading
+    ask: On a vacuum return system, how much vacuum does the vacuum pump pull (normally 2–6 in. Hg)?
+    systems: [steam]
+    needs: gauges
+    cost: 2
+    states:
+      normal: Pulls 2–6 in. Hg vacuum and cycles off
+      low: Stays near 0 in. Hg while vacuum pump runs continuously
+    normal: normal
+    phrases:
+      low: [no vacuum on steam return, vacuum pump wont pull vacuum, low vacuum reading, air leak in return line]
+
+  - id: hyd.steam_leak_loc
+    name: Visible steam or return pipe leak
+    ask: Do you see or hear steam hissing or condensate leaking from a pipe, union, valve packing, or flange?
+    caution: Find a steam leak by sound and with a rag on a stick, never with your hand. Steam is invisible close to the leak, and it burns.
+    systems: [steam]
+    cost: 1
+    states:
+      'no': Piping, joints, and valve packings tight
+      'yes': Hissing steam or dripping condensate at a union, packing nut, flange, or corroded pipe
+    normal: 'no'
+    phrases:
+      'yes': [steam leak, hissing steam joint, valve stem packing leaking, corroded condensate return leaking]
+
+  - id: hyd.prv_outlet
+    name: Low-pressure steam main pressure after the reducing valve
+    ask: On a plant that steps high-pressure steam down through a reducing station, what does the low-pressure gauge read against the set pressure?
+    how: |
+      Read the gauge on the low-pressure main at least 10 ft past the reducing valve and compare it with the
+      pressure the station is set to deliver. Over the setting with the low-side relief lifting, or well under
+      it at the units, points at the station.
+    systems: [steam]
+    cost: 2
+    states:
+      normal: Holds the set pressure
+      low: Well under the set pressure (units starved)
+      high: Over the set pressure (low-side relief lifting, or over-pressure at the units)
+    normal: normal
+    phrases:
+      low: [low steam pressure after prv, reducing valve not passing, starved low pressure main, prv closed]
+      high: [high steam pressure after prv, prv stuck open, reducing valve leaking through, low side relief popping]
+
+inputs:
+  - {id: hyd.supply_f, name: Loop supply temperature, unit: °F, systems: [hydronic], probe: pipe,
+      hint: 'Leaving the boiler, heat exchanger, or supply header'}
+  - {id: hyd.return_f, name: Loop return temperature, unit: °F, systems: [hydronic], probe: pipe,
+      hint: Returning to the boiler or heat exchanger}
+  - {id: hyd.design_dt, name: Design loop ΔT, unit: °F, systems: [hydronic],
+      hint: 'From the design data or commissioning sheet. No default, because loops differ: conventional boiler loops are often 20 °F, heat-recovery and plate-HX loops often 30-40 °F. Compare it only with a ΔT read at design load.'}
+  - {id: hyd.loop_psig, name: System pressure, unit: psig, systems: [hydronic], probe: pressure,
+      hint: 'Hydronic pressure gauge. Read it cold and hot, and check it against a test gauge.'}
+  - {id: hyd.fill_psig, name: Cold fill pressure at the gauge, unit: psig, systems: [hydronic],
+      hint: 'Height of the highest point above the gauge (ft) × fluid SG ÷ 2.31, plus 4-5 psig, or the commissioning value. No default: it depends on the building.'}
+  - {id: hyd.relief_psig, name: Relief valve set pressure, unit: psig, systems: [hydronic], choices: [30, 50, 60, 75, 100],
+      hint: 'Stamped on the relief valve. No default: heat-recovery and plate-HX loops are often set well above the 30 psig of small boilers. The near-relief test only runs when this is filled in.'}
+  - {id: hyd.pump_suction_psig, name: Pump suction pressure, unit: psig, systems: [hydronic], probe: pressure,
+      hint: At pump inlet flange port}
+  - {id: hyd.pump_discharge_psig, name: Pump discharge pressure, unit: psig, systems: [hydronic], probe: pressure,
+      hint: At pump outlet flange port}
+  - {id: hyd.pump_rated_hd, name: Pump rated head, unit: ft, systems: [hydronic],
+      hint: 'Design head in feet of water from the pump tag or curve, at design flow. No default; without it only a near-zero head is flagged.'}
+  - {id: hyd.glycol_pct, name: Glycol concentration, unit: '%', systems: [hydronic], probe: refractometer,
+      hint: 'Glycol % by weight (a 50/50 volume mix is about 51 % PG or 53 % EG by weight). -40 °F needs about 53 % EG or 55 % PG. Valid 0-60 %; above that the table does not apply. Entering a volume % as weight errs a few °F toward the safe side.'}
+  - {id: hyd.req_freeze_f, name: Required freeze point, unit: °F, systems: [hydronic],
+      hint: 'Lowest temperature the coil or pipe can reach if flow stops, MINUS 10 °F (design low -40 °F: enter -50). No default: it is a site number.'}
+  - {id: hyd.hx_hot_in_f, name: HX primary hot inlet, unit: °F, systems: [hydronic], probe: pipe,
+      hint: Hot primary fluid entering the plate or tube heat exchanger}
+  - {id: hyd.hx_cold_out_f, name: HX secondary supply outlet, unit: °F, systems: [hydronic], probe: pipe,
+      hint: Heated secondary fluid leaving the heat exchanger (defaults to hyd.supply_f if blank)}
+  - {id: hyd.hx_valve_pct, name: HX primary control valve position, unit: '%', systems: [hydronic],
+      hint: 'Read the approach only with this at 95-100 %. Drive the valve open by hand if you can do so safely.'}
+  - {id: hyd.cond_return_f, name: Condensate return temperature, unit: °F, systems: [steam], probe: pipe,
+      hint: 'At the condensate return header or receiver tank. Judge it against this plant''s own baseline: F&T and bucket-trap systems routinely run 195-205 °F.'}
+
+measures:
+  - id: hyd.loop_dt
+    name: Loop temperature drop (ΔT)
+    unit: °F
+    systems: [hydronic]
+    value: hyd.supply_f - hyd.return_f
+    target: hyd.design_dt
+    sets: hyd.loop_dt
+    states:
+      - [high, 'v > t + 8']
+      - [low, 'v < max(5, t * 0.45)']
+      - [normal, 'has(t)']
+
+  - id: hyd.pressure
+    name: System pressure vs fill target and relief setting
+    unit: psig
+    systems: [hydronic]
+    let:
+      relief: hyd.relief_psig
+    value: hyd.loop_psig
+    target: hyd.fill_psig
+    sets: hyd.pressure
+    states:
+      - [low, 'v < 8 || v < t - 5']
+      - [high, 'v >= relief - 5 || v > t + 10']
+      - [normal, 'has(t)']
+
+  - id: hyd.pump_head
+    name: Pump differential head
+    unit: ft
+    systems: [hydronic]
+    let:
+      sg: "has(ctx.fluid) ? (ctx.fluid == 'water' ? 0.97 : 1.04) : 1"
+    value: (hyd.pump_discharge_psig - hyd.pump_suction_psig) * 2.31 / sg
+    target: hyd.pump_rated_hd
+    sets: hyd.pump_head
+    states:
+      - [zero, 'v < 3 || v < t * 0.15']
+      - [low, 'v < t * 0.65']
+      - [high, 'v > t * 1.15']
+      - [normal, 'has(t)']
+
+  - id: hyd.glycol_range
+    name: Glycol strength (usable up to 60 %)
+    unit: '%'
+    systems: [hydronic]
+    value: hyd.glycol_pct
+    sets: hyd.freeze_point
+    states:
+      - [rich, 'v > 60']
+
+  - id: hyd.freeze_point
+    name: Glycol freeze point
+    unit: °F
+    systems: [hydronic]
+    value: "glycol_freeze(hyd.glycol_pct, coalesce(ctx.fluid, 'pg') == 'eg' ? 'EG' : 'PG')"
+    target: hyd.req_freeze_f
+    sets: hyd.freeze_point
+    states:
+      - [weak, 'v > t']
+      - [ok, 'has(t)']
+
+  - id: hyd.hx_approach
+    name: Heat exchanger approach temperature (hot end)
+    unit: °F
+    systems: [hydronic]
+    let:
+      sec_out: 'hyd.hx_cold_out_f ?? hyd.supply_f'
+    value: 'hyd.hx_valve_pct >= 95 ? hyd.hx_hot_in_f - sec_out : null'
+    target: '10'
+    sets: hyd.hx_approach
+    states:
+      - [high, v > 20]
+      - [normal, 'true']
+
+  - id: hyd.cond_temp
+    name: Condensate return temperature
+    unit: °F
+    systems: [steam]
+    value: hyd.cond_return_f
+    sets: hyd.cond_temp
+    states:
+      - [high, 'v >= 205']
+      - [normal, 'true']
+
+causes:
+  # ==================== HYDRONIC — CIRCULATOR NOT RUNNING ====================
+  - id: hyd.circ_motor
+    name: Circulator motor failed (open, shorted, or grounded winding)
+    systems: [hydronic]
+    prior: common
+    keywords: [bad circulator motor, burned out pump motor, dead circulator]
+    signs:
+      gen.output: none
+      hyd.circ: 'off!'
+      hyd.circ_volts: present!
+      hyd.circ_windings: failed!
+      hyd.circ_cap: ok
+      gen.burnt_smell: 'yes?'
+    confirm: |
+      Full line voltage is present at the motor leads on a call for heat, but the motor stays dead or trips
+      the breaker, and ohm/megger checks show an open, shorted, or grounded winding.
+    fix: |
+      Lock out power. On a wet-rotor circulator, replace the motor head / cartridge assembly (or complete pump
+      if isolation flanges are fitted). On a 3-piece or base-mounted pump, replace the motor on the resilient
+      cradle and align the coupling. Check for water leaking from the shaft seal into the motor before
+      energizing the replacement.
+    safety: Lock out and tag out power before opening the motor junction box.
+    refs: [practice]
+
+  - id: hyd.circ_cap
+    name: Circulator run capacitor failed
+    systems: [hydronic]
+    prior: common
+    keywords: [bad pump capacitor, circulator humming, weak run cap on pump]
+    signs:
+      gen.output: none
+      hyd.circ: hums!
+      hyd.circ_cap: bad!
+      hyd.circ_windings: ok
+      hyd.circ_shaft: ok
+      hyd.circ_amps: high?
+    confirm: |
+      The wet-rotor circulator hums and gets hot without moving water, the rotor turns freely with a
+      screwdriver, and the capacitor inside the terminal box reads below rating or open.
+    fix: |
+      Lock out power, discharge the capacitor, and replace it with one of the exact same µF rating and equal
+      or higher voltage rating (typically 4–10 µF, 370/440 VAC on small wet-rotor pumps). Verify amp draw and
+      flow once restarted.
+    safety: Lock out power and discharge the capacitor before touching its terminals.
+    refs: [practice]
+
+  - id: hyd.circ_relay
+    name: Switching relay, zone board, or pump contactor not sending voltage to circulator
+    systems: [hydronic]
+    prior: common
+    keywords: [bad switching relay, taco relay bad, honeywell aquastat relay, no power to pump]
+    signs:
+      gen.output: none
+      gen.call: calling
+      hyd.circ: 'off!'
+      hyd.circ_volts: missing!
+      hyd.zv_endswitch: closes
+    confirm: |
+      The thermostat or zone end switch is calling the relay board, line voltage is present on the board's
+      supply terminals, but no line voltage leaves the pump relay contacts to the circulator.
+    fix: |
+      Check the plug-in ice-cube relay, soldered board relay (look for cracked solder joints on the back of
+      the PCB), or pump contactor contacts. On a socketed relay panel, swap the suspect ice-cube relay with a
+      known good zone slot to verify, then replace the relay or control board.
+    safety: Line voltage and 24 V share the same switching relay enclosure — lock out before removing the board.
+    refs: [practice]
+
+  - id: hyd.circ_seized
+    name: Circulator rotor or bearing assembly seized
+    systems: [hydronic]
+    prior: common
+    keywords: [stuck circulator, seized cartridge, seized bearing assembly, pump stuck after summer]
+    signs:
+      gen.output: none
+      hyd.circ: hums!
+      hyd.circ_shaft: seized!
+      hyd.circ_cap: ok
+      hyd.circ_windings: ok
+      hyd.circ_amps: high
+    confirm: |
+      The pump motor hums and runs hot with a good capacitor, and the wet-rotor shaft (behind the center bleed
+      plug) or 3-piece bearing shaft cannot be turned by hand.
+    fix: |
+      Lock out power. On a wet-rotor pump, close both pump isolation flanges (with no flanges, drain the loop
+      down below the pump), let the pump cool below about 120 °F and relieve it to 0 psig at its drain before
+      the center vent screw comes out, and catch the fluid. Then try freeing the rotor shaft with a flathead
+      screwdriver; if it grinds or re-seizes from magnetite/sludge, replace the replaceable cartridge and
+      clean the dirt separator. On a 3-piece pump, replace the seized bearing assembly, oil the wicks per the
+      nameplate with SAE 20 non-detergent oil, and install a new coupler.
+    safety: >-
+      A pump on a live hot loop sprays when its vent plug comes out. Isolate, cool and relieve first; eye and hand
+      protection is the last line, not the control.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  # ==================== HYDRONIC — CIRCULATOR RUNNING WITH NO FLOW ====================
+  - id: hyd.circ_coupling
+    name: Circulator coupling sheared or broken
+    systems: [hydronic]
+    prior: common
+    keywords: [broken coupler, sheared pump coupling, bell and gossett coupler, motor runs no flow]
+    signs:
+      gen.output: none
+      hyd.circ: running!
+      hyd.circ_shaft: sheared!
+      hyd.circ_amps: low
+      hyd.pump_head: zero!
+      hyd.loop_dt: high?
+    confirm: |
+      The motor runs quietly at low (unloaded) amps, but looking through the bracket window shows the flexible
+      coupler broken and the pump shaft stationary, with zero differential pressure across the pump.
+    fix: |
+      Lock out power. Before installing a new coupler, spin the pump shaft by hand to make sure a seized
+      bearing assembly didn't snap the old coupler, and check the rubber motor-mount grommets (sagged motor
+      mounts misalign the shafts and eat couplers). Replace the coupler and any sagged motor mounts.
+    safety: Keep hands and tools clear of the bracket window until the motor is locked out.
+    refs: [practice]
+
+  - id: hyd.circ_impeller
+    name: Circulator impeller broken, stripped, or loose on shaft
+    systems: [hydronic]
+    prior: occasional
+    keywords: [broken impeller, plastic impeller stripped, pump runs zero head]
+    signs:
+      gen.output: none|weak
+      hyd.circ: running!
+      hyd.circ_shaft: impeller_slip!
+      hyd.circ_amps: low
+      hyd.pump_head: zero!
+      hyd.air_bleed: water
+      hyd.iso_valves: open
+    confirm: |
+      The motor and pump shaft both spin, the volute is bled full of liquid (no air), isolation valves are
+      open, yet differential pressure across the pump is near zero and motor amps are unloaded.
+    fix: |
+      Isolate the pump, drain the volute, and pull the cartridge or bearing/impeller assembly. Replace the
+      cartridge or impeller, retrieve any broken plastic vanes trapped in the volute throat or downstream
+      check valve, and verify full differential head on restart.
+    safety: >-
+      Isolate the pump, let it cool below about 120 °F and relieve it to 0 psig before draining the volute or
+      pulling the cartridge.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  - id: hyd.circ_rotation
+    name: Circulator running backwards (wrong motor rotation after pump or motor work)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [pump running backwards, wrong rotation, reversed rotation, three phase pump backwards, swapped leads, low flow after motor replacement]
+    signs:
+      gen.output: none|weak
+      hyd.circ: running
+      hyd.pump_head: low|zero
+      hyd.circ_shaft: ok
+      hyd.air_bleed: water
+      gen.recent_work: 'yes!'
+    confirm: |
+      A three-phase pump or motor was just replaced or rewired. The pump runs smoothly but moves little: its
+      differential head is well under the curve with no air at the bleed, and the shaft turns against the arrow
+      on the pump casing.
+    fix: |
+      Lock out power and reverse the motor per the motor maker's instructions (on a three-phase motor, swap any
+      two of the three leads at the starter or disconnect). Bump-start it and check that the shaft or motor fan
+      turns the way the arrow on the casing points (on a pump with an exposed shaft, a rubber-tipped pencil
+      touched to the shaft shows the direction), then recheck the differential pressure against the pump curve
+      and the loop ΔT.
+    safety: Lock out and tag out power before changing leads, and keep hands clear of the coupling and fan while checking rotation.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.circ_airlocked
+    name: Circulator volute air-locked (air pocket in pump)
+    systems: [hydronic]
+    prior: common
+    keywords: [air locked pump, air bound circulator, pump spinning in air, after draining loop]
+    signs:
+      gen.output: none
+      hyd.circ: running|noisy
+      hyd.pump_head: zero!
+      hyd.air_bleed: air!
+      hyd.circ_amps: low?
+      gen.recent_work: 'yes?'
+    confirm: |
+      A centrifugal circulator cannot pump air: the pump runs quietly or with a swishing/rattling sound (a
+      wet-rotor pump often sounds normal), builds near-zero head, the pipe is hot right up to the pump and cold
+      2 feet past it, and cracking the bleed screw or flange vents trapped air.
+    fix: |
+      Shut the circulator off (a running pump churns the air bubble in the eye of the impeller), purge the
+      loop or crack the pump's bleed plug slowly, with a hose to a container and your face turned away, until
+      a solid stream of water/glycol comes out. Verify system fill pressure is at target, and restart the pump.
+    safety: >-
+      Hot fluid at the bleed port: crack it slowly with a hose to a container, face away.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  - id: hyd.iso_valve_closed
+    name: Isolation or service valve left closed (or gate dropped off stem)
+    systems: [hydronic]
+    prior: common
+    keywords: [closed ball valve, valve left shut, dropped gate valve, deadheaded pump]
+    signs:
+      gen.output: none|weak
+      hyd.scope: one_zone|whole_loop
+      hyd.circ: running
+      hyd.iso_valves: closed!
+      hyd.pump_head: {high: 0.45, normal: 0.45, low: 0.05, zero: 0.05}
+      hyd.circ_amps: low?
+      gen.recent_work: 'yes?'
+    confirm: |
+      A closed main or pump-side valve deadheads the pump (high differential pressure, low amps, warm pump
+      housing); a closed branch valve leaves pump head near normal and kills just that branch. Either way,
+      inspection finds a closed ball/butterfly handle or a gate valve whose stem turns without lifting the gate.
+    fix: |
+      Slowly open the closed isolation valve while watching system pressure and temperature (avoid slugging a
+      hot boiler with a sudden rush of cold water). If a gate valve disc has separated from its stem, isolate
+      the section and replace the valve with a full-port ball or butterfly valve.
+    safety: Open isolation valves slowly to prevent thermal shock to hot cast-iron boiler sections.
+    refs: [practice]
+
+  - id: hyd.strainer_clogged
+    name: Y-strainer or dirt separator plugged with scale or debris
+    systems: [hydronic]
+    prior: common
+    keywords: [plugged y strainer, clogged strainer screen, dirty strainer, low loop flow]
+    signs:
+      gen.output: weak
+      hyd.strainer: clogged!
+      hyd.loop_dt: high!
+      hyd.pump_head: high
+      hyd.circ: running
+      hyd.iso_valves: open
+    confirm: |
+      Loop ΔT is wide (supply hot, return cool), pump differential head is elevated against the restriction,
+      and blowing down or pulling the Y-strainer basket reveals heavy scale, rust flakes, or construction
+      debris.
+    fix: |
+      Isolate the strainer, relieve pressure, pull the screen, and scrub it clean (replace if the mesh is
+      torn or collapsed). Blow down the dirt/magnetic separator, check glycol condition and pH if sludge is
+      present, and verify loop ΔT returns to design.
+    safety: >-
+      Relieve pressure and let hot water/glycol cool before backing out the strainer plug.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [tm-5-642, practice]
+
+  # ==================== HYDRONIC — AIR IN THE LOOP ====================
+  - id: hyd.air_in_loop
+    name: Air trapped in hydronic zones or coils (air-bound branch)
+    systems: [hydronic]
+    prior: very_common
+    keywords: [air in lines, air bound baseboard, gurgling radiator, bleed radiators, purge zone]
+    signs:
+      gen.output: weak|none
+      hyd.scope: one_zone
+      hyd.loop_noise: gurgling!
+      hyd.air_bleed: air!
+      hyd.circ: running
+      hyd.pressure: normal|low
+    confirm: |
+      Gurgling or rushing water sounds in the pipes, radiators cold at the top or a zone loop cold past a high
+      point, and opening the coin vent or purge station releases trapped air.
+    fix: |
+      Hold loop pressure at the cold-fill target while purging. Isolate the zone from the rest of the system
+      (close the valve between the zone and the other loops), open its drain or hose bib to a container, and
+      run make-up through until the discharge is bubble-free; hot fluid scalds. On glycol loops, purge using a glycol transfer pump drawing from and returning to a clean glycol
+      bucket so you don't dilute the loop with raw water or dump glycol down a drain.
+
+      Then find out why the air got in. Air that keeps coming back is a symptom: check the fill pressure against
+      the highest point's static head + 4–5 psig, which way the pump pushes relative to the expansion tank
+      connection, whether an air separator sits on the supply at the hottest point ahead of the pump, and
+      weeping vents or seals drawing air in (see "Air keeps returning").
+    safety: >-
+      Purge discharge can be hot: open drains slowly, with a hose to a container.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.air_chronic
+    name: Air keeps returning (fill pressure too low, pump pushing toward the tank, no separator at the hottest point, or weeping vents and seals drawing air in)
+    systems: [hydronic]
+    prior: common
+    keywords: [air keeps coming back, chronic air, air returns after purge, constant air in system, bleeding every week, keeps getting air]
+    signs:
+      hyd.air_bleed: air!
+      hyd.pressure: low?
+      hyd.loop_noise: gurgling
+      gen.recent_work: 'no'
+    confirm: |
+      The loop was purged clean and the air is back within days or weeks, with no recent opening of the system.
+      Compare the cold fill pressure with the highest point's static head + 4–5 psig, find out which way the
+      pump pushes relative to the expansion tank connection, and look for weeping vents, seals or fittings that
+      draw air in as the loop cools.
+    fix: |
+      Raise the cold fill above the highest point's static head + 4–5 psig; set the pump to pump away from the
+      expansion tank connection; put an air separator on the supply at the hottest point ahead of the pump (keep
+      a manual vent beside any automatic one); and repair weeping vents, seals and fittings. Then purge once
+      and watch whether the air stays gone.
+    safety: >-
+      Purge discharge can be hot: open drains slowly, with a hose to a container.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.air_vent_failed
+    name: Automatic air vent (hyvent) or air separator failed (cap closed, float stuck, or leaking)
+    systems: [hydronic]
+    prior: common
+    keywords: [bad hyvent, automatic air vent leaking, air vent cap tight, clogged air scoop vent]
+    signs:
+      hyd.auto_vent: {stuck_closed: 0.6, leaking: 0.35}
+      hyd.loop_noise: gurgling?
+      hyd.air_bleed: air?
+      gen.water_leak: 'yes?'
+      hyd.seal_leak: 'no'
+    confirm: |
+      Inspection at the air scoop/microbubble separator or high-point vent shows the tire-style cap screwed
+      down tight, a float gummed shut that won't hiss when depressed, or water/glycol dribbling from the vent
+      cap.
+    fix: |
+      If the cap was screwed tight on a working vent, back it off one full turn so air can escape. If the
+      internal float is fouled with sludge or spitting liquid, close the isolation check fitting (or isolate
+      the header), thread in a new automatic air vent, and leave a manual coin vent or ball valve ahead of
+      high-point vents on glycol systems so a weeping vent can be isolated.
+    safety: >-
+      Never unscrew a vent from a hot, pressurized line: close the valve under it first, let it cool and relieve it.
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [tm-5-642, practice]
+
+  # ==================== HYDRONIC — SYSTEM PRESSURE, FILL & EXPANSION ====================
+  - id: hyd.low_pressure_fill
+    name: Low system pressure — make-up fill valve (PRV) closed, plugged, or glycol feeder empty
+    systems: [hydronic]
+    prior: common
+    keywords: [low boiler pressure, fill valve closed, empty glycol feeder, prv plugged, no makeup]
+    signs:
+      gen.output: weak|none
+      hyd.pressure: low!
+      hyd.fill_valve: blocked!
+      hyd.loop_noise: gurgling?
+      hyd.air_bleed: air|nothing
+      gen.water_leak: 'no'
+    confirm: |
+      Hydronic gauge reads well below the cold-fill target (under 8 psig is low on any loop), high points draw
+      in air or fail to circulate, and the make-up valve is valved off, has a plugged inlet strainer, or the
+      glycol make-up feeder tank is empty.
+    fix: |
+      On a glycol loop, refill the pressurized glycol feeder tank with premixed inhibited glycol at the target
+      concentration (never top off an Antarctic/cold-region glycol loop with raw domestic water, or you dilute
+      freeze protection, and never hard-pipe a glycol loop to domestic make-up). On a water loop, clean the PRV
+      inlet screen, verify the fast-fill lever brings pressure up to the cold-fill target, or replace a
+      stuck-closed PRV, then bleed air from the high points.
+    safety: >-
+      Never feed cold make-up liquid rapidly into a hot cast-iron boiler; let it cool below 140 °F first.
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.system_leak
+    name: Hydronic piping, fitting, or coil leak dropping system pressure
+    systems: [hydronic]
+    prior: common
+    keywords: [leaking pipe, glycol leak, pinhole leak in coil, losing loop pressure]
+    signs:
+      gen.water_leak: 'yes!'
+      hyd.pressure: low!
+      hyd.seal_leak: 'no!'
+      hyd.relief_weeping: 'no!'
+      hyd.auto_vent: ok
+    confirm: |
+      System pressure drops steadily when the make-up valve is shut off, and visual inspection finds water or
+      dyed glycol dripping from a union, soldered joint, radiant manifold, or terminal coil (not the relief
+      valve or pump seal).
+    fix: |
+      Isolate the leaking branch or zone so the rest of the building keeps heating, repair the pipe/fitting or
+      brazed coil joint, pressure-test the repair, recharge with matching water or premixed glycol to design
+      fill pressure, and purge trapped air.
+    safety: >-
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.loss_hidden
+    name: Pressure keeps falling with no visible leak (hidden leak, plate exchanger crossover, unseen weeping vent, or low expansion tank precharge sagging cold)
+    systems: [hydronic]
+    prior: common
+    keywords: [hidden leak, pressure keeps dropping, losing pressure no leak, buried leak, leak in insulation, feeder level keeps dropping, makeup keeps running]
+    signs:
+      hyd.pressure: low!
+      gen.water_leak: 'no'
+      hyd.fill_valve: ok
+      hyd.relief_weeping: 'no'
+      hyd.seal_leak: 'no'
+    confirm: |
+      The gauge keeps sagging and the feeder level or make-up meter keeps dropping (watch it over 24 hours with
+      the loop held at a steady temperature), yet nothing is wet. Pressure that sags only when the loop is cold
+      points at a low expansion tank precharge instead.
+    fix: |
+      Work it by sections: isolate branches and mains one at a time and see which section holds pressure. Look
+      at buried and insulated runs, the plate exchanger for crossover (see "Plate heat exchanger crossover or
+      gasket leak"), weeping auto-vents and relief valve seats, and check the expansion tank precharge cold.
+      Repair, pressure-test, and refill with matching water or premixed glycol.
+    safety: >-
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [practice]
+
+  - id: hyd.exp_tank_waterlogged
+    name: Expansion tank waterlogged or ruptured (bladder failed, tank full of water, or air precharge lost)
+    systems: [hydronic]
+    prior: very_common
+    keywords: [bad expansion tank, waterlogged extrol, relief valve popping when hot, ruptured bladder, flat expansion tank]
+    signs:
+      hyd.exp_tank: {ruptured: 0.5, waterlogged: 0.3, low_precharge: 0.15}
+      hyd.pressure: {high: 0.55, normal: 0.40, low: 0.05}
+      hyd.relief_weeping: discharging|weeping?
+      hyd.fill_valve: ok
+      gen.water_leak: 'yes?'
+    confirm: |
+      Read hot, system pressure climbs well past its cold value (more than about 10 psig) and lifts the relief
+      valve as the loop heats up. Read cold, the pressure can look normal and the relief dry, so go to the tank
+      itself: a plain steel tank taps dead and solid, and on a bladder tank pressing the Schrader releases water
+      (ruptured) or shows no air pressure (flat precharge).
+    fix: |
+      Valve the tank off, cool the loop, and drain the tank's water side to 0 psig before you touch the
+      Schrader valve.
+
+      If the Schrader spits water, the bladder or diaphragm is ruptured: replace the tank, and set the new
+      tank's air side to the cold-fill pressure BEFORE connecting it to the wet system.
+
+      If the Schrader is dry and only the precharge is low (bladder intact), do not replace the tank. With the
+      water side at 0 psig, set the precharge equal to the cold-fill pressure and reopen the valve. Never add
+      air to a tank that still has system pressure on the water side; the gauge then just reads system
+      pressure.
+
+      On a plain steel compression tank (overhead), drain the waterlogged tank and restore its ~1/2 air cushion.
+      Also test the relief valve after repeated pops in case scale lodged on its seat.
+    safety: >-
+      Cool and depressurize before swapping the tank; hot fluid sprays from a ruptured tank or an opened connection.
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.exp_tank_isolated
+    name: Expansion tank cut off (valve closed, connection frozen or plugged) or too small for the fluid and temperature span
+    systems: [hydronic]
+    prior: common
+    keywords: [expansion tank valve closed, tank isolated, undersized expansion tank, pressure spikes on heat up, relief pops hot, expansion tank frozen off, tank connection plugged]
+    signs:
+      hyd.pressure: high
+      hyd.relief_weeping: discharging|weeping!
+      hyd.exp_tank: {isolated: 0.6, ok: 0.3}
+      hyd.fill_valve: ok
+      gen.recent_work: 'yes?'
+    confirm: |
+      Pressure rises more than about 10 psig from cold to hot and the relief lifts. The tank valve is shut, or
+      the tank connection pipe is cold when the loop is hot; or the connection is open and the air side tests
+      fine, but the tank is too small for the fluid and temperature span.
+    fix: |
+      Open the tank valve (and lock or tag it open), or clear the connection, and set the precharge to the
+      cold-fill pressure. If the connection is frozen, treat it like any frozen pipe (see "Frozen or burst
+      hydronic coil or branch pipe") before thawing.
+
+      If the connection is open and the tank is fine, work out the tank's acceptance volume again for the
+      coldest fill temperature and the glycol percent.
+    safety: >-
+      A loop with its expansion tank cut off can lift the relief valve on every heat-up. Shut the heat source
+      off before working on the connection, and cool and depressurize before opening it.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    notes: A glycol loop that swings from about -40 to +180 °F expands roughly twice as much as a 60-180 °F water loop (on the order of 7 % against 3 %), so a tank sized for water is too small here.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.fill_valve_passing
+    name: Make-up / pressure-reducing fill valve (PRV) passing or set too high
+    systems: [hydronic]
+    prior: common
+    keywords: [bad prv, fill valve leaking through, high boiler pressure cold, relief valve weeping]
+    signs:
+      hyd.pressure: high!
+      hyd.relief_weeping: discharging|weeping!
+      hyd.fill_valve: passing!
+      hyd.exp_tank: ok
+      gen.water_leak: 'yes?'
+    confirm: |
+      System pressure creeps up toward the relief setting and weeps the relief valve even with the loop cool,
+      the expansion tank air cushion tests good, and closing the manual shutoff valve ahead of the PRV stops
+      the pressure rise.
+    fix: |
+      Flush or clean the PRV seat and strainer (scale under the rubber disc lets street water creep through),
+      or replace the pressure-reducing fill valve and adjust its cold fill pressure to match the expansion
+      tank precharge and the building's static height.
+
+      A glycol loop must not be hard-piped to potable make-up. Remove the tie-in or install an RPZ backflow
+      preventer with an air gap, and use a dedicated glycol feeder. If glycol may have reached potable lines,
+      isolate and notify water quality per station procedure.
+    safety: A single check valve cannot stop ethylene glycol (poisonous) backing into potable water when loop pressure rises above supply pressure. Treat any glycol-to-potable tie-in as a cross-connection.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.relief_valve_bad
+    name: Pressure relief valve weak or debris on seat (weeping at normal pressure)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [leaking relief valve, weak relief valve, dripping pop off valve, relief valve weeping]
+    signs:
+      hyd.relief_weeping: weeping!
+      hyd.pressure: normal!
+      hyd.exp_tank: ok!
+      hyd.fill_valve: ok
+      gen.water_leak: 'yes'
+    confirm: |
+      The relief valve drips or weeps while a verified pressure gauge shows loop pressure steady near the
+      cold-fill target, cold and hot and well under the valve's set pressure, and the expansion tank air
+      cushion is intact.
+    fix: |
+      With system pressure confirmed normal, check that the discharge pipe is open and ends within 6 in. of a
+      drain or catch drum, then briefly lift the relief test lever to flush any grit off the seat (hot water or
+      glycol will come out). If it continues to weep, shut the heat source off, let the loop cool below about
+      120 °F and drain below the valve, then replace the relief valve with an ASME-rated hot-water relief valve
+      of the same set pressure (stamped on the old valve) and equal or greater BTU/hr capacity. Never put a
+      shutoff between the heat source and the relief valve.
+    safety: >-
+      Never plug, cap, or reduce the pipe size of a safety relief valve discharge. Check that the discharge pipe
+      ends within 6 in. of a drain or catch drum before lifting the lever; hot water or glycol will come out.
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [tm-5-642, tm-5-650, practice]
+
+  # ==================== HYDRONIC — ZONE VALVES, MIXING, CHECKS & BALANCE ====================
+  - id: hyd.zv_actuator
+    name: Zone valve actuator or motor head failed (stays closed on call)
+    systems: [hydronic]
+    prior: very_common
+    keywords: [bad zone valve head, honeywell v8043 motor, taco wax actuator dead, one zone cold]
+    signs:
+      gen.output: none
+      hyd.scope: one_zone!
+      hyd.zone_valve: stays_closed!
+      hyd.zv_endswitch: open?
+      gen.call: calling
+    confirm: |
+      One zone is cold with 24 V present at the zone valve actuator leads; the manual lever has full spring
+      resistance (valve closed), and latching the manual lever open sends hot water into the zone.
+    fix: |
+      Latch the manual opener lever to "MAN OPEN" so the zone gets heat right away (vital in subzero weather).
+      On many zone valves the lever opens the port but does not make the end switch, so confirm the circulator
+      is actually running (another zone calling, or jumper the end-switch terminals, or run the pump in HAND)
+      and that the zone pipe warms. Tag the lever as latched.
+
+      Then replace the synchronous motor or snap-on actuator power head without draining the loop. Verify 24 V
+      drives it open and the spring returns it closed when the call drops, and release the lever after the
+      repair.
+    notes: How the manual lever behaves differs between valve models. Check the maker's data for the valves on this site.
+    refs: [practice]
+
+  - id: hyd.zv_endswitch
+    name: Zone valve auxiliary end switch failed open
+    systems: [hydronic]
+    prior: common
+    keywords: [bad end switch, zone valve opens boiler wont fire, pump wont start on one zone]
+    signs:
+      gen.output: none
+      hyd.scope: one_zone!
+      hyd.zone_valve: ok!
+      hyd.zv_endswitch: open!
+      hyd.circ: 'off'
+      gen.call: calling
+    confirm: |
+      On a call from that zone alone, the zone valve drives all the way open (manual lever goes floppy), but
+      the end switch remains open on a meter so the circulator and heat source never start — until another
+      zone calls and its pump moves water through both.
+    fix: |
+      Verify by momentarily jumpering the two end-switch terminals at the valve head (the circulator/boiler
+      should start immediately). Replace the snap switch or the complete actuator head.
+    refs: [practice]
+
+  - id: hyd.zv_stuck_closed
+    name: Zone valve body mechanically jammed closed
+    systems: [hydronic]
+    prior: occasional
+    keywords: [seized zone valve stem, zone valve body stuck shut, ball stuck in zone valve]
+    signs:
+      gen.output: none
+      hyd.scope: one_zone!
+      hyd.zone_valve: jammed_closed!
+      hyd.check_valve: ok
+      hyd.circ: running
+    confirm: |
+      Even with the actuator head removed from the valve body, the stem, ball, or poppet cartridge is seized
+      shut and no hot water enters the zone while the circulator is running.
+    fix: |
+      Isolate and drain the zone branch, unbolt or unthread the seized conversion cartridge (or replace the
+      complete valve body), clean magnetite and scale out of the valve seat, and verify smooth stem travel
+      before snapping the actuator head back on.
+    safety: >-
+      Let the branch cool and relieve it to 0 psig before draining the zone or opening the valve body.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  - id: hyd.zv_stuck_open
+    name: Zone valve stuck open, latched in manual-open, or miswired open (overheating zone)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [zone valve stuck open, zone overheating, manual lever latched open, zone valve wired wrong]
+    signs:
+      hyd.scope: overheating!
+      hyd.zone_valve: stuck_open!
+      hyd.check_valve: ok
+      gen.call: not_calling
+    confirm: |
+      A zone overheats whenever another zone calls for heat because its zone valve is latched in the "MAN
+      OPEN" slot, its internal ball/poppet is stuck off the seat, or its actuator is miswired to constant 24 V.
+    fix: |
+      Check the manual opener lever first — if it was left hooked in the "MAN OPEN" notch after bleeding air,
+      release it. Next, disconnect one thermostat lead at the valve: if the valve now closes, trace the
+      thermostat wire or relay board for a short or cross-wiring. If it stays open with 24 V removed and the
+      lever unlatched, rebuild or replace the sticking valve cartridge.
+    safety: >-
+      Isolate the zone and relieve it to 0 psig before opening the valve body, and let it cool first.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  - id: hyd.mixing_valve
+    name: 3-way mixing valve or actuator stuck in bypass
+    systems: [hydronic]
+    prior: common
+    keywords: [bad 3 way valve, mixing valve stuck closed, cold secondary loop hot primary]
+    signs:
+      gen.output: none|weak
+      hyd.scope: whole_loop
+      hyd.supply_temp: low!
+      hyd.mixing_valve_state: stuck_bypass!
+      hyd.loop_dt: low
+      hyd.circ: running
+      hyd.reset_setpoint: ok
+    confirm: |
+      The primary header entering the 3-way valve is hot, the loop circulator is running, the controller is
+      calling for heat, but the 3-way valve stays closed to the hot port and recirculates cool return water
+      (narrow loop ΔT, cold supply).
+    fix: |
+      Place the 3-way actuator in manual override (declutch button or handwheel) and open it toward the hot
+      port in steps, watching the supply temperature, and stop below the lowest limit in the loop (plastic or
+      radiant piping, DHW, the relief setpoint). Fully open sends primary temperature into the building loop;
+      engine jacket water is typically 180–200 °F. Return the actuator to AUTO after the repair. Meter the
+      control signal (24 V floating, 0–10 VDC, or 4–20 mA) at the actuator; replace the failed actuator or
+      free/rebuild the seized mixing valve plug.
+    safety: Manual override removes temperature control. Watch the supply temperature the whole time, and never leave the valve in override unattended.
+    refs: [practice]
+
+  - id: hyd.overtemp
+    name: Supply temperature above setpoint (aquastat or high-limit failed, 3-way valve stuck full hot, controller output stuck)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [overheating loop, supply too hot, aquastat failed, high limit failed, 3 way valve stuck hot, loop temperature too high]
+    signs:
+      hyd.supply_temp: high!
+      hyd.relief_weeping: discharging|weeping?
+      hyd.pressure: high?
+      hyd.mixing_valve_state: stuck_hot?
+      hyd.reset_setpoint: ok
+    confirm: A separate thermometer on the supply pipe reads above the controller setpoint or the high limit, and the control output is stuck high.
+    fix: |
+      Shut the heat source or the primary valve, then check the aquastat/high-limit well and sensor, and the
+      3-way valve and its actuator (free it or replace it). Find out why the control did not shut the source off
+      before the loop goes back into service.
+    safety: Scald and flash hazard at the relief discharge. Treat a discharging relief valve as an overtemperature event and shut the heat source down.
+    refs: [practice]
+
+  - id: hyd.check_valve_open
+    name: Flow-check or check valve stuck open (ghost / gravity flow overheating zone)
+    systems: [hydronic]
+    prior: common
+    keywords: [ghost flow, gravity circulation, thermosiphoning, flo check stuck open, zone too hot]
+    signs:
+      hyd.scope: overheating!
+      hyd.check_valve: stuck_open!
+      hyd.zone_valve: ok
+      gen.call: not_calling
+    confirm: |
+      A zone gets hot even with its thermostat off and its circulator silent because buoyant hot water
+      thermosiphons past a flow-check whose thumbscrew was left in "OPEN" or whose seat is held open by scale.
+    fix: |
+      Turn the top thumbscrew on the weighted flow-check counterclockwise all the way to the normal automatic
+      position. If it still passes gravity flow, rap the valve body lightly or isolate and clean/replace the
+      check valve cartridge or spring check.
+
+      If there is no check valve at all, add a heat trap (loop the take-off down 8–12 in. before it rises) or a
+      spring check.
+    safety: >-
+      Isolate the branch, let it cool and relieve it to 0 psig before pulling a check valve cap or cartridge.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  - id: hyd.check_valve_closed
+    name: Flow-check or spring check valve stuck closed (or installed backwards)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [check valve stuck shut, check valve backwards, pump runs no flow in zone]
+    signs:
+      gen.output: none
+      hyd.scope: one_zone!
+      hyd.check_valve: stuck_closed!
+      hyd.circ: running
+      hyd.air_bleed: water
+      hyd.iso_valves: open
+    confirm: |
+      The zone circulator runs, the branch is bled free of air and isolation valves are open, but the pipe is
+      hot right up to the check valve and cold immediately downstream of it (or the flow arrow points against
+      the pump).
+    fix: |
+      On a weighted flow-check, turn the top stem clockwise to manually lift the weight and break it free of
+      the seat, then return to automatic. If a spring/swing check is seized or installed backwards after
+      recent work, isolate the branch and reorient or replace the check valve.
+    safety: >-
+      Isolate the branch, let it cool and relieve it to 0 psig before pulling a check valve cap or cartridge.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  - id: hyd.short_circuit
+    name: Hydronic loop short-circuiting or unbalanced (open bypass or unthrottled near branches)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [short circuiting loop, open bypass valve, unbalanced hydronic system, far rooms cold]
+    signs:
+      gen.output: weak
+      hyd.loop_dt: low!
+      hyd.iso_valves: bypass_open!
+      hyd.supply_temp: normal
+      hyd.pump_head: low?
+      hyd.circ: running
+    confirm: |
+      Supply and return main temperatures are nearly identical while every zone is calling and the heat source
+      is hot (a narrow ΔT at light load is normal, so check at design load), because an open manual bypass
+      valve or wide-open balancing valves on near branches let hot water dump straight into the return,
+      starving distant coils.
+    fix: |
+      Close any manual bypass valve that was left open, or adjust the differential-pressure bypass valve to
+      open only when zones close. Balance circuit setters from the closest branch to the farthest so every
+      branch sees its design flow and design ΔT.
+    refs: [practice]
+
+  # ==================== HYDRONIC — HEAT EXCHANGER, GLYCOL, FREEZE & TERMINALS ====================
+  - id: hyd.hx_fouled
+    name: Plate or shell-and-tube heat exchanger fouled or scaled
+    systems: [hydronic]
+    prior: common
+    keywords: [fouled plate heat exchanger, scaled hx, high approach temperature, plugged heat exchanger]
+    signs:
+      gen.output: weak
+      hyd.scope: whole_loop
+      hyd.hx_approach: high!
+      hyd.hx_dp: high
+      hyd.hx_primary_dt: narrow?
+      hyd.supply_temp: low
+      hyd.primary_source: ok
+    confirm: |
+      Primary hot supply entering the heat exchanger is at full temperature and its control valve is wide open,
+      but the secondary loop leaves more than 20 °F cooler (high hot-end approach) and the primary side gives
+      up less heat than design (narrow primary drop). Scale and film cost heat transfer long before they move
+      the pressure drop, so a normal ΔP does not clear the plates; debris plugging the ports shows as a large
+      ΔP rise over the data sheet.
+    fix: |
+      Backflush the plate heat exchanger by reversing valve paths if a backflush manifold is piped in;
+      otherwise isolate and circulate an inhibited descaling/cleaning solution through the plates (or pull the
+      plate pack, clean the chevron channels, and re-torque the frame to the nameplate tie-bolt dimension).
+      Clean the upstream Y-strainer so debris doesn't immediately re-plug the inlet ports.
+    safety: >-
+      Isolate both sides, drain, relieve to 0 psig and cool below about 110 °F before loosening the frame. The
+      tie bolts store force: back them off evenly, never one side. Plate edges cut. Descaling acid needs
+      protective gear and gasket/plate compatibility (no chlorides on stainless); neutralize it and collect the
+      spent cleaner and glycol, do not drain them.
+    refs: [practice]
+
+  - id: hyd.hx_primary_flow
+    name: Heat exchanger starved on the primary side (primary pump off, valve closed or throttled, primary strainer plugged)
+    systems: [hydronic]
+    prior: common
+    keywords: [primary valve closed, primary pump off, primary strainer plugged, hx starved, low primary flow, hx control valve closed]
+    signs:
+      gen.output: weak|none
+      hyd.hx_approach: high!
+      hyd.hx_dp: normal
+      hyd.hx_primary_dt: wide
+      hyd.supply_temp: low!
+      hyd.primary_source: ok
+      hyd.scope: whole_loop
+    confirm: |
+      The approach is high with the primary valve commanded open, but pressure drop across the plates is normal
+      and the primary side drops far more temperature than design, because too little primary fluid is getting
+      through: the primary pump is off or has lost flow, the control valve or its actuator is closed or
+      throttled, or the primary strainer is plugged.
+    fix: |
+      Check the primary pump (running, right rotation, flow proven), then the control valve and its actuator
+      (drive it open and see whether the approach closes up), and the primary strainer. Fix whatever restricts the
+      primary flow, then re-read the approach with the valve wide open.
+    safety: >-
+      Isolate, cool and relieve to 0 psig before pulling the primary strainer or opening a valve body.
+      Collect any glycol in labeled drums (ethylene glycol is poisonous); never to a floor drain, the
+      ground, ice or sea.
+    refs: [practice]
+
+  - id: hyd.hx_leak
+    name: Plate heat exchanger crossover or gasket leak (or plates burst by freezing)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [plate crossover, hx gasket leak, heat exchanger leaking, glycol in primary loop, pinhole in plates, plates burst frozen]
+    signs:
+      hyd.freeze_point: weak?
+      hyd.pressure: low|high
+      gen.water_leak: 'yes?'
+      hyd.hx_approach: high?
+      hyd.primary_source: ok
+    confirm: Glycol or inhibitor shows up in the primary loop, or the secondary loses glycol or pressure with no external leak; fluid at the frame seams.
+    fix: |
+      Pressure-test one side with the other drained (fluid appearing on the dry side means crossover). Replace
+      plates or gaskets, then verify glycol percent and inhibitor on both sides.
+    safety: >-
+      Isolate both sides, drain, relieve to 0 psig and cool below about 110 °F before loosening the frame; the tie
+      bolts store force, so back them off evenly.
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    notes: A pinhole or gasket failure moves fluid from the higher-pressure side to the lower. A stagnant exchanger at subzero ambient can ice-burst its plates, which then cross-leak.
+    refs: [practice]
+
+  - id: hyd.glycol_weak
+    name: Glycol concentration too low — freeze and slush risk
+    systems: [hydronic]
+    requires: {fluid: [pg, eg, glycol]}
+    prior: common
+    keywords: [weak glycol, low glycol percentage, freeze protection low, diluted glycol, slush in loop]
+    signs:
+      hyd.freeze_point: weak!
+      hyd.glycol_cond: good
+      gen.output: weak|normal
+    confirm: |
+      Refractometer reading shows the freeze point is warmer than the site's required target (the design low
+      minus the safety margin), so slush can form in outdoor or makeup-air coils.
+    fix: |
+      Find out how raw water entered the loop (passing domestic make-up PRV, a water hose used for purging, a
+      leaking DHW heat exchanger, or a leaking main plate heat exchanger). Isolate any raw-water tie-in (a
+      glycol loop must not be hard-piped to domestic make-up; use a dedicated glycol feeder), drain enough
+      weak solution from the loop into labeled drums, and pump in concentrated inhibited glycol of the
+      SAME chemistry (never mix EG and PG) until the mixed loop tests at or below the required freeze point
+      (about 50 vol % EG or 54 vol % PG for −40 °F). Never go above 60 %.
+
+      To go from C1 % to C2 % by replacing x of a V-gallon loop with neat glycol, x = V × (C2 − C1) ÷ (100 − C1).
+      Use the same basis (volume or weight) for all three numbers. Check: V = 1000, 30 to 55 gives x = 357.
+
+      Circulate for at least 1–2 hours before re-sampling from a flowing point; stratified concentrate reads
+      wrong.
+    safety: >-
+      In polar or subzero plants, weak glycol is a life-safety hazard: a coil that goes to slush stops flowing,
+      then freezes solid, and at subzero ambient that is well under an hour. Weak glycol is also under-inhibited
+      (below roughly 25-30 % the corrosion and bio protection is gone; per the fluid maker's data).
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [practice]
+
+  - id: hyd.glycol_degraded
+    name: Glycol thermally degraded or inhibitor depleted (low pH, sludge, corrosion)
+    systems: [hydronic]
+    requires: {fluid: [pg, eg, glycol]}
+    prior: occasional
+    keywords: [acidic glycol, bad glycol ph, black glycol sludge, depleted inhibitor, rotten glycol]
+    signs:
+      hyd.glycol_cond: degraded!
+      hyd.strainer: clogged?
+      hyd.freeze_point: ok|weak
+      gen.output: weak?
+    confirm: |
+      A sample from the loop tests acidic (pH below 8.0 on a test strip) and looks dark brown/black with
+      suspended magnetite or smells burnt/sour from overheating or air ingress.
+    fix: |
+      Acidic glycol actively eats iron, copper, and pump seals — do not just add fresh glycol on top of burnt
+      sludge. If pH is 7.5–8.0 and the fluid is still free of sludge and burnt smell, re-inhibit per the fluid
+      manufacturer's buffer addition chart. If pH is below 7.5 or the fluid is dark and sludgy, drain it into
+      labeled drums, flush with a system cleaner (collect the flush too), clean all strainers and dirt
+      separators, fix the air-ingress or local overheating spot, and recharge with fresh premixed inhibited
+      glycol.
+    safety: >-
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [practice]
+
+  - id: hyd.glycol_rich
+    name: Glycol over-concentrated (above ~60 %) — freeze point back up, thick and slow
+    systems: [hydronic]
+    requires: {fluid: [pg, eg, glycol]}
+    prior: uncommon
+    keywords: [too much glycol, neat glycol, glycol too strong, topped off with concentrate, glycol too thick]
+    signs:
+      hyd.freeze_point: rich!
+      gen.output: weak
+      hyd.loop_dt: high
+      hyd.circ_amps: high?
+      hyd.glycol_cond: good
+    confirm: Refractometer reads off the top of the scale or above 60 %; the loop was topped off with neat concentrate or filled from an undiluted drum.
+    fix: |
+      Drain a measured volume into labeled drums and replace it with the pre-mix (same chemistry) until the
+      freeze point reads at or just below the required target (typically 50–55 %).
+
+      Richer is not safer: above about 60 % the freeze point turns back up, and the fluid gets thick and
+      transfers heat poorly. The same replace-and-remix formula as for weak glycol applies (see "Glycol
+      concentration too low").
+    safety: >-
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [practice]
+
+  - id: hyd.frozen_pipe_coil
+    name: Frozen or burst hydronic coil or branch pipe
+    systems: [hydronic]
+    prior: occasional
+    keywords: [frozen pipe, frozen unit heater coil, burst baseboard, split copper tube, ice plug]
+    signs:
+      gen.output: none|weak
+      hyd.scope: one_zone!
+      hyd.pipe_frost: {iced: 0.6, split: 0.35}
+      hyd.air_bleed: nothing
+      gen.water_leak: 'yes?'
+    confirm: |
+      A branch pipe, baseboard loop, or unit-heater/air-handler coil exposed to subfreezing air is iced, slushy
+      or blocked with ice, or is below the loop fluid's freeze point, with zero flow (or split open and leaking
+      as it thaws).
+    fix: |
+      Shut the outside-air damper or seal the cold draft immediately. Treat every frozen coil or pipe as split
+      until a pressure test proves otherwise.
+
+      Lock out power to the unit and fan. Close and verify BOTH isolation valves to the frozen section and crack
+      its drain or highest vent (relief for thaw expansion, and a path for any release). Put a pan or hose to a
+      drum under it; do not let glycol reach electrics or the floor drain.
+
+      Thaw from the open end toward the plug with a heat gun, warm air or warm rags. After it is clear,
+      pressure-test before reopening the supply.
+
+      Braze or replace any split tube, verify the glycol freeze point across the whole plant, and keep
+      circulators running continuously during extreme cold.
+    safety: >-
+      Never thaw a frozen coil or pipe while it is connected to a live supply: the ice plug may be the only
+      thing holding a split tube closed. Never use an open torch on a sealed ice-plugged pipe; trapped steam
+      pressure between two ice plugs can rupture the tube violently.
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.pump_cavitation
+    name: Circulator pump cavitating (low suction pressure, hot fluid, or restricted pump inlet)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [pump cavitating, pumping gravel, marbles in pump, low npsh, suction strainer plugged]
+    signs:
+      hyd.circ: noisy!
+      hyd.loop_noise: gravel!
+      hyd.pump_head: low!
+      hyd.pressure: low?
+      gen.output: weak
+    confirm: |
+      A sharp rattling sound like gravel or marbles inside the pump volute accompanied by fluctuating lower
+      discharge pressure; partially throttling the pump DISCHARGE valve quiets the noise immediately.
+    fix: |
+      Cavitation happens when pressure at the impeller eye drops below the fluid's vapor pressure: (1) raise
+      system static fill pressure (or move the expansion tank connection to the suction side of the pump —
+      always pump away from the expansion tank); (2) fully open any throttled valve or clean any plugged
+      strainer on the pump SUCTION side; (3) lower excessive loop temperature if near boiling at current loop
+      pressure.
+    refs: [practice]
+
+  - id: hyd.pump_seal_leak
+    name: Circulator mechanical shaft seal leaking
+    systems: [hydronic]
+    prior: common
+    keywords: [pump seal leaking, leaky mechanical seal, water dripping from bearing assembly, crusty pump bracket]
+    signs:
+      gen.water_leak: 'yes!'
+      hyd.seal_leak: pump_seal!
+      hyd.relief_weeping: 'no'
+      hyd.circ: running
+    confirm: |
+      Water or crusty glycol residue is dripping from the weep hole at the bottom of the bearing bracket
+      between the pump volute and the motor.
+    fix: |
+      Isolate the pump, relieve pressure, and replace the mechanical seal kit (ceramic stationary seat +
+      carbon spring rotary seal) and volute gasket — or swap in a complete replacement bearing assembly. Check
+      the shaft sleeve for grooves and test loop fluid for abrasive magnetite or acidic glycol that chewed up
+      the old seal face.
+    safety: >-
+      Isolate the pump, let it cool below about 120 °F and relieve it to 0 psig before opening it.
+      Collect every drain, purge, bleed and relief discharge in labeled drums; never to a floor drain, the
+      ground, ice or sea. Ethylene glycol is poisonous: keep it from food, drinking water and animals and
+      wash skin. Propylene glycol is low-toxicity, not harmless, and spent loop fluid carries metals and
+      inhibitors. Follow the station spill and waste procedure and report spills.
+    refs: [practice]
+
+  - id: hyd.terminal_fan
+    name: Unit-heater or fan-coil blower motor failed (hot coil, fan dead)
+    systems: [hydronic]
+    prior: common
+    keywords: [unit heater fan dead, fan coil motor off, hot pipes no air, bad aquastat on unit heater]
+    signs:
+      gen.output: none|weak
+      hyd.scope: one_zone!
+      hyd.terminal_air: fan_off!
+      hyd.supply_temp: normal
+      hyd.loop_dt: low?
+    confirm: |
+      Supply and return pipes right at the unit heater or fan coil are hot, but the fan motor is not spinning
+      (leaving return water nearly as hot as supply).
+    fix: |
+      Check whether a strap-on pipe aquastat (low-limit fan delay) is open even though the pipe is hot, then
+      meter line voltage and the run capacitor at the fan motor. Replace the strap-on aquastat, run capacitor,
+      or seized fan motor.
+    safety: Lock out unit-heater power before reaching past the fan guard.
+    refs: [practice]
+
+  - id: hyd.terminal_blocked
+    name: Baseboard / convector fins dirty, damper closed, or airflow blocked
+    systems: [hydronic]
+    prior: common
+    keywords: [blocked baseboard, dirty fin tube, closed convector damper, furniture blocking radiator]
+    signs:
+      gen.output: weak
+      hyd.scope: one_zone!
+      hyd.terminal_air: fins_blocked!
+      hyd.supply_temp: normal
+      hyd.circ: running
+    confirm: |
+      The copper tube inside the baseboard or convector is hot from end to end, but natural convection is
+      choked off by a closed top louver, heavy dust/carpet blocking the bottom air gap, or furniture pushed
+      tight against the cover.
+    fix: |
+      Flip the baseboard top damper open, clear at least 1–2 inches under the bottom skirt and move furniture/
+      drapes away, and vacuum or brush lint out of the aluminum fins. Fin-tube baseboards are convection
+      heaters — if air can't enter the bottom and leave the top, heat stays in the water.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.coil_fouled
+    name: Unit-heater or fan-coil coil fouled (filter plugged, fins matted with dust or lint, tubes scaled or air-bound)
+    systems: [hydronic]
+    prior: common
+    keywords: [dirty unit heater coil, plugged fan coil filter, matted coil fins, fouled fan coil, weak air off unit heater, lint on coil]
+    signs:
+      gen.output: weak
+      hyd.scope: one_zone!
+      hyd.terminal_air: coil_fouled!
+      hyd.supply_temp: normal
+      hyd.circ: running
+    confirm: |
+      The supply and return pipes at the unit are hot and the fan runs, but airflow off the coil is weak: the
+      filter is loaded, the fin face is matted with dust or lint, or the coil is cold in patches because its
+      tubes are scaled or air-bound.
+    fix: |
+      Lock out the unit. Replace or clean the filter, comb and vacuum the fin face from the air-leaving side
+      (and wash it with a coil cleaner approved for the fin material), and bleed air from the coil. If part of
+      the coil stays cold with a clean fin face and good airflow, flush or descale the tubes. Recheck the
+      airflow and the coil's temperature drop.
+    safety: Lock out unit power before reaching past the fan guard, and keep water and cleaner off the motor and controls.
+    refs: [practice]
+
+  - id: hyd.reset_control
+    name: Outdoor-reset sensor or supply setpoint control fault (target supply temp too low)
+    systems: [hydronic]
+    prior: occasional
+    keywords: [bad outdoor sensor, outdoor reset wrong, lukewarm loop water, 10k thermistor drifted]
+    signs:
+      gen.output: weak
+      hyd.scope: whole_loop!
+      hyd.supply_temp: low!
+      hyd.reset_setpoint: too_low!
+      hyd.mixing_valve_state: ok
+      hyd.circ: running
+    confirm: |
+      Pumps and valves work normally, but the reset controller is holding loop supply water lukewarm (e.g.
+      110 °F in subzero weather) because the outdoor thermistor drifted low in resistance (reading warm) or
+      the reset curve / high limit was turned down.
+    fix: |
+      Disconnect the outdoor thermistor and measure its resistance against its 10 kΩ / 1 kΩ temperature chart;
+      replace a drifted sensor or relocate one mounted in direct sun or near an exhaust hood. If the sensor is
+      temporarily unavailable, enable manual setpoint override at a temperature that stays under the lowest
+      limit in the loop (plastic or radiant piping, DHW) so the building stays warm.
+    refs: [practice]
+
+  - id: hyd.primary_recovery_cold
+    name: Primary heat-recovery loop cold and backup boiler failing to stage on
+    systems: [hydronic]
+    prior: occasional
+    keywords: [waste heat cold, jacket water cold, backup boiler not staging, heat recovery plant cold]
+    signs:
+      gen.output: none|weak
+      hyd.scope: whole_loop!
+      hyd.supply_temp: low!
+      hyd.primary_source: cold_no_stage!
+      hyd.hx_approach: normal
+      hyd.circ: running
+    confirm: |
+      On a waste-heat / generator jacket-water recovery loop, the primary hot supply entering the building or
+      plant HX has dropped cold, and the auxiliary/backup boiler did not automatically stage on to pick up the
+      load.
+    fix: |
+      Start or enable the backup boiler in manual/local lead mode right away to protect the building and
+      glycol loop from freezing, but prove flow through it first (pump running, flow switch made) and bring
+      the return temperature up gradually (use the boiler bypass) rather than hitting a hot boiler with a
+      subzero return. Then troubleshoot the staging changeover aquastat/PLC interlock, the backup boiler's
+      isolation valve actuator, and check with the power plant on primary jacket-water loop status and
+      primary pumps.
+    safety: In polar heat-recovery loops, loss of primary heat with no backup boiler staging can freeze building utilities — bring backup firing online first.
+    refs: [practice]
+
+  - id: hyd.dhw_indirect
+    name: Indirect domestic hot water (DHW) fault — zone off, scaled coil, or bad tempering valve
+    systems: [hydronic]
+    prior: occasional
+    keywords: [no domestic hot water, indirect water heater cold, bad tempering valve, dhw mixing valve]
+    signs:
+      gen.output: none|weak
+      hyd.scope: one_zone
+      hyd.dhw_status: fault!
+      hyd.supply_temp: normal
+    confirm: |
+      Space heating works, but domestic hot water at the taps is cold or lukewarm: checking the indirect tank
+      shows either the DHW aquastat/circulator isn't circulating boiler water through the tank coil, the coil
+      is scaled (boiler loop hot in/out with zero ΔT while tank is cold), or the tank outlet pipe is hot right
+      into the ASSE 1017 tempering valve and cold leaving it.
+    fix: |
+      Compare the pipe leaving the top of the indirect tank with the mixed pipe leaving the thermostatic
+      tempering valve: if the tank outlet is hot (storage should sit at about 140 °F or above) and the mixed
+      outlet is cold, rebuild or replace the stuck tempering valve. If the tank itself is cold, test the tank
+      aquastat, DHW zone valve/circulator, and purge air or descale the indirect heat-exchanger coil.
+    safety: >-
+      After any tempering-valve work, measure the delivered temperature at the farthest tap with a thermometer;
+      it must be no hotter than about 120 °F. Do not bypass the valve or raise setpoints to chase warmth. Store
+      at about 140 °F or above for Legionella control (the tempering valve is what makes that safe). Indirect
+      coils on glycol loops must be double-wall; after a coil leak, test the potable side.
+    refs: [practice]
+
+  # ==================== LOW-PRESSURE STEAM & CONDENSATE (steam) ====================
+  - id: hyd.trap_failed_open
+    name: Steam trap failed open — blowing live steam into the condensate return
+    systems: [steam]
+    prior: very_common
+    keywords: [blowing steam trap, live steam in return, hot condensate receiver, vent blowing steam]
+    signs:
+      hyd.trap_check: failed_open!
+      hyd.steam_scope: {return_issue: 0.5, normal: 0.3, one_unit: 0.15, main_slow: 0.05}
+      hyd.cond_temp: high?
+      hyd.vent_plume: live_steam?
+      gen.runs_constantly: 'yes?'
+    confirm: |
+      Listening with a stethoscope or ultrasonic detector finds a trap that hisses or roars continuously, with
+      its outlet pipe at about 212 °F. One blowing trap in a large system often leaves the receiver vent and the
+      return header looking normal; with several, live steam may jet out of the receiver vent and the
+      condensate return reads well above this plant's baseline.
+    fix: |
+      Isolate the failed trap (supply valve shut, return side valved off), let it cool and confirm 0 psig, then
+      open the trap body and replace the thermostatic bellows/capsule (on radiator and F&T traps) or inverted
+      bucket/disc assembly. Check that any 3-valve trap bypass is closed tight. Fixing a blowing trap stops
+      return back-pressure that blocks other units from draining and stops live steam from vapor-binding the
+      condensate/vacuum pumps.
+    safety: Condensate return lines with a failed-open trap carry live steam. Verify the branch or main is isolated and at 0 psig, and let it cool, before opening any trap cap, strainer plug or union.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.trap_failed_closed
+    name: Steam trap failed closed or plugged — radiator or coil cold and waterlogged
+    systems: [steam]
+    prior: common
+    keywords: [plugged steam trap, trap failed closed, waterlogged radiator, cold steam coil]
+    signs:
+      gen.output: none|weak
+      hyd.steam_scope: one_unit!
+      hyd.trap_check: failed_closed!
+      hyd.water_hammer: 'yes?'
+      hyd.rad_valve: open
+    confirm: |
+      Steam supply pipe is hot right up to the radiator, convector, or unit heater, the manual supply valve is
+      open, but the trap and return line are cold because condensate and air are backed up inside the unit.
+    fix: |
+      Isolate the unit's steam supply valve, let the flooded radiator/coil cool, and confirm 0 psig. Then drain
+      the trapped water through the trap's drain plug or a full-port valve to a safe drain with a pipe or hose,
+      not into a bucket under the line. Clean the inlet Y-strainer and replace the failed thermostatic element
+      or clogged float-and-thermostatic (F&T) trap internals.
+    safety: >-
+      Verify the branch is isolated and at 0 psig before opening any trap cap, strainer plug or union, and blow
+      down slowly through a full-port valve to a safe drain. In subfreezing air handlers or unit heaters, a
+      failed-closed steam trap floods the coil with water that freezes and bursts the tubes within minutes.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.air_vent_closed
+    name: Steam radiator or main air vent stuck closed (air-bound radiator or slow main)
+    systems: [steam]
+    prior: very_common
+    keywords: [bad radiator air vent, clogged hoffman vent, air bound steam radiator, slow heating radiator]
+    signs:
+      gen.output: none|weak
+      hyd.steam_scope: one_unit|main_slow
+      hyd.steam_vent: stuck_closed!
+      hyd.rad_valve: open
+      hyd.trap_check: ok
+    confirm: |
+      On a one-pipe radiator or steam main, steam cannot enter until air is pushed out: the supply main is hot
+      and the vent never hisses air and stays cold. With the supply valve shut and the unit cool, blow through
+      the vent: a good one passes air freely when cold, and one that will not pass air is plugged. Reopen the
+      valve slowly; steam should fill the unit from the supply end in a minute or two, and the vent should hiss,
+      then close.
+    fix: |
+      Close the radiator supply valve (for a main vent, shut the boiler down and let the main reach 0 psig), let
+      it cool until you can hold the vent, then unscrew it and thread in a new properly sized radiator or main
+      vent (never boil/soak old vents in vinegar if the internal float or orifice is corroded — replace it). At
+      the far end of long steam mains, install high-capacity main vents 6–15 inches back from the end elbow and
+      6 inches above the main so steam reaches all risers evenly.
+    safety: Never unscrew a vent, plug or union from anything holding steam. Close the supply valve, let it cool, and confirm 0 psig before opening.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.air_vent_open
+    name: Steam radiator or main air vent stuck open (spitting live steam and water)
+    systems: [steam]
+    prior: common
+    keywords: [radiator vent spitting steam, vent hissing nonstop, water spitting from air vent]
+    signs:
+      hyd.steam_vent: stuck_open!
+      gen.water_leak: 'yes?'
+      hyd.steam_scope: one_unit
+      hyd.rad_valve: open
+    confirm: |
+      After the radiator heats up completely, the air vent fails to snap shut and continues hissing live steam
+      or sputtering hot water into the room.
+    fix: |
+      Shut the radiator supply valve and let the radiator and vent cool until you can hold them (10–20
+      minutes for cast iron), then replace the stuck-open air vent, making sure the new vent sits dead
+      vertical so its internal float can rise and seat properly.
+    safety: A vent spitting steam is under pressure. Shut the supply valve and let the unit cool before you touch the vent.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.water_hammer_pitch
+    name: Sagging, back-pitched pipe, or lifted condensate return causing water hammer
+    systems: [steam]
+    prior: common
+    keywords: [banging steam pipes, sagging hanger, back pitched radiator, water hammer]
+    signs:
+      hyd.water_hammer: 'yes!'
+      hyd.pipe_pitch: sagged!
+      hyd.drip_trap: ok
+      hyd.rad_valve: open
+      gen.output: weak|normal
+    confirm: |
+      Violent banging or pounding in the steam main, runout, or radiator on warm-up, and checking with a level
+      shows a broken hanger, bellied horizontal pipe, radiator pitched away from its drain end, or a return
+      line lifting condensate up to an overhead return.
+    fix: |
+      Restore a continuous slope toward the drain end of the pipe (steeper rather than shallower, and steeper
+      still on counterflow runouts where the condensate runs against the steam) by replacing broken pipe
+      hangers, shimming the far feet of one-pipe radiators so condensate drains back down the supply valve, and
+      adding a drip trap or condensate pump at any low point instead of trying to lift condensate with steam
+      pressure.
+    safety: Severe steam water hammer can crack cast-iron fittings and valves — open main steam valves slowly on cold start-up.
+    notes: Published pitch figures differ between sources, and TM 5-642 gives none. Use the plant's piping standard or the maker's data; a main with any sag holds condensate.
+    refs: [practice]
+
+  - id: hyd.steam_carryover
+    name: Boiler priming or carryover (water line too high, dirty or oily boiler water, over-firing) sending wet steam
+    systems: [steam]
+    prior: occasional
+    keywords: [boiler priming, carryover, wet steam, bouncing water line, foaming boiler, surging boiler water]
+    signs:
+      hyd.water_hammer: 'yes!'
+      hyd.boiler_level: bouncing|high
+      hyd.pipe_pitch: good
+      hyd.drip_trap: ok
+    confirm: |
+      Water hammer shows up although the pipe pitch is sound and the drip traps are working, the gauge-glass
+      water line bounces or sits too high, and wet steam (water slugs) is carried out into the header. Check the
+      boiler water for oil, grease or heavy dirt.
+    fix: |
+      Bring the water line down to the normal mark, blow down per the maker's procedure to remove oil, grease
+      and dirt (surface skim if fitted), cut the firing rate to what the load needs, and clean the boiler
+      (boil-out) if oil or grease is present. The oil-boiler checks on water level and water condition apply
+      here too.
+    safety: Blow down only per the maker's procedure, slowly and to a safe drain, and keep the water line in the glass the whole time.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.drip_trap_failed
+    name: Steam main or riser drip trap failed closed or plugged (flooded main and water hammer)
+    systems: [steam]
+    prior: common
+    keywords: [plugged drip trap, flooded steam main, bad f and t trap on main, banging main]
+    signs:
+      hyd.water_hammer: 'yes!'
+      hyd.drip_trap: cold_plugged!
+      hyd.steam_scope: main_slow
+      hyd.pipe_pitch: good
+      gen.output: weak
+    confirm: |
+      Loud water hammer in the steam header and slow/wet steam to downstream branches while the main drip leg
+      and float-and-thermostatic (F&T) drip trap at the end of the main or base of the riser are cold.
+    fix: |
+      Isolate the drip branch and confirm it is cool and at 0 psig. Then blow down the dirt pocket slowly
+      through a full-port valve to a safe drain with a pipe or hose, clean the Y-strainer ahead of the drip
+      trap, and rebuild or replace the failed F&T drip trap. Never allow condensate to pool in a high-velocity
+      steam main.
+    safety: Verify the branch or main is isolated and at 0 psig before opening any trap cap, strainer plug, union or drip-leg blowdown. Blow down slowly through a full-port valve to a safe drain with a pipe or hose, not a bucket under the line.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.supply_valve_closed
+    name: Steam radiator or coil supply valve closed, throttled on one-pipe, or disc off stem
+    systems: [steam]
+    prior: common
+    keywords: [radiator valve closed, one pipe valve half open, valve disc stuck on seat]
+    signs:
+      gen.output: none|weak
+      hyd.steam_scope: one_unit!
+      hyd.rad_valve: closed_or_throttled!
+      hyd.water_hammer: 'yes?'
+      hyd.steam_vent: ok
+      hyd.trap_check: ok
+    confirm: |
+      A single radiator or convector is cold (or gurgling/banging at the inlet on a one-pipe system) because
+      its manual supply valve is shut, left half-throttled on a one-pipe radiator, or the brass disc has come
+      detached from the stem and stays seated when the handwheel is turned.
+    fix: |
+      On a one-pipe steam radiator, open the supply valve 100% all the way (throttling a one-pipe valve traps
+      leaving condensate against incoming 60-mph steam and causes loud hammering). If the handwheel spins
+      without lifting the disc off the seat, shut down steam, unscrew the valve bonnet, and reattach or
+      replace the valve assembly.
+    safety: Never unscrew a valve bonnet, union or plug on a line holding steam. Shut it off, let it cool, and confirm 0 psig first.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.cond_pump_float
+    name: Condensate pump float switch stuck or linkage binding
+    systems: [steam]
+    prior: common
+    keywords: [bad float switch, condensate receiver overflowing, float stuck in condensate tank]
+    signs:
+      hyd.steam_scope: return_issue!
+      hyd.cond_pump: off_full!
+      hyd.cond_float: stuck!
+      hyd.vent_plume: water
+      gen.water_leak: 'yes'
+      gen.power: present
+    confirm: |
+      The condensate receiver is full or overflowing onto the floor, line power is present at the disconnect,
+      the float switch contacts are open, and lifting or tapping the float rod starts the pump.
+    fix: |
+      Inspect the float ball for pinholes (a waterlogged copper or plastic float won't rise), straighten any
+      bent float rod rubbing the receiver wall, adjust the upper and lower stop collars, or replace the Square
+      D / NEMA float switch. On duplex receivers, verify the lag/alternator float switch also trips before the
+      vent overflows.
+    safety: Lock out the pump and let the receiver cool before you reach in or open the cover; the water can be 180–210 °F.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.cond_pump_motor
+    name: Condensate pump motor failed or thermal overload tripped
+    systems: [steam]
+    prior: occasional
+    keywords: [condensate pump motor dead, tripped overload on condensate pump, receiver overflowing]
+    signs:
+      hyd.steam_scope: return_issue!
+      hyd.cond_pump: off_full!
+      hyd.cond_float: ok!
+      hyd.vent_plume: water
+      gen.water_leak: 'yes'
+      gen.burnt_smell: 'yes?'
+    confirm: |
+      The receiver is full, the float switch is closed and delivering full line voltage directly to the motor
+      leads, but the condensate pump motor is silent (open overload/winding) or humming and locked up.
+    fix: |
+      If the receiver is a duplex unit, switch the selector to the standby pump to drain the receiver right
+      away. Lock out the failed pump, check whether the impeller is jammed with scale before resetting a
+      thermal overload, and replace the motor + shaft seal assembly if the windings are open or grounded.
+    safety: Lock out power and let the receiver cool (its water can be 180–210 °F) before unbolting the vertical motor from the condensate receiver cover.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.cond_pump_impeller
+    name: Condensate pump clogged, vapor-bound, running backward or blocked at the discharge (runs without pumping)
+    systems: [steam]
+    prior: common
+    keywords: [condensate pump runs nonstop, vapor bound condensate pump, clogged impeller, condensate pump wrong rotation, condensate pump blocked discharge]
+    signs:
+      hyd.steam_scope: return_issue!
+      hyd.cond_pump: runs_no_pump!
+      hyd.cond_float: ok
+      hyd.cond_check: holds
+      hyd.vent_plume: water|live_steam
+    confirm: |
+      The condensate pump motor runs continuously with the receiver full, but discharge pressure is low and
+      the tank level barely drops — either because scale/rust has plugged the inlet strainer/impeller, because
+      condensate near 200 °F or more is flashing to steam in the pump eye (vapor binding), because the motor
+      is turning the wrong way, or because the discharge line is blocked. Gauge the pump discharge against
+      boiler pressure, and check rotation with a rubber-tipped pencil touched to the shaft.
+    fix: |
+      Check receiver temperature first: if condensate is hot enough to flash in the pump eye (around 200 °F or
+      more, often from a blowing steam trap), cooling the receiver and fixing the failed-open trap cures the
+      vapor lock. Otherwise, lock out the pump, clean the inlet strainer, clear rust scale from the impeller
+      vanes, check rotation on 3-phase motors against the arrow on the casing, and verify discharge valve
+      opening and that the discharge line is clear.
+    safety: Let the receiver cool and lock out the pump before opening the receiver cover or pump inlet; the water can be 180–210 °F. Verify the discharge line is isolated and at 0 psig before opening it.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.cond_receiver_flood
+    name: Receiver flooded by a stuck-open make-up valve (pump cycles normally but cannot keep up)
+    systems: [steam]
+    prior: common
+    keywords: [receiver overflowing makeup valve, makeup valve stuck open, condensate tank flooding, receiver overflow pump runs normally, float makeup valve stuck]
+    signs:
+      hyd.steam_scope: return_issue!
+      hyd.vent_plume: water!
+      hyd.cond_pump: normal
+      hyd.cond_temp: normal
+      gen.water_leak: 'yes'
+    confirm: |
+      The pump starts, pumps down and stops normally, yet the receiver overflows or stays full, and the water in
+      it is cooler than usual because cold make-up keeps pouring in. Shutting the make-up valve lets the level
+      fall.
+    fix: |
+      Shut the make-up valve and see whether the level falls; then check the make-up float and the valve seat,
+      and adjust or replace them. The other receiver-overflow causes (wrong pump rotation, low discharge
+      pressure, a clogged outlet) belong with the pump that runs without pumping.
+    safety: Let the receiver cool and lock out the pump before opening the receiver cover; the water can be 180–210 °F.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.cond_check_leak
+    name: Condensate pump discharge check valve leaking back (boiler water backing into receiver)
+    systems: [steam]
+    prior: common
+    keywords: [condensate pump short cycling, check valve leaking back, receiver refilling fast]
+    signs:
+      hyd.steam_scope: return_issue
+      hyd.cond_pump: short_cycles!
+      hyd.cond_check: leaks_back!
+      hyd.cond_temp: high?
+      gen.short_cycle: 'yes!'
+    confirm: |
+      The condensate pump pumps the receiver down and shuts off, then you immediately hear and feel hot boiler
+      feedwater rushing backward through the discharge check valve, refilling the receiver and re-triggering
+      the pump every few minutes (while boiler water level drops on shutdown).
+    fix: |
+      Close the manual isolation valve downstream of the discharge check valve, let the line cool and
+      depressurize, and clean scale off the swing/spring check clapper or replace the check valve.
+    safety: Pressurized hot boiler water sits immediately downstream of the condensate discharge check — close the downstream isolation valve before opening the check.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.vac_pump_failed
+    name: Vacuum return pump failing to pull vacuum (air leak in return or hot-condensate vapor lock)
+    systems: [steam]
+    prior: occasional
+    keywords: [no vacuum on return, vacuum pump runs constantly, air leak in vacuum return]
+    signs:
+      hyd.vac_reading: low!
+      gen.runs_constantly: 'yes!'
+      hyd.steam_scope: main_slow|return_issue
+      hyd.cond_temp: normal|high
+      gen.output: weak
+    confirm: |
+      The vacuum return unit runs nonstop on vacuum control, but the compound gauge stays near 0 in. Hg
+      instead of pulling 2–6 in. Hg and shutting off.
+    fix: |
+      Per TM 5-642: (1) check condensate temperature — a vacuum pump fed hot condensate (over about 180–190 °F
+      from leaking traps) cannot pull a vacuum, because seal water that hot cannot hold the 2–6 in. Hg the
+      system wants; switch the pump to float-only control temporarily and fix the blowing traps; (2) isolate
+      return branch valves one at a time to locate air leaks in corroded return piping, union gaskets, or
+      radiator valve packings; (3) inspect the pump impeller/venturi clearances and discharge check valve.
+    safety: Lock out the pump and let it cool before opening it; condensate and seal water can be 180–210 °F. Verify the lines are isolated and at 0 psig before opening any union or check valve.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.steam_leak
+    name: Steam pipe, union, valve packing, or return line leak
+    systems: [steam]
+    prior: common
+    keywords: [steam leak, leaking valve packing, hissing union, rusted wet return leaking]
+    signs:
+      hyd.steam_leak_loc: 'yes!'
+      gen.water_leak: 'yes!'
+      hyd.vent_plume: normal
+      hyd.cond_pump: normal
+    confirm: |
+      Visible wisp/hiss of live steam at a valve stem packing nut, union, or flange gasket, or condensate
+      dripping from a corroded horizontal return line.
+    fix: |
+      For a leaking radiator or gate valve stem, back off the packing nut with steam off, wrap graphite/PTFE
+      valve stem packing around the stem, and snug the packing nut just enough to stop the leak without
+      binding the stem. For corroded horizontal condensate return piping (often grooved along the bottom from
+      carbonic acid), cut out and replace the rotted section with Schedule 80 black steel pipe.
+    safety: Never tighten a union or flange under live steam pressure — isolate and depressurize the line first.
+    refs: [tm-5-642, practice]
+
+  - id: hyd.steam_prv_failed
+    name: Steam pressure-reducing station not holding its set pressure (pilot line plugged, diaphragm failed, cut seat, stem binding, or wrong spring or weight setting)
+    systems: [steam]
+    prior: uncommon
+    keywords: [reducing valve failed, prv stuck, steam pressure reducing valve, low steam pressure at units, low side relief popping, prv leaking through, pilot line plugged]
+    signs:
+      hyd.prv_outlet: {low: 0.6, high: 0.35}
+      hyd.steam_scope: main_slow?
+      gen.output: none|weak?
+    confirm: |
+      The gauge on the low-pressure main (10 ft or more past the valve) sits well under the set pressure while
+      the high-pressure side is up (valve not passing: pilot line plugged, stem binding, strainer plugged), or it
+      climbs over the setting and lifts the low-side relief (cut seat, or the valve held open).
+    fix: |
+      With the station isolated and at 0 psig, clean the strainer ahead of the valve and the pilot line (refill
+      the pilot line with water to protect the diaphragm), check the diaphragm, the stem and the seat and disk
+      for cuts or binding, and reset the spring or weight to the required pressure. Cut seats and valve heads
+      mean the valve is oversized. Overhaul or replace the valve per the maker's data.
+    safety: Isolate and relieve both sides of the station before opening it. A station that is not holding its setting can overpressure the low-pressure system, so confirm the low-side relief valve is free and piped to a safe place.
+    refs: [tm-5-642, practice]

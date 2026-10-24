@@ -1,0 +1,330 @@
+module: common
+title: Shared findings and causes — power, controls, and the complaints every system has
+
+features:
+  # ---------------- the complaint every system has ----------------
+  - id: gen.output
+    name: '{Output}'
+    ask: How much {output} is it giving?
+    systems: ['*']
+    complaint: true
+    chip: state
+    cost: 1
+    # "none" vs "weak" depends on where you stand: a dead zone in a mostly warm building gets
+    # reported as "not enough heat". The engine reads the answer through these rates.
+    confuse:
+      none: {weak: 0.25}
+      weak: {none: 0.1, normal: 0.05}
+      normal: {weak: 0.05}
+    states:
+      none: No {output} at all
+      weak: Not enough {output}
+      normal: '{Output} is normal'
+    phrases:
+      none: [not cooling, no cooling, no cold air, no heat, not heating, no hot water, no ice, nothing coming out,
+        not working at all, dead warm, room temperature, blowing warm, blowing cold air in heat, no air]
+      weak: [not cooling enough, not cold enough, warm, too warm, box warm, box temperature high, high box temp,
+        temperature rising, cant keep up, can't keep up, not heating enough, cold building, cold room, lukewarm,
+        weak heat, weak cooling, slow to cool, slow to heat, poor cooling, poor heat, slow ice, low airflow]
+      normal: [cooling fine, heating fine, temperature ok]
+  - id: gen.dead
+    name: Completely dead
+    ask: Is the unit completely dead — nothing runs, no lights, no display, no sound?
+    systems: ['*']
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'yes': Completely dead — nothing at all
+      'no': Something runs or lights up
+    phrases:
+      'yes': [dead, totally dead, nothing works, nothing happens, no power, wont turn on, won't turn on, no lights,
+        blank display, display off, completely off, wont start, won't start]
+  - id: gen.short_cycle
+    name: Short cycling
+    ask: Does it start and stop every few minutes (short cycling)?
+    systems: ['*']
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'yes': Short cycling — starts and stops every few minutes
+      'no': Runs normal cycles
+    phrases:
+      'yes': [short cycling, short cycles, cycling on and off, turns on and off, starts and stops, keeps shutting off,
+        cuts out, cutting out, kicks off, trips off and on, clicking on and off]
+  - id: gen.runs_constantly
+    name: Runs nonstop
+    ask: Does it run nonstop without ever reaching setpoint?
+    systems: ['*']
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'yes': Runs nonstop, never satisfies
+      'no': Shuts off normally
+    phrases:
+      'yes': [runs constantly, runs all the time, never shuts off, never stops, runs nonstop, never satisfies,
+        always running, won't shut off, wont shut off, high bills, high fuel use]
+  - id: gen.water_leak
+    name: Water leaking
+    ask: Is water leaking, dripping or puddling from the unit?
+    systems: ['*']
+    complaint: true
+    chip: state
+    cost: 1
+    states:
+      'yes': Water leaking or on the floor
+      'no': No water where it shouldn't be
+    phrases:
+      'yes': [water leak, leaking water, dripping, drip, puddle, water on floor, water on the floor, overflowing,
+        overflow, wet ceiling, water stain, ceiling stain, relief valve dripping, weeping]
+  - id: gen.burnt_smell
+    name: Burning smell
+    ask: Is there a burning, hot-electrical or scorched smell?
+    systems: ['*']
+    chip: state
+    cost: 1
+    states:
+      'yes': Burning or electrical smell
+      'no': No burning smell
+    phrases:
+      'yes': [burning smell, burnt smell, smells like burning, electrical smell, smoke smell, scorched, melted wire,
+        smells hot]
+  - id: gen.intermittent
+    name: Comes and goes
+    ask: Does the problem come and go, working fine at other times?
+    systems: ['*']
+    chip: state
+    cost: 1
+    states:
+      'yes': Problem comes and goes
+      'no': Problem is constant
+    phrases:
+      'yes': [intermittent, comes and goes, sometimes works, works sometimes, on and off problem, random, sporadic,
+        every once in a while, only at night, only in the morning]
+  - id: gen.recent_work
+    situational: true
+    name: Recently worked on
+    ask: Was it serviced, repaired, charged, moved or modified recently?
+    systems: ['*']
+    chip: state
+    cost: 1
+    states:
+      'yes': Worked on recently
+      'no': No recent work
+    phrases:
+      'yes': [recently serviced, just serviced, after service, after repair, just charged, added refrigerant,
+        new install, newly installed, just replaced, after maintenance, tuned up]
+  - id: gen.after_outage
+    situational: true
+    name: Started after a power event
+    ask: Did it start after a power outage, generator switch-over or storm?
+    systems: ['*']
+    chip: state
+    cost: 1
+    states:
+      'yes': Started after a power outage or switch-over
+      'no': Not tied to a power event
+    phrases:
+      'yes': [after power outage, power outage, power went out, after the outage, after a storm, generator,
+        power blip, power bump, brownout, switch over, transfer]
+
+  # ---------------- power and control checks ----------------
+  - id: gen.power
+    name: Line voltage at the unit
+    ask: Is there line voltage at the unit's disconnect or power terminals?
+    how: Meter across the line terminals (L1–L2, or L–N on 120 V) at the unit, not just at the panel.
+    systems: ['*']
+    states:
+      present: Present
+      missing: Missing
+    normal: present
+    cost: 2
+    needs: meter
+    phrases:
+      missing: [no voltage, no power at unit, no line voltage, zero volts, dead at the disconnect]
+      present: [power at unit, has power, voltage present]
+  - id: gen.breaker
+    name: Breaker / fuses
+    ask: Check the breaker and fuses feeding the unit — what do you find?
+    systems: ['*']
+    states:
+      ok: On and intact
+      tripped: Tripped, off, or a fuse blown
+      retrips: Trips again right after reset
+    normal: ok
+    cost: 1
+    phrases:
+      tripped: [breaker tripped, tripped breaker, popped breaker, blown fuse, fuse blown, breaker off, disconnect off]
+      retrips: [keeps tripping breaker, trips breaker, breaker trips, breaker keeps tripping, blows fuses,
+        keeps blowing fuses, trips immediately, pops the breaker]
+  - id: gen.control_v
+    name: Control voltage (24 V)
+    ask: Is there 24 V control power at the transformer secondary or control board?
+    how: Meter R to C (or the transformer secondary). Expect about 24–28 V AC.
+    systems: ['*']
+    states:
+      present: Present
+      missing: Missing
+    normal: present
+    cost: 2
+    needs: meter
+    ask_if: {gen.power: present}
+    phrases:
+      missing: [no 24 volts, no 24v, no control voltage, no low voltage, transformer dead, control fuse blown,
+        board dead, no lights on board]
+  - id: gen.call
+    name: Call for {output}
+    ask: Is the thermostat or controller actually calling for {output}?
+    how: Check the setpoint, mode and schedule, then meter the call terminal (Y for cooling, W for heat) to C at
+      the unit, or watch the controller's output light.
+    systems: ['*']
+    states:
+      calling: Calling
+      not_calling: Not calling
+    normal: calling
+    cost: 2
+    phrases:
+      not_calling: [thermostat not calling, no call, no call for cooling, no call for heat, thermostat blank,
+        setpoint wrong, thermostat batteries, controller off, no y signal, no w signal]
+      calling: [thermostat calling, calling for cooling, calling for heat]
+  - id: gen.voltage
+    name: Supply voltage under load
+    ask: What is the supply voltage at the unit with it running?
+    systems: ['*']
+    states:
+      low: Low (more than 10 % under)
+      normal: Within ±10 %
+      high: High (more than 10 % over)
+    cost: 2
+    needs: meter
+    ask_if: {gen.power: present}
+    phrases:
+      low: [low voltage, voltage drop, brownout, low line voltage, 190 volts]
+      high: [high voltage, overvoltage]
+
+inputs:
+  - id: gen.volts
+    name: Supply voltage (running)
+    unit: V
+    systems: ['*']
+  - id: gen.volts_nominal
+    name: Nameplate voltage
+    unit: V
+    systems: ['*']
+    choices: [115, 208, 230, 460, 575]
+
+measures:
+  - id: gen.voltage_ratio
+    name: Supply voltage vs nameplate
+    unit: '%'
+    systems: ['*']
+    value: gen.volts / gen.volts_nominal * 100
+    target: '100'
+    sets: gen.voltage
+    states:
+      - [low, v < 90]
+      - [high, v > 110]
+      - [normal, 'true']
+
+causes:
+  - id: gen.no_line_power
+    name: No line power — breaker off or tripped, disconnect off, or a fuse blown
+    systems: ['*']
+    prior: common
+    signs:
+      gen.dead: yes
+      gen.output: none!
+      gen.power: missing!
+      gen.breaker: {tripped: 0.6, ok: 0.37, retrips: 0.03}
+    confirm: No voltage across the line terminals at the unit's disconnect, then work back toward the panel.
+    fix: |
+      Find where the power stops: panel breaker, disconnect switch, fuses (in the disconnect and inside the unit),
+      then the wiring between. Before resetting a tripped breaker or replacing a fuse, ask why it opened: check
+      the loads for a short to ground (meg or ohm each motor, compressor and heater to ground). If it trips
+      again right away, treat it as a shorted load, not a bad breaker.
+    safety: Lock out and tag before opening any panel. Verify dead with a tested meter.
+    refs: [practice]
+  - id: gen.short_to_ground
+    name: Short or ground fault in a load (keeps tripping the breaker)
+    systems: ['*']
+    prior: occasional
+    signs:
+      gen.breaker: retrips!
+      gen.dead: yes?
+      gen.output: none
+      gen.burnt_smell: yes?
+    confirm: With power locked out, meter (or megger) each load to ground — compressor terminals, motor leads,
+      heaters — and look for scorched wiring.
+    fix: |
+      Isolate the load that reads to ground or shorted (disconnect its leads one at a time). Repair chafed
+      wiring; replace the shorted motor, heater or compressor. A compressor reading to ground also needs an acid
+      test of the oil before a new one goes in. Never keep resetting a breaker on a dead short.
+    safety: Lock out and tag. A grounded compressor can blow its terminals out — don't run it to "see".
+    refs: [practice]
+  - id: gen.control_power
+    name: No control power — control transformer, control fuse or a shorted 24 V circuit
+    systems: ['*']
+    prior: occasional
+    signs:
+      gen.power: present!
+      gen.control_v: missing!
+      gen.dead: yes?
+      gen.output: none
+    confirm: Line voltage on the transformer primary but no 24 V on the secondary (transformer bad), or a
+      blown low-voltage fuse on the board.
+    fix: |
+      If the control fuse is blown, find the short before replacing it: a nicked thermostat wire, a shorted
+      contactor or relay coil, or a wire rubbing the cabinet. Measure each coil's resistance (most 24 V coils
+      read 5–20 Ω; near zero is shorted). Replace a transformer that has primary voltage but no secondary, and
+      check its VA rating against the load.
+    refs: [practice]
+  - id: gen.no_call
+    name: Thermostat or controller not calling (setpoint, mode, schedule, failed control or broken wire)
+    systems: ['*']
+    prior: common
+    signs:
+      gen.call: not_calling!
+      gen.power: present
+      gen.control_v: present?
+      gen.output: none
+      gen.dead: no?
+    confirm: No call signal at the unit while the space is away from setpoint; jumpering the call (e.g. R to Y
+      or R to W) at the unit starts it.
+    fix: |
+      Check mode, setpoint, schedule, batteries and any lockout or holiday setting. If the stat calls but the
+      unit doesn't see it, trace the wire for a break. Replace a thermostat or controller that won't close its
+      output, and check its sensor or probe (a sensor reading wrong makes the control think it's satisfied).
+    refs: [practice]
+  - id: gen.low_voltage
+    name: Low supply voltage (source, generator, undersized or long wiring)
+    systems: ['*']
+    prior: uncommon
+    signs:
+      gen.voltage: low!
+      gen.intermittent: yes?
+      gen.short_cycle: yes?
+    confirm: Voltage at the unit under load more than 10 % below nameplate; compare with the voltage at the
+      panel to find where it drops.
+    fix: |
+      If the drop is between the panel and the unit, look for a loose or corroded connection or undersized
+      wire. If the panel itself is low, it is a supply problem (utility or station power plant / generator
+      loading) — report it. Low voltage overheats motors and compressors, so fix it before replacing parts.
+    refs: [practice]
+  - id: gen.loose_connection
+    name: Loose or burnt power connection
+    systems: ['*']
+    prior: occasional
+    signs:
+      gen.burnt_smell: yes?
+      gen.intermittent: yes
+      gen.voltage: low?
+      gen.dead: yes?
+    confirm: Discolored or melted terminal, a lug that turns when tightened, or voltage that drops across a
+      connection under load.
+    fix: |
+      Lock out. Inspect lugs, terminal blocks, contactor and disconnect terminals for heat discoloration and
+      pitting. Cut back and re-terminate burnt conductors, replace damaged terminals, and torque to spec.
+    safety: Lock out and tag; verify dead before touching terminals.
+    refs: [practice]

@@ -1,0 +1,750 @@
+# Scenario tests for air handling and ventilation — fans, drives, VFDs, coils (air and water/glycol side),
+# mixing boxes, economizers, controls, cold-climate freeze protection, and building pressure. Each case is a
+# service call: what the tech saw or typed (findings), what the instruments read (inputs → measures), and where
+# the engine must land. expect.top = must be #1 · top3 = must be in the top three · measured = what the numbers
+# must classify as · next_any = one of the first three suggested checks must be among these.
+
+# ---------------- fan not running, starter, VFD, electrical ----------------
+- name: Calling for fan, power and 24 V present, all safeties closed, starter won't pull in — HOA in Off
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: 'off', gen.call: calling, gen.power: present, gen.control_v: present,
+    ahu.safety: closed, ahu.starter: not_pulling}
+  expect:
+    top: ahu.start_circuit
+
+- name: Fan down, duct smoke detector tripped in the start circuit
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: 'off', gen.call: calling, gen.control_v: present, ahu.safety: smoke,
+    ahu.starter: not_pulling, ahu.freezestat: ok}
+  expect:
+    top: ahu.safety_open
+
+- name: Across-the-line starter tripped on overload, motor drawing 18 A on a 14 A nameplate, rough bearing
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.starter: overload, ahu.bearings: rough}
+  inputs: {ahu.fan_amps: 18, ahu.fan_fla: 14}
+  expect:
+    top: ahu.overload_trip
+    measured: {ahu.motor_amps: high}
+
+- name: Starter pulls in, breaker retrips, burnt smell, motor winding grounded
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: 'off', ahu.starter: ok, ahu.motor: grounded, gen.breaker: retrips,
+    gen.burnt_smell: 'yes'}
+  expect:
+    top: ahu.motor_failed
+
+- name: Fan motor growls and trips, one fuse blown and one leg missing at the starter
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.phase: phase_loss, gen.breaker: tripped}
+  expect:
+    top: ahu.single_phase
+
+- name: Motor spinning at 4 A (FLA 12 A), wheel still, belt broken in the housing
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: motor_only, ahu.belt: broken}
+  inputs: {ahu.fan_amps: 4, ahu.fan_fla: 12, ahu.fan_sp_inwc: 0.1, ahu.fan_sp_design: 2.0}
+  expect:
+    top: ahu.belt_broken
+    measured: {ahu.motor_amps: low, ahu.static: low}
+
+- name: VFD keypad completely dark with 460 V at the input terminals
+  system: ahu
+  ctx: {vfd: 'yes'}
+  findings: {gen.output: none, ahu.fan: 'off', ahu.vfd_status: no_display, gen.power: present, gen.breaker: ok}
+  expect:
+    top: ahu.vfd_dead
+
+- name: VFD faulted on overcurrent, motor drawing 22 A against 16 A FLA, rough fan bearing
+  system: ahu
+  ctx: {vfd: 'yes'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.vfd_status: fault, ahu.vfd_fault: overcurrent, ahu.bearings: rough}
+  inputs: {ahu.fan_amps: 22, ahu.fan_fla: 16}
+  expect:
+    top: ahu.vfd_overcurrent
+    measured: {ahu.motor_amps: high}
+
+- name: VFD faults on DC-bus undervoltage during generator switch-over, supply at 400 V on a 460 V unit
+  system: ahu
+  ctx: {vfd: 'yes'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.vfd_status: fault, ahu.vfd_fault: line, gen.after_outage: 'yes',
+    gen.intermittent: 'yes'}
+  inputs: {gen.volts: 400, gen.volts_nominal: 460}
+  expect:
+    top: ahu.vfd_line
+    measured: {gen.voltage: low}
+
+- name: VFD trips on drive overtemperature every hot afternoon, heatsink clogged
+  system: ahu
+  ctx: {vfd: 'yes'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.vfd_status: fault, ahu.vfd_fault: overtemp, gen.intermittent: 'yes'}
+  expect:
+    top: ahu.vfd_overtemp
+
+- name: Weak airflow, VFD stuck at 30 Hz while BAS commands 60 Hz, low static and low amps
+  system: ahu
+  ctx: {vfd: 'yes'}
+  findings: {gen.output: weak, ahu.vfd_status: running}
+  inputs: {ahu.vfd_hz: 30, ahu.vfd_cmd_hz: 60, ahu.fan_sp_inwc: 0.6, ahu.fan_sp_design: 2.0, ahu.fan_amps: 4,
+    ahu.fan_fla: 12, ahu.filter_dp_inwc: 0.3, ahu.filter_dp_final: 1.0}
+  expect:
+    top: ahu.vfd_speed_limited
+    measured: {ahu.vfd_speed: low, ahu.static: low, ahu.motor_amps: low, ahu.filter: ok}
+
+- name: Fan down on a −28 °F morning, freezestat tripped, no air at all — a freeze cause leads, not the start circuit or a safety
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no', heat_coil: eg}
+  findings: {gen.output: none, ahu.fan: 'off', ahu.freezestat: tripped}
+  inputs: {ahu.oat_f: -28}
+  expect:
+    top3: [ahu.snow_ingestion]
+    not_top: [ahu.safety_open, ahu.start_circuit, ahu.overload_trip]
+    measured: {ahu.cold_oa: 'yes'}
+    next_any: [ahu.filter, ahu.coil_face, ahu.oa_damper, gen.water_leak, ahu.hv_cmd, ahu.hw_supply, ahu.fz_setting, ahu.intake]
+
+- name: Contactor pulls in, fan trips, line voltage in but one pole drops it — burnt pole on the across-the-line starter
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.starter: burnt, ahu.motor: ok}
+  expect:
+    top: ahu.contactor_bad
+    top3: [ahu.single_phase]
+
+- name: Direct-drive plenum fan, motor spinning at 3 A of 12, wheel standing still — set screws backed out and the key sheared
+  system: ahu
+  ctx: {fan_drive: direct, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: motor_only, ahu.wheel: damaged}
+  inputs: {ahu.fan_amps: 3, ahu.fan_fla: 12}
+  expect:
+    top: ahu.wheel_loose
+    measured: {ahu.motor_amps: low}
+
+- name: Single-phase exhaust fan hums and will not start, spins freely by hand, capacitor bulged
+  system: ahu
+  ctx: {vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.fan_cap: bulged, ahu.motor: ok, ahu.bearings: ok}
+  expect:
+    top: ahu.fan_cap_bad
+
+- name: BAS shows a fan-failure alarm and has locked out heat, but the wheel turns and the motor draws 9.5 A of 12
+  system: ahu
+  ctx: {vfd: 'no'}
+  findings: {ahu.fan: running, ahu.fan_status: says_off, gen.output: normal}
+  inputs: {ahu.fan_amps: 9.5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.fan_status_sensor
+    measured: {ahu.motor_amps: normal}
+
+- name: Overload relay trips only below −35 °F, motor drawing 13.5 A on a 12 A nameplate in the cold, fine in mild weather
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: none, ahu.fan: trips, ahu.starter: overload, ahu.bearings: ok}
+  inputs: {ahu.oat_f: -38, ahu.fan_amps: 13.5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.overload_trip
+    measured: {ahu.motor_amps: high, ahu.cold_oa: 'yes'}
+
+# ---------------- low airflow and air path ----------------
+- name: Squeal on start, glazed loose belt, static 0.8 in. w.c. against 2.0 design, motor under half FLA
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: weak, ahu.fan: running, ahu.belt: loose, ahu.noise: squeal, ahu.rotation: correct}
+  inputs: {ahu.fan_sp_inwc: 0.8, ahu.fan_sp_design: 2.0, ahu.fan_amps: 5, ahu.fan_fla: 14}
+  expect:
+    top: ahu.belt_slipping
+    measured: {ahu.static: low, ahu.motor_amps: low}
+
+- name: Low airflow after motor change, variable-pitch sheave left open, low static and amps
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: weak, gen.recent_work: 'yes', ahu.sheave: wrong, ahu.belt: ok}
+  inputs: {ahu.fan_sp_inwc: 0.9, ahu.fan_sp_design: 2.0, ahu.fan_amps: 5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.sheave_wrong
+    measured: {ahu.static: low, ahu.motor_amps: low}
+
+- name: Just rewired, fan wheel turning against the housing arrow, weak airflow and low static
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: weak, gen.recent_work: 'yes', ahu.fan: running, ahu.rotation: backward}
+  inputs: {ahu.fan_sp_inwc: 0.6, ahu.fan_sp_design: 2.0, ahu.fan_amps: 5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.rotation_backward
+    measured: {ahu.static: low, ahu.motor_amps: low}
+
+- name: Filter ΔP at 1.4 in. w.c. (1.0 final), fan static 2.3 vs 2.0 design (a filter bank moves it only a little), weak airflow
+  system: ahu
+  findings: {gen.output: weak, ahu.coil_face: clean}
+  inputs: {ahu.filter_dp_inwc: 1.4, ahu.filter_dp_final: 1.0, ahu.fan_sp_inwc: 2.3, ahu.fan_sp_design: 2.0,
+    ahu.fan_amps: 5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.filters_loaded
+    measured: {ahu.filter: loaded, ahu.static: normal, ahu.motor_amps: low}
+
+- name: VAV fan slowed to 42 Hz by the controller — amps and static are low for 60 Hz but right for this speed
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'yes'}
+  findings: {gen.output: weak, ahu.vfd_status: running}
+  inputs: {ahu.vfd_hz: 42, ahu.vfd_cmd_hz: 42, ahu.fan_sp_inwc: 1.0, ahu.fan_sp_design: 2.0, ahu.fan_amps: 5.2,
+    ahu.fan_fla: 12}
+  expect:
+    not_top: [ahu.belt_slipping, ahu.rotation_backward, ahu.belt_broken, ahu.vfd_speed_limited]
+    measured: {ahu.vfd_speed: matches, ahu.static: normal, ahu.motor_amps: normal}
+
+- name: VFD fan at a full 60 Hz, glazed belt squealing, static 0.8 against 2.0 and 3.5 A of 12 — a real slip still reads low
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'yes'}
+  findings: {gen.output: weak, ahu.belt: loose, ahu.noise: squeal, ahu.vfd_status: running}
+  inputs: {ahu.vfd_hz: 60, ahu.vfd_cmd_hz: 60, ahu.fan_sp_inwc: 0.8, ahu.fan_sp_design: 2.0, ahu.fan_amps: 3.5,
+    ahu.fan_fla: 12}
+  expect:
+    top: ahu.belt_slipping
+    measured: {ahu.vfd_speed: matches, ahu.static: low, ahu.motor_amps: low}
+
+- name: Weak air at −22 °F, loose glazed belt squealing, low static and amps — the cold alone must not hide a plain belt problem
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: weak, ahu.fan: running, ahu.belt: loose, ahu.noise: squeal}
+  inputs: {ahu.oat_f: -22, ahu.fan_sp_inwc: 0.8, ahu.fan_sp_design: 2.0, ahu.fan_amps: 5, ahu.fan_fla: 14}
+  expect:
+    top: ahu.belt_slipping
+    measured: {ahu.cold_oa: 'yes', ahu.static: low, ahu.motor_amps: low}
+
+- name: Blowing snow at −15 °F, filters packed wet with snow, rime on the coil face, freezestat tripped
+  system: ahu
+  findings: {gen.output: weak, ahu.filter: wet, ahu.coil_face: snow, ahu.freezestat: tripped}
+  inputs: {ahu.oat_f: -15, ahu.fan_sp_inwc: 2.7, ahu.fan_sp_design: 2.0}
+  expect:
+    top: ahu.snow_ingestion
+    measured: {ahu.cold_oa: 'yes', ahu.static: high}
+
+- name: Collapsed filters bypassing dirt, coil face matted with lint, high fan static
+  system: ahu
+  findings: {gen.output: weak, ahu.coil_face: dirty, ahu.filter: bypass}
+  inputs: {ahu.fan_sp_inwc: 2.6, ahu.fan_sp_design: 2.0}
+  expect:
+    top: ahu.coil_dirty
+    measured: {ahu.static: high}
+
+- name: Intake louver drifted over at 10 °F, damper tracks at 40 % command but actual OA fraction near zero
+  system: ahu
+  findings: {ahu.intake: blocked, ahu.oa_damper: tracks, ahu.space: stuffy, ahu.building_pressure: negative}
+  inputs: {ahu.oat_f: 10, ahu.rat_f: 70, ahu.mat_f: 69, ahu.oa_cmd_pct: 40}
+  expect:
+    top: ahu.intake_blocked
+    measured: {ahu.oa_frac: low, ahu.cold_oa: 'yes', ahu.mat_range: between}
+
+- name: Fire damper dropped in supply trunk, static 3.0 in. w.c. vs 2.0 design, clean filters, high-static trip
+  system: ahu
+  findings: {gen.output: weak, ahu.duct_damper: closed, ahu.safety: static}
+  inputs: {ahu.filter_dp_inwc: 0.3, ahu.filter_dp_final: 1.0, ahu.fan_sp_inwc: 3.0, ahu.fan_sp_design: 2.0,
+    ahu.fan_amps: 4.5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.duct_damper_closed
+    measured: {ahu.filter: ok, ahu.static: high, ahu.motor_amps: low}
+
+- name: Good belt and clean filters, low static and amps, blower wheel blades caked with dirt and vibrating
+  system: ahu
+  ctx: {fan_drive: belt}
+  findings: {gen.output: weak, ahu.wheel: dirty, ahu.belt: ok, ahu.noise: vibration}
+  inputs: {ahu.filter_dp_inwc: 0.4, ahu.filter_dp_final: 1.0, ahu.fan_sp_inwc: 1.1, ahu.fan_sp_design: 2.0,
+    ahu.fan_amps: 5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.wheel_dirty
+    measured: {ahu.filter: ok, ahu.static: low, ahu.motor_amps: low}
+
+# ---------------- noise and vibration ----------------
+- name: Deep rumble from the fan section, pillow-block bearing hot and rough, motor over FLA
+  system: ahu
+  findings: {ahu.bearings: rough, ahu.noise: rumble, ahu.fan: running, gen.output: normal}
+  inputs: {ahu.fan_amps: 13.5, ahu.fan_fla: 12}
+  expect:
+    top: ahu.bearing_failing
+    measured: {ahu.motor_amps: high}
+
+- name: Housing shaking hard at speed, balance weight missing from wheel, bearings still smooth
+  system: ahu
+  ctx: {fan_drive: belt}
+  findings: {ahu.noise: vibration, ahu.wheel: damaged, ahu.sheave: misaligned, ahu.bearings: ok,
+    gen.output: normal, ahu.fan: running}
+  expect:
+    top: ahu.imbalance
+
+# ---------------- heating coils ----------------
+- name: Cold supply air, 170 °F glycol at the coil, heating valve commanded 100 % but actuator dead
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.hv_cmd: not_moving, ahu.valve_test: actuator_dead, ahu.space: cold}
+  inputs: {ahu.hws_f: 170, ahu.hc_in_f: 45, ahu.hc_out_f: 46, ahu.hv_cmd_pct: 100, ahu.sat_f: 47, ahu.sat_sp_f: 68}
+  expect:
+    top: ahu.hv_not_opening
+    measured: {ahu.hw_supply: hot, ahu.heat_dt: none, ahu.sat: low}
+
+- name: Heating valve wide open at 100 %, supply pipe cold at 65 °F — boiler plant loop down
+  system: ahu
+  ctx: {heat_coil: water}
+  findings: {ahu.hv_cmd: saturated, ahu.space: cold, ahu.coil_air: water}
+  inputs: {ahu.hws_f: 65, ahu.hwr_f: 64, ahu.hc_in_f: 50, ahu.hc_out_f: 51, ahu.hv_cmd_pct: 100,
+    ahu.sat_f: 52, ahu.sat_sp_f: 70}
+  expect:
+    top: ahu.no_hot_water
+    measured: {ahu.hw_supply: cold, ahu.hw_dt: none, ahu.heat_dt: none, ahu.sat: low}
+
+- name: Hot 175 °F supply, cold 115 °F return, weak air rise after loop work, air hisses from the top vent
+  system: ahu
+  ctx: {heat_coil: water}
+  findings: {ahu.coil_air: air, ahu.hv_cmd: saturated, ahu.space: cold, gen.recent_work: 'yes'}
+  inputs: {ahu.hws_f: 175, ahu.hwr_f: 115, ahu.hc_in_f: 50, ahu.hc_out_f: 60, ahu.hv_cmd_pct: 100,
+    ahu.hc_rise_design: 40, ahu.sat_f: 61, ahu.sat_sp_f: 72}
+  expect:
+    top: ahu.coil_airbound
+    measured: {ahu.hw_supply: hot, ahu.hw_dt: high, ahu.heat_dt: low, ahu.sat: low}
+
+- name: Hot supply, 60 °F water ΔT across the coil, solid fluid at the vent, Y-strainer screen packed with sludge
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.strainer: plugged, ahu.coil_air: water, ahu.hv_cmd: saturated, ahu.space: cold}
+  inputs: {ahu.hws_f: 180, ahu.hwr_f: 120, ahu.hc_in_f: 40, ahu.hc_out_f: 52, ahu.hv_cmd_pct: 100,
+    ahu.hc_rise_design: 40, ahu.sat_f: 53, ahu.sat_sp_f: 70}
+  expect:
+    top: ahu.strainer_plugged
+    measured: {ahu.hw_supply: hot, ahu.hw_dt: high, ahu.heat_dt: low, ahu.sat: low}
+
+- name: Both coils commanded 0 %, supply air 79 °F vs 64 °F mixed air — heating valve leaking through
+  system: ahu
+  ctx: {heat_coil: water, cool_coil: chw}
+  findings: {ahu.hv_cmd: leaking, ahu.space: hot}
+  inputs: {ahu.hv_cmd_pct: 0, ahu.cv_cmd_pct: 0, ahu.mat_f: 64, ahu.sat_f: 79, ahu.sat_sp_f: 65}
+  expect:
+    top: ahu.hv_leaking
+    measured: {ahu.heat_dt: unwanted, ahu.sat: high}
+
+- name: Freezestat tripped at −20 °F, split return bends leaking water onto the coil section floor
+  system: ahu
+  ctx: {heat_coil: water}
+  findings: {ahu.coil_split: 'yes', gen.water_leak: 'yes', ahu.freezestat: tripped, ahu.space: cold}
+  inputs: {ahu.oat_f: -20, ahu.hws_f: 60, ahu.hc_in_f: 30, ahu.hc_out_f: 30, ahu.hv_cmd_pct: 100}
+  expect:
+    top: ahu.coil_frozen
+    measured: {ahu.cold_oa: 'yes', ahu.hw_supply: cold, ahu.heat_dt: none}
+
+- name: Electric heating coil commanded 100 %, zero amp draw on the stages, no air temperature rise
+  system: ahu
+  ctx: {heat_coil: electric}
+  findings: {ahu.eheat: none_on, ahu.space: cold, gen.output: normal}
+  inputs: {ahu.hc_in_f: 55, ahu.hc_out_f: 56, ahu.hv_cmd_pct: 100, ahu.sat_f: 57, ahu.sat_sp_f: 72}
+  expect:
+    top: ahu.electric_heat
+    measured: {ahu.heat_dt: none, ahu.sat: low}
+
+- name: Valve commanded closed, supply pipe 165 °F, return pipe at room temperature — no flow, so no water ΔT finding
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {gen.output: normal}
+  inputs: {ahu.hws_f: 165, ahu.hwr_f: 72, ahu.hv_cmd_pct: 0}
+  expect:
+    measured: {ahu.hw_supply: hot}
+    not_top: [ahu.hv_not_opening, ahu.strainer_plugged, ahu.coil_airbound]
+
+- name: Valve at 15 % and only the coil air temperatures entered — a normal part-load coil is not a heating failure
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {}
+  inputs: {ahu.hc_in_f: 48, ahu.hc_out_f: 52}
+  expect:
+    not_top: [ahu.hv_not_opening, ahu.no_hot_water, ahu.strainer_plugged]
+
+- name: Failed Arctic preheat — valve at 100 %, air only 35 °F warmer against an 85 °F coil schedule
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.hv_cmd: saturated, ahu.space: cold}
+  inputs: {ahu.hc_in_f: -30, ahu.hc_out_f: 5, ahu.hv_cmd_pct: 100, ahu.hc_rise_design: 85}
+  expect:
+    measured: {ahu.heat_dt: low}
+    next_any: [ahu.hw_supply, ahu.hw_dt, ahu.coil_air, ahu.strainer, ahu.freezestat, ahu.sat]
+
+- name: Hot-water preheat coil with plain water in the loop, circulator tripped overnight at −30 °F, freezestat tripped, coil split
+  system: ahu
+  ctx: {heat_coil: water}
+  findings: {ahu.freezestat: tripped, ahu.hw_supply: cold, ahu.coil_split: 'yes', gen.water_leak: 'yes'}
+  inputs: {ahu.oat_f: -30}
+  expect:
+    top3: [ahu.coil_frozen, ahu.water_coil_freeze]
+
+- name: Preheat coil froze at −30 °F; the fill records show plain water in the loop, never glycol
+  system: ahu
+  findings: {ahu.freezestat: tripped, ahu.glycol: none, ahu.hw_supply: cold}
+  inputs: {ahu.oat_f: -30}
+  expect:
+    top3: [ahu.water_coil_freeze]
+
+- name: Steam preheat coil banging, supply hot, bottom of the coil cold, poor air rise — condensate backed up
+  system: ahu
+  ctx: {heat_coil: steam}
+  findings: {ahu.steam_condensate: backed_up, ahu.hw_supply: hot}
+  inputs: {ahu.hc_in_f: 20, ahu.hc_out_f: 33, ahu.hv_cmd_pct: 100, ahu.hc_rise_design: 60}
+  expect:
+    top: ahu.steam_trap
+    measured: {ahu.heat_dt: low}
+
+# ---------------- cooling coils ----------------
+- name: Chilled water cold at the coil, cooling valve commanded 100 % but stem not moving, no air drop
+  system: ahu
+  ctx: {cool_coil: chw}
+  findings: {ahu.cv_cmd: not_moving, ahu.chw_supply: cold, ahu.space: hot}
+  inputs: {ahu.cc_in_f: 75, ahu.cc_out_f: 74, ahu.cv_cmd_pct: 100, ahu.sat_f: 75, ahu.sat_sp_f: 55}
+  expect:
+    top: ahu.cv_not_opening
+    measured: {ahu.cool_dt: none, ahu.sat: high}
+
+- name: Cooling valve saturated at 100 %, CHW supply pipe warm — chiller plant down
+  system: ahu
+  ctx: {cool_coil: chw}
+  findings: {ahu.chw_supply: warm, ahu.cv_cmd: saturated, ahu.space: hot}
+  inputs: {ahu.cc_in_f: 76, ahu.cc_out_f: 75, ahu.cv_cmd_pct: 100, ahu.sat_f: 76, ahu.sat_sp_f: 55}
+  expect:
+    top: ahu.no_chw
+    measured: {ahu.cool_dt: none, ahu.sat: high}
+
+- name: Both coils commanded 0 %, supply 56 °F vs 68 °F mixed air — chilled-water valve leaking by
+  system: ahu
+  ctx: {cool_coil: chw, heat_coil: water}
+  findings: {ahu.cv_cmd: leaking, ahu.space: cold}
+  inputs: {ahu.hv_cmd_pct: 0, ahu.cv_cmd_pct: 0, ahu.mat_f: 68, ahu.sat_f: 56, ahu.sat_sp_f: 68}
+  expect:
+    top: ahu.cv_leaking
+    measured: {ahu.cool_dt: unwanted, ahu.sat: low}
+
+- name: DX air handler with clean filters and coil face, normal airflow, but no cooling drop across the DX coil
+  system: ahu
+  ctx: {cool_coil: dx}
+  findings: {ahu.space: hot, ahu.coil_face: clean, gen.output: normal}
+  inputs: {ahu.filter_dp_inwc: 0.3, ahu.filter_dp_final: 1.0, ahu.cc_in_f: 76, ahu.cc_out_f: 74,
+    ahu.cv_cmd_pct: 100, ahu.sat_f: 75, ahu.sat_sp_f: 55}
+  expect:
+    top: ahu.dx_side
+    measured: {ahu.filter: ok, ahu.cool_dt: none, ahu.sat: high}
+
+- name: Water on the floor under the cooling coil on a warm day, trap bone dry after a fan speed-up, coil cooling normally
+  system: ahu
+  ctx: {cool_coil: dx}
+  findings: {gen.water_leak: 'yes', ahu.drain: blocked}
+  inputs: {ahu.oat_f: 78, ahu.cc_in_f: 76, ahu.cc_out_f: 56, ahu.cv_cmd_pct: 100}
+  expect:
+    top: ahu.drain_pan
+    measured: {ahu.cool_dt: normal, ahu.cold_oa: 'no'}
+
+# ---------------- mixing box, economizer, sensors, cold-climate freeze protection ----------------
+- name: Outdoor damper jammed open at 5 °F, mixed air 18 °F on a 20 % command, freezestat tripped
+  system: ahu
+  findings: {ahu.oa_damper: open_stuck, ahu.damper_test: blades_bound, ahu.freezestat: tripped, ahu.hv_cmd: saturated}
+  inputs: {ahu.oat_f: 5, ahu.rat_f: 70, ahu.mat_f: 18, ahu.min_oa_pct: 20, ahu.sat_f: 45, ahu.sat_sp_f: 65}
+  expect:
+    top: ahu.oa_damper_open
+    measured: {ahu.cold_oa: 'yes', ahu.oa_frac: high, ahu.mat_range: between, ahu.sat: low}
+
+- name: Outdoor damper frozen shut at 20 °F, stuffy space and negative building pressure
+  system: ahu
+  findings: {ahu.oa_damper: closed_stuck, ahu.damper_test: blades_bound, ahu.space: stuffy,
+    ahu.building_pressure: negative}
+  inputs: {ahu.oat_f: 20, ahu.rat_f: 72, ahu.mat_f: 71, ahu.oa_cmd_pct: 40}
+  expect:
+    top: ahu.oa_damper_closed
+    measured: {ahu.oa_frac: low, ahu.cold_oa: 'yes', ahu.mat_range: between}
+
+- name: Actuator strokes but crank arm slipped on the outdoor damper shaft, blades lagging
+  system: ahu
+  findings: {ahu.oa_damper: lagging, ahu.damper_test: linkage, gen.recent_work: 'yes'}
+  inputs: {ahu.oat_f: 25, ahu.rat_f: 70, ahu.mat_f: 68, ahu.oa_cmd_pct: 50}
+  expect:
+    top: ahu.damper_actuator
+    measured: {ahu.oa_frac: low, ahu.cold_oa: 'yes'}
+
+- name: Outdoor damper tracks but return damper stuck closed — unit pulling nearly 100 % outdoor air at 15 °F
+  system: ahu
+  findings: {ahu.ra_damper: stuck_closed, ahu.oa_damper: tracks, ahu.freezestat: tripped,
+    ahu.building_pressure: positive}
+  inputs: {ahu.oat_f: 15, ahu.rat_f: 70, ahu.mat_f: 22, ahu.min_oa_pct: 20}
+  expect:
+    top: ahu.ra_damper_stuck
+    measured: {ahu.oa_frac: high, ahu.cold_oa: 'yes'}
+
+- name: Mixed air sensor reads 32 °F with outdoor air at 45 °F and return at 72 °F — impossible blend
+  system: ahu
+  findings: {ahu.sensor_check: mat_off, ahu.oa_damper: tracks, ahu.hunting: 'yes'}
+  inputs: {ahu.oat_f: 45, ahu.rat_f: 72, ahu.mat_f: 32}
+  expect:
+    top: ahu.mat_sensor
+    measured: {ahu.mat_range: outside}
+
+- name: BAS says supply air is at 68 °F setpoint while duct thermometer reads 52 °F — drifted supply sensor
+  system: ahu
+  findings: {ahu.sensor_check: sat_off, ahu.space: cold, ahu.sim_hc: 'no'}
+  inputs: {ahu.sat_f: 52, ahu.sat_sp_f: 68}
+  expect:
+    top: ahu.sat_sensor
+    measured: {ahu.sat: low}
+
+- name: Dampers wide open for free cooling on a warm afternoon, outdoor sensor drifted low
+  system: ahu
+  ctx: {economizer: 'yes'}
+  findings: {ahu.econ_mode: econ_when_hot, ahu.sensor_check: oat_off, ahu.oa_damper: tracks, ahu.space: hot}
+  inputs: {ahu.sat_f: 66, ahu.sat_sp_f: 55}
+  expect:
+    top: ahu.econ_logic
+    measured: {ahu.sat: high}
+
+- name: Clear intake and tracking dampers after balancing work, but minimum outdoor air position barely brings in fresh air
+  system: ahu
+  ctx: {economizer: 'yes'}
+  findings: {ahu.oa_damper: tracks, ahu.intake: clear, ahu.space: stuffy, ahu.econ_mode: ok,
+    ahu.building_pressure: negative, gen.recent_work: 'yes'}
+  inputs: {ahu.oat_f: 30, ahu.rat_f: 70, ahu.mat_f: 69, ahu.oa_cmd_pct: 40}
+  expect:
+    top: ahu.min_oa_wrong
+    measured: {ahu.oa_frac: low, ahu.cold_oa: 'yes'}
+
+- name: Freezestat retrips at −25 °F with hot 55 % EG and normal average rise — cold stream stratified across coil
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.strat: stratified, ahu.freezestat: retrips, ahu.oa_damper: tracks}
+  inputs: {ahu.oat_f: -25, ahu.hws_f: 175, ahu.hwr_f: 155, ahu.hc_in_f: 40, ahu.hc_out_f: 78,
+    ahu.hv_cmd_pct: 100, ahu.hc_rise_design: 40, ahu.glycol_pct_meas: 55, ahu.oat_min_f: -30}
+  expect:
+    top: ahu.stratification
+    measured: {ahu.cold_oa: 'yes', ahu.hw_supply: hot, ahu.hw_dt: normal, ahu.heat_dt: normal, ahu.glycol: adequate}
+
+- name: Ethylene glycol loop diluted to 30 % after make-up water added, unit facing −40 °F design air
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.freezestat: tripped, gen.recent_work: 'yes'}
+  inputs: {ahu.oat_f: -30, ahu.glycol_pct_meas: 30, ahu.oat_min_f: -40, ahu.hws_f: 165}
+  expect:
+    top: ahu.glycol_weak
+    measured: {ahu.glycol: weak, ahu.cold_oa: 'yes', ahu.hw_supply: hot}
+
+- name: Freezestat trips on morning start after controls update — hardware, glycol and mixing all check out
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.freezestat: tripped, gen.recent_work: 'yes', ahu.oa_damper: tracks, ahu.hv_cmd: tracks,
+    ahu.strat: even, ahu.fz_setting: ok}
+  inputs: {ahu.hws_f: 175, ahu.glycol_pct_meas: 55, ahu.oat_min_f: -30}
+  expect:
+    top: ahu.sequence_error
+    measured: {ahu.hw_supply: hot, ahu.glycol: adequate}
+
+- name: Freezestat trips with an even plenum and warm coil — capillary element clipped against cold casing metal
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.freezestat: tripped, ahu.fz_setting: set_high, ahu.strat: even, ahu.oa_damper: tracks,
+    ahu.coil_split: 'no'}
+  inputs: {ahu.oat_f: 20, ahu.hws_f: 170, ahu.hc_in_f: 48, ahu.hc_out_f: 85, ahu.hv_cmd_pct: 100,
+    ahu.hc_rise_design: 40}
+  expect:
+    top: ahu.freezestat_nuisance
+    measured: {ahu.cold_oa: 'yes', ahu.hw_supply: hot, ahu.heat_dt: normal}
+
+- name: Stuffy space at −25 °F, mixed air equals return air on a 20 % design minimum — no outdoor air is getting in
+  system: ahu
+  ctx: {oa_type: mixed}
+  findings: {ahu.space: stuffy}
+  inputs: {ahu.oat_f: -25, ahu.rat_f: 70, ahu.mat_f: 70, ahu.min_oa_pct: 20}
+  expect:
+    top3: [ahu.oa_damper_closed, ahu.intake_blocked]
+    measured: {ahu.oa_frac: low, ahu.mat_range: between, ahu.cold_oa: 'yes'}
+
+- name: Healthy 20 % minimum at −42 °F — mixed air 47.6 °F with return at 70 °F reads as expected, not a fault
+  system: ahu
+  ctx: {oa_type: mixed}
+  findings: {gen.output: normal}
+  inputs: {ahu.oat_f: -42, ahu.rat_f: 70, ahu.mat_f: 47.6, ahu.min_oa_pct: 20}
+  expect:
+    measured: {ahu.oa_frac: ok, ahu.mat_range: between, ahu.cold_oa: 'yes'}
+    not_top: [ahu.oa_damper_closed, ahu.intake_blocked, ahu.min_oa_wrong, ahu.oa_damper_open]
+
+- name: Mixed-air reference check says the sensor is 12 °F off, though its value still sits between return and outdoor
+  system: ahu
+  ctx: {economizer: 'yes'}
+  findings: {ahu.sensor_check: mat_off, ahu.freezestat: tripped}
+  inputs: {ahu.oat_f: -20, ahu.rat_f: 72, ahu.mat_f: 40}
+  expect:
+    top3: [ahu.mat_sensor]
+    measured: {ahu.mat_range: between, ahu.cold_oa: 'yes'}
+
+- name: Freezestat retrips on the first start every cold morning, plant and glycol fine, daylight around the closed damper
+  system: ahu
+  ctx: {vfd: 'no', heat_coil: eg}
+  findings: {ahu.freezestat: retrips, ahu.oa_damper: leaks, ahu.hw_supply: hot, ahu.glycol: adequate, ahu.fan: 'off',
+    gen.intermittent: 'yes'}
+  inputs: {ahu.oat_f: -30}
+  expect:
+    top: ahu.oa_damper_leaks
+    measured: {ahu.cold_oa: 'yes'}
+
+- name: No economizer, preheat never wakes up at −30 °F — outdoor sensor on a sunny wall reads 38 °F, freezestat tripped
+  system: ahu
+  ctx: {economizer: 'no', heat_coil: eg}
+  findings: {ahu.sensor_check: oat_off, ahu.freezestat: tripped}
+  inputs: {ahu.oat_f: -30}
+  expect:
+    top: ahu.oat_sensor
+    measured: {ahu.cold_oa: 'yes'}
+
+- name: High-pressure makeup unit, both valves closed, supply 5.5 °F above mixed air — fan heat, not a leaking valve
+  system: ahu
+  ctx: {oa_type: all_oa, heat_coil: eg, cool_coil: none}
+  findings: {gen.output: normal}
+  inputs: {ahu.sat_f: 55.5, ahu.mat_f: 50, ahu.hv_cmd_pct: 0, ahu.fan_rise_f: 5.5}
+  expect:
+    measured: {ahu.heat_dt: normal}
+    not_top: [ahu.hv_leaking]
+
+# ---------------- controls, hunting, simultaneous heating/cooling, building pressure ----------------
+- name: Supply temperature and heating valve swinging every few minutes, sensors accurate and valve tracks command
+  system: ahu
+  findings: {ahu.hunting: 'yes', ahu.sensor_check: all_agree, ahu.hv_cmd: tracks, gen.recent_work: 'yes'}
+  inputs: {ahu.sat_f: 74, ahu.sat_sp_f: 65}
+  expect:
+    top: ahu.loop_hunting
+    measured: {ahu.sat: high}
+
+- name: Heating and chilled-water valves both commanded open and modulating, fighting each other
+  system: ahu
+  ctx: {heat_coil: water, cool_coil: chw}
+  findings: {ahu.sim_hc: 'yes', ahu.hv_cmd: tracks, ahu.cv_cmd: tracks, gen.runs_constantly: 'yes'}
+  inputs: {ahu.hc_in_f: 55, ahu.hc_out_f: 75, ahu.hv_cmd_pct: 50, ahu.hc_rise_design: 40,
+    ahu.cc_in_f: 75, ahu.cc_out_f: 55, ahu.cv_cmd_pct: 100, ahu.cc_drop_design: 20}
+  expect:
+    top: ahu.sim_hc_sequence
+    measured: {ahu.heat_dt: normal, ahu.cool_dt: normal}
+
+- name: Exterior doors hard to pull open and whistling drafts — kitchen exhaust running with makeup unit off
+  system: ahu
+  findings: {ahu.building_pressure: negative, ahu.exh_fan: exh_only, ahu.space: cold}
+  expect:
+    top: ahu.makeup_short
+
+- name: Exterior doors pushed open by building pressure — supply unit running with exhaust fan down
+  system: ahu
+  findings: {ahu.building_pressure: positive, ahu.exh_fan: makeup_only, ahu.space: stuffy}
+  expect:
+    top: ahu.positive_pressure
+
+- name: VAV fan crawling at 38 Hz, weak air, drive follows its command — duct-static tap reads far more on a manometer
+  system: ahu
+  ctx: {vfd: 'yes'}
+  findings: {gen.output: weak, ahu.vfd_status: running, ahu.sensor_check: static_off}
+  inputs: {ahu.vfd_hz: 38, ahu.vfd_cmd_hz: 38}
+  expect:
+    top: ahu.static_loop
+    measured: {ahu.vfd_speed: matches}
+
+# ---------------- heat- and energy-recovery ventilators (HRV / ERV) ----------------
+- name: ERV at −32 °F, ice built up on the core's exhaust face, defrost never starts, supply arriving cold
+  system: ahu
+  ctx: {oa_type: hrv}
+  findings: {ahu.hrv_core: frosted, ahu.hrv_defrost: never, gen.output: weak}
+  inputs: {ahu.oat_f: -32, ahu.hrv_sa_f: -5, ahu.hrv_ra_f: 68}
+  expect:
+    top: ahu.hrv_frosted
+    measured: {ahu.cold_oa: 'yes', ahu.hrv_eff: low}
+
+- name: Wheel-type ERV at −20 °F, both fans running, the wheel standing still with its belt lying in the cabinet
+  system: ahu
+  ctx: {oa_type: hrv}
+  findings: {ahu.hrv_wheel: stopped, ahu.fan: running, gen.output: normal}
+  inputs: {ahu.oat_f: -20, ahu.hrv_sa_f: -14, ahu.hrv_ra_f: 70}
+  expect:
+    top: ahu.hrv_wheel_stopped
+    measured: {ahu.hrv_eff: low}
+
+- name: Kitchen-area HRV with loaded filters and grease in the core, weak airflow and high fan static
+  system: ahu
+  ctx: {oa_type: hrv}
+  findings: {ahu.hrv_core: dirty, ahu.filter: loaded, gen.output: weak}
+  inputs: {ahu.fan_sp_inwc: 3.0, ahu.fan_sp_design: 2.0}
+  expect:
+    top: ahu.hrv_core_plugged
+    measured: {ahu.static: high}
+
+- name: HRV supply arriving cold in a −25 °F snap with a clean core, bypass damper stuck open
+  system: ahu
+  ctx: {oa_type: hrv}
+  findings: {ahu.hrv_bypass: open_stuck, ahu.hrv_core: clean, ahu.sat: low}
+  inputs: {ahu.oat_f: -25, ahu.hrv_sa_f: 2, ahu.hrv_ra_f: 68}
+  expect:
+    top: ahu.hrv_bypass_stuck
+    measured: {ahu.hrv_eff: low}
+
+- name: Water dripping from an HRV in a cold snap, drain line frozen solid
+  system: ahu
+  ctx: {oa_type: hrv}
+  findings: {ahu.drain: blocked, gen.water_leak: 'yes'}
+  inputs: {ahu.oat_f: -18}
+  expect:
+    top: ahu.hrv_condensate
+
+- name: HRV after a filter change, doors pulling hard — supply airflow far below exhaust, core clean and wheel turning
+  system: ahu
+  ctx: {oa_type: hrv}
+  findings: {ahu.hrv_balance: unbalanced, ahu.building_pressure: negative, ahu.hrv_core: clean, ahu.hrv_wheel: turning,
+    gen.recent_work: 'yes'}
+  expect:
+    top: ahu.hrv_imbalance
+
+# ---------------- opening moves: complaint only → cheap, sensible first checks ----------------
+- name: Opening move — no air at all from the air handler, nothing else known
+  system: ahu
+  findings: {gen.output: none}
+  expect:
+    next_any: [ahu.fan, gen.power, gen.breaker, ahu.freezestat, ahu.vfd_status, ahu.belt]
+
+- name: Opening move — weak airflow from the air handler, nothing else known
+  system: ahu
+  findings: {gen.output: weak}
+  expect:
+    next_any: [ahu.filter, ahu.fan, ahu.belt, ahu.rotation, ahu.vfd_speed, ahu.coil_face, ahu.intake]
+
+- name: Opening move — freezestat tripped on a glycol air handler
+  system: ahu
+  ctx: {heat_coil: eg}
+  findings: {ahu.freezestat: tripped}
+  expect:
+    next_any: [ahu.cold_oa, ahu.hw_supply, ahu.oa_damper, ahu.filter, ahu.fz_setting, ahu.hv_cmd]
+
+- name: Opening move — space too cold, supply air colder than setpoint
+  system: ahu
+  ctx: {heat_coil: water}
+  findings: {ahu.space: cold, ahu.sat: low}
+  expect:
+    next_any: [ahu.hw_supply, ahu.hv_cmd, ahu.heat_dt, ahu.oa_damper, ahu.freezestat, ahu.sensor_check]
+
+- name: Opening move — building under negative pressure, doors pulling hard
+  system: ahu
+  findings: {ahu.building_pressure: negative}
+  expect:
+    next_any: [ahu.exh_fan, ahu.intake, ahu.oa_damper, ahu.space, ahu.fan]
+
+- name: Opening move — HRV supply air arriving cold in a cold snap, nothing else known
+  system: ahu
+  ctx: {oa_type: hrv, economizer: 'no', heat_coil: none, cool_coil: none}
+  findings: {ahu.sat: low}
+  inputs: {ahu.oat_f: -25}
+  expect:
+    top3: [ahu.hrv_frosted]
+    next_any: [gen.output, ahu.freezestat, ahu.hrv_core, ahu.hrv_wheel, ahu.hrv_defrost, ahu.hrv_bypass, ahu.hrv_eff]
+
+- name: Opening move — HRV measured recovering only a fraction of the heat, nothing else known
+  system: ahu
+  ctx: {oa_type: hrv, economizer: 'no', heat_coil: none, cool_coil: none}
+  findings: {}
+  inputs: {ahu.oat_f: -25, ahu.hrv_sa_f: -5, ahu.hrv_ra_f: 68}
+  expect:
+    measured: {ahu.hrv_eff: low}
+    next_any: [ahu.hrv_core, ahu.hrv_wheel, ahu.hrv_defrost, ahu.hrv_bypass, gen.output, ahu.fan]

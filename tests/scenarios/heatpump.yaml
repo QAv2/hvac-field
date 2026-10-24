@@ -1,0 +1,565 @@
+# Scenario tests for Heat Pumps (heating mode, vc.hp) & Inverter / Ductless Mini-Splits ([vc.ac, vc.hp]).
+# Heating-mode readings are graded by hp.evap_td_heating / hp.cond_heating (suction and head against the
+# outdoor air and the return air), so scenarios that enter pressures also enter hp.outdoor_f.
+
+# ======================= Reversing Valve (4-Way Valve), O-type and B-type =======================
+- name: B-type heat pump stuck in cooling on heat call — no 24 V reaching the heat-energized coil (open B wire)
+  system: vc.hp
+  ctx: {hp_unit: ducted, rv_energized: heat}
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat, hp.rv_coil_24v: absent_when_needed, hp.stat_ob_config: ok}
+  inputs: {hp.return_f: 70, hp.supply_f: 56}
+  expect:
+    top: hp.rv_24v_absent
+    measured: {hp.heat_rise: low}
+
+- name: O-type heat pump stuck in cooling on heat call — 24 V still on the cool-energized coil (O shorted to R)
+  system: vc.hp
+  ctx: {hp_unit: ducted, rv_energized: cool}
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat, hp.rv_coil_24v: present_when_off, hp.stat_ob_config: ok}
+  inputs: {hp.return_f: 70, hp.supply_f: 57}
+  expect:
+    top: hp.rv_24v_wrongly_on
+    measured: {hp.heat_rise: low}
+
+- name: Stuck in cooling on heat call, valve type not known yet — the voltage on the coil leads still points to the cause
+  system: vc.hp
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat, hp.rv_coil_24v: present_when_off, hp.stat_ob_config: ok}
+  inputs: {hp.return_f: 70, hp.supply_f: 57}
+  expect:
+    top: hp.rv_24v_wrongly_on
+
+- name: B-type heat pump stuck in cooling — 24 V present at the coil on the heat call, but the coil reads open
+  system: vc.hp
+  ctx: {hp_unit: ducted, rv_energized: heat}
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat, hp.rv_coil_24v: as_required, hp.rv_coil_ohms: open}
+  inputs: {hp.return_f: 68, hp.supply_f: 55}
+  expect:
+    top: hp.rv_coil_open
+    measured: {hp.heat_rise: low}
+
+- name: O-type heat pump stuck in cooling — coil correctly at 0 V on the heat call, coil good, slide mechanically jammed
+  system: vc.hp
+  ctx: {hp_unit: ducted, rv_energized: cool}
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat, hp.rv_coil_24v: as_required, hp.rv_coil_ohms: ok,
+    hp.rv_shift: no_shift, hp.stat_ob_config: ok}
+  expect:
+    top: hp.rv_stuck_mech
+
+- name: New thermostat cools on heat call — O/B reversing-valve setting backward on an O-type valve
+  system: vc.hp
+  ctx: {hp_unit: ducted, rv_energized: cool}
+  findings: {gen.recent_work: 'yes', gen.output: none, hp.mode_actual: cooling_in_heat, hp.stat_ob_config: reversed,
+    hp.rv_coil_24v: present_when_off}
+  expect:
+    top: hp.stat_ob_reversed
+
+- name: New thermostat cools on heat call — O/B setting backward on a B-type valve (no 24 V on the coil)
+  system: vc.hp
+  ctx: {hp_unit: ducted, rv_energized: heat}
+  findings: {gen.recent_work: 'yes', gen.output: none, hp.mode_actual: cooling_in_heat, hp.stat_ob_config: reversed,
+    hp.rv_coil_24v: absent_when_needed}
+  expect:
+    top: hp.stat_ob_reversed
+
+- name: New thermostat cools on heat call — O/B setting backward (nothing else known)
+  system: vc.hp
+  findings: {gen.recent_work: 'yes', gen.output: none, hp.mode_actual: cooling_in_heat, hp.stat_ob_config: reversed}
+  expect:
+    top: hp.stat_ob_reversed
+
+- name: Ductless wall head blows cool air in heat — no line voltage at the 4-way coil connector (board relay or harness)
+  system: vc.hp
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat, hp.rv_coil_line_v: absent_when_needed}
+  inputs: {hp.return_f: 70, hp.supply_f: 58}
+  expect:
+    top: hp.minisplit_rv_electrical
+    measured: {hp.heat_rise: low}
+
+- name: Ductless wall head blows cool air in heat — line voltage on the coil, coil good, valve will not shift
+  system: vc.hp
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat, hp.rv_coil_line_v: as_required, hp.rv_coil_ohms: ok,
+    hp.rv_shift: no_shift}
+  expect:
+    top: hp.rv_stuck_mech
+
+- name: Reversing valve leaking internally in heating (NIST TN 1648 Table 5.3.1 + 4-way rise check)
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak}
+  inputs: {hp.outdoor_f: 30, hp.return_f: 70, hp.supply_f: 79, vc.suction_psig: 99, vc.liquid_psig: 240,
+    hp.rv_evap_in_f: 38, hp.rv_comp_out_f: 51}
+  expect:
+    top: hp.rv_internal_leak
+    measured: {hp.heat_rise: low, vc.evap_sat: high, vc.cond_sat: low, hp.rv_suction_rise: high}
+
+- name: Reversing valve bypassing hot gas in cooling mode (4-way valve suction rise check, pump-down fails)
+  system: vc.ac
+  findings: {gen.output: weak, vc.evap_sat: high, vc.cond_sat: low, vc.pumpdown: weak}
+  inputs: {hp.rv_evap_in_f: 52, hp.rv_comp_out_f: 64}
+  expect:
+    top: hp.rv_internal_leak
+    measured: {hp.rv_suction_rise: high}
+
+# ======================= Defrost System =======================
+- name: Outdoor coil encased in ice — defrost sensor good, TEST pins do nothing (board dead)
+  system: vc.hp
+  findings: {gen.output: weak, hp.outdoor_coil_ice: encased, hp.defrost_behavior: not_in_defrost,
+    hp.defrost_sensor: ok, hp.defrost_test_pins: no_response}
+  expect:
+    top: hp.defrost_board_failed
+
+- name: Outdoor coil encased in ice — defrost sensor open on frozen coil, jumps into defrost when bypassed
+  system: vc.hp
+  findings: {gen.output: weak, hp.outdoor_coil_ice: encased, hp.defrost_sensor: open_or_drifted,
+    hp.defrost_test_pins: starts_when_sensor_jumped}
+  expect:
+    top: hp.defrost_sensor_fault
+
+- name: Defrost starts (fan stops, W2 calls), but 4-way valve never moves to the position that sends hot gas outdoors
+  system: vc.hp
+  findings: {gen.output: weak, hp.outdoor_coil_ice: encased, hp.defrost_behavior: fan_stops_no_hot_gas}
+  expect:
+    top: hp.defrost_rv_no_shift
+
+- name: Outdoor fan keeps spinning during defrost — ice band never finishes melting
+  system: vc.hp
+  findings: {gen.output: weak, hp.outdoor_coil_ice: partial_or_band, hp.defrost_behavior: fan_runs_in_defrost}
+  expect:
+    top: hp.defrost_fan_stays_on
+
+- name: Defrost stays on steaming clear coil until 10-minute backup timer or high-pressure trip
+  system: vc.hp
+  findings: {hp.defrost_behavior: runs_too_long, hp.defrost_sensor: stuck_closed_or_loose, hp.outdoor_coil_ice: none,
+    vc.hps_trip: 'yes'}
+  expect:
+    top: hp.defrost_no_terminate
+
+- name: Nuisance defrost cycles every 30 minutes on a bare, dry coil in cold weather
+  system: vc.hp
+  findings: {hp.defrost_behavior: nuisance_dry_coil, hp.outdoor_coil_ice: none, vc.low_ambient: 'yes'}
+  expect:
+    top: hp.defrost_nuisance
+
+- name: Outdoor basepan drains plugged / pan heater failed — glacier building from bottom pan
+  system: vc.hp
+  findings: {hp.basepan_ice: solid_bottom, hp.outdoor_coil_ice: partial_or_band, vc.low_ambient: 'yes'}
+  expect:
+    top: hp.basepan_frozen
+
+- name: Cold air blows from vents during every defrost cycle — W2 tempering wire not connected
+  system: vc.hp
+  findings: {hp.defrost_cold_air: 'yes', hp.w2_defrost_call: missing_at_air_handler,
+    hp.defrost_behavior: normal_defrost}
+  expect:
+    top: hp.defrost_cold_blow
+
+# ======================= Auxiliary / Emergency Electric Strip Heat =======================
+- name: Emergency / aux heat blows cold — 24 V on sequencer, limits closed, contacts stay open
+  system: vc.hp
+  findings: {gen.output: none, hp.w2_defrost_call: present_at_air_handler, hp.strip_breaker: ok,
+    hp.strip_limits: closed, hp.sequencer_state: open_with_call}
+  inputs: {hp.strip_amps_meas: 0, hp.strip_kw: 10, gen.volts_nominal: 240}
+  expect:
+    top: hp.aux_sequencer_failed
+    measured: {hp.strip_amps: zero}
+
+- name: Aux heat dead — thermal high-limit or fusible link open on strip rack
+  system: vc.hp
+  findings: {gen.output: weak, hp.strip_amps: zero, hp.strip_breaker: ok, hp.w2_defrost_call: present_at_air_handler,
+    hp.strip_limits: open}
+  expect:
+    top: hp.aux_limit_open
+
+- name: Aux heat weak — sequencer closes and limits intact, but nichrome element coil burned open
+  system: vc.hp
+  findings: {gen.output: weak, hp.strip_breaker: ok, hp.sequencer_state: ok, hp.strip_limits: closed,
+    hp.element_ohms: open}
+  inputs: {hp.strip_amps_meas: 20.5, hp.strip_kw: 10, gen.volts_nominal: 240}
+  expect:
+    top: hp.aux_element_open
+    measured: {hp.strip_amps: low}
+
+- name: 10 kW heater on a 208 V supply, one 5 kW bank burned open — half the amps for that voltage
+  system: vc.hp
+  findings: {gen.output: weak, hp.strip_breaker: ok, hp.sequencer_state: ok, hp.strip_limits: closed,
+    hp.element_ohms: open}
+  inputs: {hp.strip_amps_meas: 18, hp.strip_kw: 10, gen.volts: 208}
+  expect:
+    top: hp.aux_element_open
+    measured: {hp.strip_amps: low}
+
+- name: Healthy 10 kW heater on a 208 V supply draws about 36 A — reads normal, not a failed bank
+  system: vc.hp
+  findings: {gen.output: weak, hp.outdoor_below_balance: 'yes', hp.sequencer_state: ok, hp.strip_limits: closed,
+    hp.strip_breaker: ok}
+  inputs: {hp.strip_amps_meas: 36, hp.strip_kw: 10, gen.volts: 208}
+  expect:
+    measured: {hp.strip_amps: normal}
+    not_top: [hp.aux_element_open, hp.aux_sequencer_failed, hp.aux_breaker_off, hp.aux_limit_open]
+
+- name: Healthy 10 kW heater at 205 V draws about 35.6 A — reads normal
+  system: vc.hp
+  findings: {gen.output: weak}
+  inputs: {hp.strip_amps_meas: 35.6, hp.strip_kw: 10, gen.volts: 205}
+  expect:
+    measured: {hp.strip_amps: normal}
+
+- name: Healthy 15 kW three-phase 208 V rooftop heater draws 41.6 A per leg — reads normal
+  system: vc.hp
+  findings: {gen.output: weak}
+  inputs: {hp.strip_amps_meas: 41.6, hp.strip_kw: 15, hp.strip_phases: 3, hp.strip_rated_v: 208, gen.volts: 208}
+  expect:
+    measured: {hp.strip_amps: normal}
+
+- name: Three-phase 15 kW heater with one 5 kW bank out draws 27.7 A per leg — reads low
+  system: vc.hp
+  findings: {gen.output: weak, hp.element_ohms: open}
+  inputs: {hp.strip_amps_meas: 27.7, hp.strip_kw: 15, hp.strip_phases: 3, hp.strip_rated_v: 208, gen.volts: 208}
+  expect:
+    top: hp.aux_element_open
+    measured: {hp.strip_amps: low}
+
+- name: Aux heat never stages on in deep cold — outdoor balance-point lockout set too low
+  system: vc.hp
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', hp.outdoor_below_balance: 'yes',
+    hp.w2_defrost_call: blocked_by_lockout, hp.strip_amps: zero}
+  expect:
+    top: hp.aux_lockout_too_low
+
+- name: Air-handler strip-heat breaker off — blower runs but electric heater circuit dead
+  system: vc.hp
+  findings: {gen.output: none, hp.strip_amps: zero, hp.strip_breaker: off_or_tripped, gen.power: present}
+  expect:
+    top: hp.aux_breaker_off
+
+- name: Electric heat strip stuck ON — welded sequencer overheating supply air
+  system: vc.hp
+  findings: {hp.sequencer_state: welded_or_grounded, gen.burnt_smell: 'yes'}
+  inputs: {hp.return_f: 70, hp.supply_f: 124, hp.strip_amps_meas: 41, hp.strip_kw: 10, gen.volts_nominal: 240}
+  expect:
+    top: hp.aux_stuck_on
+    measured: {hp.heat_rise: high, hp.strip_amps: normal}
+
+- name: Thermostat left on Emergency Heat — compressor off, strips doing all the work
+  system: vc.hp
+  ctx: {hp_unit: ducted}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.comp: 'off', hp.stat_staging: em_heat,
+    hp.strip_amps: normal}
+  inputs: {hp.return_f: 70, hp.supply_f: 112}
+  expect:
+    top: hp.stat_em_heat_or_lockout
+    measured: {hp.heat_rise: high}
+
+- name: Compressor lockout set above today's outdoor temperature — strips carry the house, compressor silent
+  system: vc.hp
+  ctx: {hp_unit: ducted}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.comp: 'off', hp.stat_staging: comp_lockout,
+    hp.strip_amps: normal}
+  expect:
+    top: hp.stat_em_heat_or_lockout
+
+# ======================= Heating-Mode Refrigerant & Airflow =======================
+- name: Cools fine, starves in heating — outdoor heating TXV / piston restricted
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak, hp.cooling_mode_ok: 'yes', hp.check_valve_test: outdoor_heating_restricted,
+    vc.superheat: high, vc.subcool: high}
+  inputs: {hp.outdoor_f: 30, hp.return_f: 70, vc.suction_psig: 53, vc.liquid_psig: 290}
+  expect:
+    top: hp.outdoor_txv_starving
+    measured: {vc.evap_sat: low}
+
+- name: Cools fine, weak heat — stuck indoor bypass check valve (suction low, head normal at the liquid port, no trip)
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak, hp.cooling_mode_ok: 'yes', hp.check_valve_test: indoor_bypass_stuck,
+    vc.superheat: high, vc.hps_trip: 'no'}
+  inputs: {hp.outdoor_f: 30, hp.return_f: 70, vc.suction_psig: 62, vc.liquid_psig: 280}
+  expect:
+    top: hp.indoor_check_valve_stuck
+    measured: {vc.evap_sat: low, vc.cond_sat: normal}
+
+- name: Indoor check valve stuck closed, head reads a little low at the outdoor liquid port
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak, hp.cooling_mode_ok: 'yes', hp.check_valve_test: indoor_bypass_stuck,
+    vc.superheat: high, vc.subcool: low, vc.hps_trip: 'no'}
+  inputs: {hp.outdoor_f: 30, hp.return_f: 70, vc.suction_psig: 62, vc.liquid_psig: 240}
+  expect:
+    top: hp.indoor_check_valve_stuck
+    measured: {vc.cond_sat: low}
+
+- name: Flooding compressor in heating only — outdoor check valve leaking past heating TXV
+  system: vc.hp
+  findings: {gen.output: weak, hp.cooling_mode_ok: 'yes', hp.check_valve_test: outdoor_bypass_leaking,
+    vc.superheat: low, vc.evap_sat: high, vc.comp_sweat: 'yes'}
+  expect:
+    top: hp.outdoor_check_valve_leak
+
+- name: Low indoor airflow in heating mode trips high-pressure switch (NIST TN 1648 Table 5.1.1)
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {vc.discharge_temp: high, vc.hps_trip: 'yes', vc.filter: dirty}
+  inputs: {hp.outdoor_f: 40, hp.return_f: 70, hp.supply_f: 122, vc.suction_psig: 103, vc.liquid_psig: 442}
+  expect:
+    top: hp.heating_low_indoor_airflow
+    measured: {hp.heat_rise: high, vc.cond_sat: high}
+
+- name: NIST-size indoor airflow fault — dirty filter, high static, rise and head still inside the normal bands
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak, vc.filter: dirty, vc.static: high}
+  inputs: {hp.outdoor_f: 17, hp.return_f: 70, hp.supply_f: 94, vc.suction_psig: 65, vc.liquid_psig: 285}
+  expect:
+    top: hp.heating_low_indoor_airflow
+    measured: {hp.heat_rise: normal, vc.cond_sat: normal}
+
+- name: Weak heat with closed registers and a clean filter — high static, ducts restricted
+  system: vc.hp
+  findings: {gen.output: weak, vc.filter: clean, vc.ducts: restricted, vc.static: high}
+  inputs: {hp.return_f: 70, hp.supply_f: 112}
+  expect:
+    top: hp.heating_low_indoor_airflow
+
+- name: Indoor blower dead on a heat call — compressor runs, no air from the vents, high-pressure trips
+  system: vc.hp
+  findings: {gen.output: none, vc.evap_fan: 'off', vc.hps_trip: 'yes', vc.filter: clean}
+  expect:
+    top: hp.indoor_blower_failed_heating
+
+- name: Indoor blower runs slow and weak — failed run capacitor, filter clean, static low
+  system: vc.hp
+  findings: {gen.output: weak, vc.evap_fan: weak, vc.cap: bad, vc.filter: clean, vc.static: low}
+  expect:
+    top: hp.indoor_blower_failed_heating
+
+- name: Outdoor coil drifted over with snow in heating mode (NIST TN 1648 Table 5.2.1)
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak, hp.outdoor_airflow_heating: blocked_snow_or_debris}
+  inputs: {hp.outdoor_f: 25, hp.return_f: 68, hp.supply_f: 77, vc.suction_psig: 44, vc.liquid_psig: 232}
+  expect:
+    top: hp.outdoor_coil_blocked_heating
+    measured: {hp.heat_rise: low, vc.evap_sat: low, vc.cond_sat: low}
+
+- name: Outdoor coil face matted with cottonwood — dirty coil answer plus low suction and low head
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak, vc.cond_dirty: 'yes'}
+  inputs: {hp.outdoor_f: 30, hp.return_f: 70, hp.supply_f: 80, vc.suction_psig: 50, vc.liquid_psig: 236}
+  expect:
+    top: hp.outdoor_coil_blocked_heating
+    measured: {vc.evap_sat: low, vc.cond_sat: low}
+
+- name: Outdoor fan dead in heating mode (not in defrost) — suction and head drop
+  system: vc.hp
+  findings: {gen.output: weak, vc.cond_fan: 'off', hp.defrost_behavior: normal_defrost, vc.evap_sat: low,
+    vc.cond_sat: low}
+  expect:
+    top: hp.outdoor_fan_failed_heating
+
+- name: Outdoor fan turns slowly in heating with a weak run capacitor — suction and head drop, defrost normal
+  system: vc.hp
+  findings: {gen.output: weak, vc.cond_fan: slow, vc.cap: bad, hp.defrost_behavior: normal_defrost, vc.evap_sat: low,
+    vc.cond_sat: low}
+  expect:
+    top: hp.outdoor_fan_failed_heating
+
+- name: Subzero outdoor air below balance point — refrigerant circuit healthy, needs aux heat
+  system: vc.hp
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.low_ambient: 'yes', hp.outdoor_below_balance: 'yes',
+    hp.outdoor_coil_ice: none, hp.outdoor_airflow_heating: clear, vc.superheat: normal, vc.subcool: normal}
+  inputs: {hp.outdoor_f: 5, hp.return_f: 70, hp.supply_f: 86, vc.suction_psig: 48, vc.liquid_psig: 255}
+  expect:
+    top: hp.below_balance_point
+    measured: {vc.evap_sat: normal, vc.cond_sat: normal}
+
+# ---- a "cools fine" answer must not drag the check-valve trio over the heating-only causes ----
+- name: Cold snap, house will not hold, unit also cools fine — still the balance point, not a check valve
+  system: vc.hp
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', hp.outdoor_below_balance: 'yes', hp.cooling_mode_ok: 'yes'}
+  expect:
+    top: hp.below_balance_point
+    not_top: [hp.outdoor_txv_starving, hp.indoor_check_valve_stuck, hp.outdoor_check_valve_leak]
+
+- name: Strip heat dead and the unit also cools fine — the strip causes lead, not the check-valve trio
+  system: vc.hp
+  findings: {gen.output: weak, hp.strip_amps: zero, hp.cooling_mode_ok: 'yes'}
+  expect:
+    top3: [hp.aux_sequencer_failed, hp.aux_breaker_off, hp.aux_limit_open]
+    not_top: [hp.outdoor_txv_starving, hp.indoor_check_valve_stuck, hp.outdoor_check_valve_leak]
+
+# ---- healthy units read normal on the heating measures at every outdoor temperature ----
+- name: Healthy ducted heat pump at 17 °F (275/65 psig, 20 °F rise) reads normal on every heating measure
+  system: vc.hp
+  ctx: {refrigerant: R-410A, metering: txv, hp_unit: ducted}
+  findings: {gen.output: normal}
+  inputs: {hp.outdoor_f: 17, hp.return_f: 70, hp.supply_f: 90, vc.suction_psig: 65, vc.liquid_psig: 275,
+    vc.suction_line_f: 24, vc.liquid_line_f: 80}
+  expect:
+    measured: {vc.evap_sat: normal, vc.cond_sat: normal, hp.heat_rise: normal, vc.superheat: normal, vc.subcool: normal}
+    not_top: [hp.outdoor_coil_blocked_heating, hp.heating_low_indoor_airflow, hp.rv_internal_leak,
+      hp.outdoor_fan_failed_heating, hp.indoor_check_valve_stuck, hp.outdoor_txv_starving, hp.outdoor_check_valve_leak,
+      hp.below_balance_point, vc.undercharge, vc.overcharge, vc.liquid_restriction, vc.noncondensables]
+
+- name: Healthy ducted heat pump at 47 °F (330/118 psig) reads normal on every heating measure
+  system: vc.hp
+  ctx: {refrigerant: R-410A, metering: txv, hp_unit: ducted}
+  findings: {gen.output: normal}
+  inputs: {hp.outdoor_f: 47, hp.return_f: 70, hp.supply_f: 96, vc.suction_psig: 118, vc.liquid_psig: 330,
+    vc.suction_line_f: 52, vc.liquid_line_f: 92}
+  expect:
+    measured: {vc.evap_sat: normal, vc.cond_sat: normal, hp.heat_rise: normal, vc.superheat: normal, vc.subcool: normal}
+
+- name: Healthy ducted heat pump at 5 °F (255/48 psig) reads normal on every heating measure
+  system: vc.hp
+  ctx: {refrigerant: R-410A, metering: txv, hp_unit: ducted}
+  findings: {gen.output: normal}
+  inputs: {hp.outdoor_f: 5, hp.return_f: 70, hp.supply_f: 86, vc.suction_psig: 48, vc.liquid_psig: 255,
+    vc.suction_line_f: 12, vc.liquid_line_f: 75}
+  expect:
+    measured: {vc.evap_sat: normal, vc.cond_sat: normal, hp.heat_rise: normal, vc.superheat: normal, vc.subcool: normal}
+
+- name: Healthy ductless wall head at 17 °F with 118 °F supply air (48 °F rise) reads normal, not scorching
+  system: vc.hp
+  ctx: {refrigerant: R-410A, metering: eev, hp_unit: minisplit}
+  findings: {gen.output: normal}
+  inputs: {hp.outdoor_f: 17, hp.return_f: 70, hp.supply_f: 118, vc.suction_psig: 65, vc.liquid_psig: 300}
+  expect:
+    measured: {vc.evap_sat: normal, vc.cond_sat: normal, hp.heat_rise: normal}
+    not_top: [hp.blower_wheel_packed, hp.minisplit_flare_leak, vc.overcharge]
+
+# ======================= Inverter / Ductless Mini-Splits ([vc.ac, vc.hp]) =======================
+- name: Mini-split communication fault code on the head — dead serial voltage on the signal wire
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: none, vc.comp: 'off', hp.inverter_code: comm_error, hp.comm_signal: dead_or_noisy}
+  expect:
+    top: hp.minisplit_comm_error
+
+- name: Mini-split IPM drive error — windings balanced, shorted IGBT leg on inverter board
+  system: vc.hp
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: none, vc.comp: 'off', hp.inverter_code: ipm_or_drive, hp.ipm_diode_test: failed,
+    hp.inverter_comp_phases: balanced_ok}
+  expect:
+    top: hp.inverter_ipm_fault
+
+- name: Mini-split drive fault — compressor U-V-W windings imbalanced
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: none, vc.comp: 'off', hp.inverter_code: ipm_or_drive,
+    hp.inverter_comp_phases: imbalanced_or_grounded, hp.ipm_diode_test: ok}
+  expect:
+    top: hp.inverter_comp_winding
+
+- name: Mini-split drive fault — windings equal and clean, IPM good, compressor sputters and stalls (rotor)
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: none, vc.comp: hums, hp.inverter_code: ipm_or_drive,
+    hp.inverter_comp_phases: balanced_ok, hp.ipm_diode_test: ok}
+  expect:
+    top: hp.inverter_comp_winding
+
+- name: Mini-split EEV silent at power-up — open stepper coil winding
+  system: vc.hp
+  ctx: {hp_unit: minisplit, metering: eev}
+  findings: {gen.output: none, hp.eev_coil_ohms: open_or_short, hp.eev_init_click: silent}
+  expect:
+    top: hp.eev_coil_open
+
+- name: Mini-split EEV clicks at power-up, coil ohms good, but needle stuck closed
+  system: vc.ac
+  ctx: {hp_unit: minisplit, metering: eev}
+  findings: {gen.output: weak, hp.eev_coil_ohms: ok, hp.eev_init_click: clicks_no_flow_change,
+    hp.flare_joint: tight_clean, vc.evap_sat: low, vc.superheat: high}
+  expect:
+    top: hp.eev_body_stuck
+
+- name: Mini-split ramps down early — coil NTC thermistor drifted off resistance chart
+  system: vc.hp
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: weak, gen.short_cycle: 'yes', hp.thermistor_check: drifted_or_open,
+    hp.inverter_code: eev_or_sensor}
+  expect:
+    top: hp.thermistor_drifted
+
+- name: Ductless unit never defrosts — coil sensor tests fine at the bulb but sits loose off the coil
+  system: vc.hp
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: weak, hp.thermistor_check: loose_or_misplaced, hp.outdoor_coil_ice: partial_or_band}
+  expect:
+    top: hp.thermistor_drifted
+
+- name: Mini-split weak cooling — oil stain and leak detector hit on outdoor flare nut, subcooling collapsed
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: weak, hp.flare_joint: oil_or_leak, vc.oil: 'yes', vc.evap_sat: low, vc.superheat: high,
+    vc.subcool: low}
+  expect:
+    top: hp.minisplit_flare_leak
+
+- name: Mini-split wall head barely throwing air and surging — cross-flow wheel caked with biofilm
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: weak, hp.crossflow_wheel: caked_surging, vc.evap_fan: weak}
+  expect:
+    top: hp.blower_wheel_packed
+
+- name: Mini-split dripping water and flashing overflow error — internal condensate pump failed
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.water_leak: 'yes', hp.cond_pump_state: pump_or_float_fault}
+  expect:
+    top: hp.minisplit_cond_pump
+
+- name: Multi-zone mini-split — calling on Zone A freezes Zone B (pipes and wires crossed at branch box)
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.recent_work: 'yes', gen.output: none, hp.multizone_mismatch: crossed_pipes_wires,
+    vc.evap_frost: heavy}
+  expect:
+    top: hp.multizone_crossed
+
+- name: Multi-zone — one head will not heat while another head is cooling (one mode at a time, second head waits)
+  system: vc.hp
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: none, hp.multizone_modes: mixed_modes, vc.comp: running}
+  expect:
+    top: hp.multizone_mode_conflict
+
+# ======================= Opening Moves =======================
+- name: Opening move — heat pump blowing weak heat, nothing else known → cheap looks come first
+  system: vc.hp
+  findings: {gen.output: weak}
+  expect:
+    next_any: [hp.outdoor_coil_ice, vc.filter, vc.evap_fan, vc.comp, hp.mode_actual, hp.outdoor_airflow_heating,
+      hp.stat_staging, vc.cond_fan, vc.cond_dirty, hp.crossflow_wheel]
+
+- name: Opening move — heat pump running in cooling on a heat call → check the valve type, O/B setting or the coil voltage
+  system: vc.hp
+  findings: {gen.output: none, hp.mode_actual: cooling_in_heat}
+  expect:
+    next_any: [hp.stat_ob_config, hp.rv_coil_24v, hp.rv_coil_ohms, hp.rv_coil_line_v, gen.recent_work]
+
+- name: Opening move — outdoor coil encased in ice in heating → check defrost behavior or sensor
+  system: vc.hp
+  findings: {gen.output: weak, hp.outdoor_coil_ice: encased}
+  expect:
+    next_any: [hp.defrost_behavior, hp.defrost_sensor, hp.defrost_test_pins, vc.cond_fan]
+
+- name: Opening move — aux heat strips drawing zero amps → check strip breaker, W2 call, or limits
+  system: vc.hp
+  findings: {gen.output: weak, hp.strip_amps: zero}
+  expect:
+    next_any: [hp.strip_breaker, hp.w2_defrost_call, hp.strip_limits, hp.sequencer_state]
+
+- name: Opening move — ductless wall head blowing weak heat → read the head's fault code first (no strip, TEST-pin or O/B checks)
+  system: vc.hp
+  ctx: {hp_unit: minisplit}
+  findings: {gen.output: weak}
+  expect:
+    next_any: [hp.inverter_code, hp.heat_rise, hp.outdoor_coil_ice, vc.comp]

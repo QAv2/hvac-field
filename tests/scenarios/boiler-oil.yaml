@@ -1,0 +1,719 @@
+# Scenario tests for oil-fired heating — pressure-gun burners, boilers and warm-air furnaces. Each case is a
+# service call: what the tech typed or saw (findings), what the instruments read (inputs → measures), and where
+# the engine must land. expect.top = must be #1 · top3 = must be in the top three · measured = what the numbers
+# must classify as · next_any = one of the first three suggested checks must be among these.
+
+# ---------------- ignition ----------------
+- name: Locks out every try, motor runs, oil at the nozzle, no arc
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.lockout: repeats, blr.start: no_flame, blr.oil_at_nozzle: 'yes', blr.spark: none, blr.electrodes: ok}
+  expect:
+    top: blr.igniter_failed
+
+- name: Puffback on start, carbon-tracked porcelain
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: delayed, blr.electrodes: damaged, blr.spark: weak, blr.soot_outside: 'yes'}
+  expect:
+    top: blr.electrodes_bad
+
+- name: Streaky flame, smoke spot 4, nozzle plugged
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flame_look: stringy, blr.nozzle: plugged}
+  inputs: {blr.smoke_no: 4, blr.pump_psi_meas: 102, blr.pump_psi_spec: 100}
+  expect:
+    top: blr.nozzle_bad
+    measured: {blr.smoke: heavy, blr.pump_psi: normal}
+
+- name: Just serviced, flame hits the back wall, stack 760 °F, nozzle doesn't match the plate
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.recent_work: 'yes', blr.flame_look: impinging, blr.nozzle: wrong}
+  inputs: {blr.stack_f: 760, blr.room_f: 65}
+  expect:
+    top: blr.nozzle_wrong
+    measured: {blr.stack_temp: high}
+
+# ---------------- fuel unit ----------------
+- name: Smoky fire, pump only makes 60 psi on a 100 psi burner, vacuum normal
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flame_look: smoky}
+  inputs: {blr.pump_psi_meas: 60, blr.pump_psi_spec: 100, blr.pump_vac_inhg: 3, blr.lift_ft: 2}
+  expect:
+    top: blr.pump_pressure_low
+    measured: {blr.pump_psi: low, blr.pump_vac: normal}
+
+- name: No pressure, motor hums with the shaft bound, coupling intact
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: nothing, blr.motor: hums_bound, blr.coupling: ok, blr.lockout: repeats}
+  inputs: {blr.pump_psi_meas: 0}
+  expect:
+    top: blr.pump_seized
+    measured: {blr.pump_psi: zero}
+
+- name: Motor runs, no oil, coupling in pieces
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {blr.start: no_flame, blr.motor: runs, blr.oil_at_nozzle: 'no', blr.coupling: broken}
+  expect:
+    top: blr.coupling_broken
+
+- name: Nothing on a call, voltage at the motor, motor silent
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: nothing, blr.motor_v: present, blr.motor: silent}
+  expect:
+    top: blr.motor_failed
+
+- name: Pump pressure fine, no oil at the nozzle, solenoid has voltage and never clicks
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: no_flame, blr.oil_at_nozzle: 'no', blr.oil_valve: stuck}
+  inputs: {blr.pump_psi_meas: 100}
+  expect:
+    top: blr.oil_valve_stuck
+    measured: {blr.pump_psi: normal}
+
+- name: Smokes and rumbles at shutdown, oil smell, carbon on the chamber floor
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.after_drip: 'yes', blr.oil_smell: 'yes', blr.chamber: carbon_oil}
+  expect:
+    top: blr.after_drip
+
+- name: Oil on the floor under the pump, nothing else wrong
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.oil_leak: 'yes', blr.oil_smell: 'yes', gen.recent_work: 'no'}
+  expect:
+    top: blr.oil_leak
+
+- name: New pump on a one-pipe system weeps at the shaft seal — bypass plug left in
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.recent_work: 'yes', blr.oil_leak: 'yes', blr.bypass_plug: wrong, blr.lockout: once}
+  expect:
+    top: blr.bypass_plug
+
+# ---------------- fuel supply ----------------
+- name: Whining pump, flame pulses, vacuum reads zero on 8 ft of lift and falls off at shutdown
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.pump_noise: noisy, blr.flame_look: pulsing, blr.lockout: once}
+  inputs: {blr.pump_vac_inhg: 0, blr.lift_ft: 8}
+  expect:
+    top: blr.air_leak_suction
+    measured: {blr.pump_vac: low_zero}
+
+- name: Lockouts, vacuum 16 in. Hg, filter packed with sludge
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.lockout: repeats, blr.filter: clogged, blr.tank: ok}
+  inputs: {blr.pump_vac_inhg: 16, blr.lift_ft: 4}
+  expect:
+    top: blr.supply_restricted
+    measured: {blr.pump_vac: high}
+
+- name: No heat, locks out, tank sticks dry
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.output: none, blr.lockout: repeats, blr.tank: empty}
+  expect:
+    top: blr.no_fuel
+
+- name: −10 °F, outdoor tank, No. 2 oil, filter white with wax, cloudy sample, vacuum pegged
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.line_cold: 'yes', blr.filter: waxed_iced, blr.fuel_sample: cloudy_wax, blr.lockout: once}
+  inputs: {blr.odt_f: -10, blr.pump_vac_inhg: 18, blr.lift_ft: 3}
+  expect:
+    top: blr.fuel_gelled
+    measured: {blr.cold: cold, blr.pump_vac: high}
+
+- name: JP-8 burner sputters and drops out now and then; water and ice crystals in the filter bowl sample
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: flame_lost, gen.intermittent: 'yes', blr.fuel_sample: water_ice, blr.lockout: once}
+  expect:
+    top: blr.fuel_water_ice
+    not_top: [blr.fuel_gelled]
+
+- name: −35 °F, AN8, filter outside, vacuum pegged, heat gun on the filter can brings the oil back
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.line_cold: 'yes', blr.lockout: repeats, blr.thaw: restores, blr.fuel_sample: clear}
+  inputs: {blr.odt_f: -35, blr.pump_vac_inhg: 20, blr.lift_ft: 2}
+  expect:
+    top: blr.line_frozen
+    measured: {blr.cold: extreme, blr.pump_vac: high}
+
+# ---------------- flame proving and the primary ----------------
+- name: Lights, burns 15 seconds, locks out; CAD cell reads 3,000 Ω with the flame on
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: flame_lost, blr.lockout: repeats}
+  inputs: {blr.cad_flame_ohms: 3000}
+  expect:
+    top: blr.cad_cell_bad
+    measured: {blr.cad_ohms: high}
+
+- name: Control won't start the burner; CAD cell reads 5 kΩ in the dark
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: nothing, blr.lockout: repeats}
+  inputs: {blr.cad_dark_ohms: 5000, blr.cad_flame_ohms: 900}
+  expect:
+    top: blr.cad_sees_light
+    measured: {blr.cad_ohms: low_dark}
+
+- name: Old stack-relay boiler drops out after the safety time; helix packed with soot
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: stack, boiler_kind: steam}
+  findings: {blr.start: flame_lost, blr.lockout: repeats, blr.stack_relay: faulty}
+  expect:
+    top: blr.stack_relay_bad
+
+- name: Nothing on a call; line in to the primary, T–T calling, nothing out to the motor
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: nothing, blr.primary_line_in: present, blr.tt: 'yes', blr.motor_v: missing, blr.lockout: 'no'}
+  expect:
+    top: blr.primary_failed
+
+- name: Nuisance lockouts since the generator transfer; white reads 120 V to ground
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.lockout: once, gen.after_outage: 'yes', blr.polarity: reversed}
+  expect:
+    top: blr.polarity_reversed
+
+- name: Thermostat calling, no call at T–T, burner runs when T–T is jumpered
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.output: none, blr.start: nothing, gen.call: calling, blr.tt: 'no'}
+  expect:
+    top: blr.interlock_open
+
+# ---------------- limits and safeties ----------------
+- name: No heat, boiler cold, aquastat contacts open, no line voltage into the primary
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.output: none, blr.start: nothing, blr.primary_line_in: missing, blr.limit_open: open_early}
+  expect:
+    top: blr.limit_failed_open
+
+- name: Boiler at 200 °F cycling on the limit, building cold
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.output: none, gen.short_cycle: 'yes', blr.limit_open: open_overheat, blr.start: normal}
+  expect:
+    top: blr.limit_cycling_no_flow
+
+- name: Steam boiler at 12 psi, safety valve lifting, pressuretrol never opens
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {blr.relief: popping, blr.steam_press: high, blr.limit_open: closed_hot}
+  expect:
+    top: blr.limit_stuck_closed
+
+- name: Steam boiler off on low water, gauge glass empty
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {gen.output: none, blr.start: nothing, blr.lwco: open_low, blr.water_level: low}
+  expect:
+    top: blr.lwco_low_water
+
+- name: Hot-water boiler off on the LWCO, gauge reads zero, water on the floor
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.output: none, blr.start: nothing, blr.lwco: open_low, gen.water_leak: 'yes'}
+  inputs: {blr.hw_psi: 0}
+  expect:
+    top: blr.lwco_low_water
+    measured: {blr.pressure_hw: low}
+
+- name: LWCO open with water at the line in the glass; dirty water
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {blr.start: nothing, blr.lwco: open_fooled, blr.water_level: normal, blr.water_cond: dirty}
+  expect:
+    top: blr.lwco_fooled
+
+- name: Water line bouncing two inches, oily film in the sample, LWCO nuisance trips
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {blr.water_level: bouncing, blr.water_cond: dirty, blr.lwco: open_fooled, gen.output: weak}
+  expect:
+    top: blr.surging
+
+- name: Steam boiler flooding to the top of the glass
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {blr.water_level: high, gen.output: weak}
+  expect:
+    top: blr.flooding
+
+- name: Aquastat found at 140 °F, burner cycles in short bursts, building never catches up
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.aquastat_set: too_low, gen.short_cycle: 'yes', gen.output: weak, blr.start: normal}
+  expect:
+    top: blr.controls_misset
+
+- name: Short cycling with the limit never opening and settings right
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.short_cycle: 'yes', blr.limit_open: 'no', blr.aquastat_set: ok, blr.lockout: 'no', blr.start: normal}
+  expect:
+    top3: [blr.control_cycling]
+
+# ---------------- draft, flue, combustion air ----------------
+- name: Smoke out the draft regulator, chimney cap sealed with frost, zero breech draft
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.soot_outside: 'yes', blr.flue: restricted}
+  inputs: {blr.br_draft_inwc: 0.0, blr.of_draft_inwc: 0.01}
+  expect:
+    top: blr.flue_blocked
+    measured: {blr.draft_br: weak, blr.draft_of: none_positive}
+
+- name: Flame pulses, draft weak at the breech, flue clear, worse when the wind blows
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flame_look: pulsing, blr.flue: clear, gen.intermittent: 'yes'}
+  inputs: {blr.br_draft_inwc: -0.005}
+  expect:
+    top: blr.draft_poor
+    measured: {blr.draft_br: weak}
+
+- name: −38 °F, breech draft −0.12, over-fire −0.08, O2 11 %, stack 680 °F net
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {}
+  inputs: {blr.odt_f: -38, blr.br_draft_inwc: -0.12, blr.of_draft_inwc: -0.08, blr.o2_pct: 11, blr.stack_f: 750,
+    blr.room_f: 70}
+  expect:
+    top: blr.draft_excessive
+    measured: {blr.draft_br: excessive, blr.draft_of: excessive, blr.o2: high, blr.stack_temp: high, blr.cold: extreme}
+
+- name: Intake drifted shut, smoke 6, O2 1.5 %, CO 500 ppm
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.combustion_air: restricted}
+  inputs: {blr.smoke_no: 6, blr.o2_pct: 1.5, blr.co_ppm: 500}
+  expect:
+    top: blr.combustion_air_short
+    measured: {blr.smoke: heavy, blr.o2: low, blr.co: very_high}
+
+- name: Room air fine; O2 2 %, smoke 5, CO 300 ppm as read, dark lazy flame
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flame_look: smoky, blr.combustion_air: ok}
+  inputs: {blr.o2_pct: 2, blr.smoke_no: 5, blr.co_ppm: 300}
+  expect:
+    top: blr.too_little_air
+    measured: {blr.o2: low, blr.smoke: heavy, blr.co: high}
+
+- name: Sparky stringy flame, O2 11 %, smoke zero, draft normal
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {blr.flame_look: stringy}
+  inputs: {blr.o2_pct: 11, blr.smoke_no: 0, blr.br_draft_inwc: -0.04}
+  expect:
+    top: blr.too_much_air
+    measured: {blr.o2: high, blr.smoke: normal, blr.draft_br: normal}
+
+- name: Weak heat, runs nonstop, stack 700 °F net, cleanout full of soot
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', blr.soot_hx: heavy}
+  inputs: {blr.stack_f: 770, blr.room_f: 70}
+  expect:
+    top: blr.hx_sooted
+    measured: {blr.stack_temp: high}
+
+- name: Rusty smoke pipe, stack only 240 °F net
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flue: wet}
+  inputs: {blr.stack_f: 310, blr.room_f: 70}
+  expect:
+    top: blr.underfired_condensing
+    measured: {blr.stack_temp: low}
+
+- name: Chamber collapsed, flame on the floor, rumbles after light-off
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.chamber: damaged, blr.flame_look: impinging, blr.start: delayed, gen.recent_work: 'no'}
+  expect:
+    top: blr.chamber_damaged
+
+# ---------------- boiler water side and trim ----------------
+- name: Boiler rumbles like a kettle, stack hot, passages clean
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.kettling: 'yes', blr.soot_hx: light, gen.output: weak}
+  inputs: {blr.stack_f: 720, blr.room_f: 70}
+  expect:
+    top: blr.scale
+
+- name: Heat is fine but the shower goes cold — tankless coil
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.dhw: weak, gen.output: normal}
+  expect:
+    top: blr.tankless_scaled
+
+- name: Relief weeping, boiler at 28 psi, still climbs with the fill valve shut
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.relief: weeping, blr.fill_isolated: 'yes'}
+  inputs: {blr.hw_psi: 28}
+  expect:
+    top: blr.tankless_leak
+    measured: {blr.pressure_hw: high}
+
+- name: Relief valve dripping with the boiler at 15 psi and 170 °F
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.relief: weeping, gen.water_leak: 'yes', blr.limit_open: 'no'}
+  inputs: {blr.hw_psi: 15}
+  expect:
+    top: blr.relief_valve_bad
+    measured: {blr.pressure_hw: normal}
+
+# ---------------- warm-air furnace ----------------
+- name: Furnace cycles on its limit, plenum 190 °F, filter black
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.short_cycle: 'yes', blr.limit_open: open_overheat, blr.air_filter: dirty}
+  inputs: {blr.plenum_temp_f: 190}
+  expect:
+    top: blr.furnace_airflow
+    measured: {blr.plenum_f: high}
+
+- name: Plenum scorching, blower dead with voltage at the motor
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {blr.blower: 'off', blr.blower_v: present, blr.limit_open: open_overheat}
+  expect:
+    top: blr.blower_failed
+
+- name: Plenum hot, blower dead, no voltage out of the fan control
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {blr.blower: 'off', blr.blower_v: missing, blr.limit_open: open_overheat}
+  expect:
+    top: blr.fan_control_no_start
+
+- name: Blower never shuts off, cool air between cycles
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {blr.blower: constant, gen.output: weak}
+  inputs: {blr.plenum_temp_f: 95}
+  expect:
+    top: blr.fan_control_setting
+    measured: {blr.plenum_f: low}
+
+- name: CO alarm in the quarters, flame jumps when the blower starts
+  system: fuel.furnace
+  ctx: {fuel_type: kero, flame_sensor: cad}
+  findings: {blr.co_room: 'yes', blr.hx_crack: cracked}
+  expect:
+    top: blr.hx_cracked
+
+# ---------------- opening moves: complaint only → cheap, sensible first checks ----------------
+- name: Opening move — no heat from an oil boiler, nothing else known
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {gen.output: none}
+  expect:
+    next_any: [blr.start, blr.lockout, blr.tank, gen.power, gen.breaker, blr.limit_open, blr.lwco, gen.call]
+
+- name: Opening move — "it keeps locking out"
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.lockout: repeats}
+  expect:
+    next_any: [blr.start, blr.tank, blr.pump_noise, blr.flame_look, blr.oil_leak, blr.cad_ohms]
+
+- name: Opening move — weak heat, oil furnace
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.output: weak}
+  expect:
+    next_any: [blr.air_filter, blr.blower, blr.flame_look, blr.limit_open, blr.start, blr.soot_outside,
+      blr.aquastat_set, gen.short_cycle, blr.lockout]
+
+- name: Opening move — motor runs but no flame, what next
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.start: no_flame}
+  expect:
+    next_any: [blr.tank, blr.oil_at_nozzle, blr.spark, blr.pump_psi, blr.pump_noise, blr.oil_leak, blr.lockout]
+
+- name: Opening move — steam boiler, no heat
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {gen.output: none}
+  expect:
+    next_any: [blr.start, blr.lockout, blr.water_level, blr.tank, blr.lwco, blr.limit_open, gen.power, gen.call,
+      blr.steam_press]
+
+# ---------------- added with the blind-review fixes ----------------
+# The first six are the review's own regression cases (a cutoff that fails to trip, the hot-water tank and fill-valve
+# pair, CO with a rich burner, a tripped spill switch, a control turned up, low supply voltage). The rest cover the
+# cold-region fuel causes, the pump-vacuum limits by piping, the draft sign convention and the other threshold fixes.
+
+# ---------------- safety gaps ----------------
+- name: Steam boiler, glass empty, burner still firing, cutoff closed
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {blr.water_level: low, blr.lwco: stuck_closed, blr.start: normal}
+  expect:
+    top: blr.lwco_failed_closed
+
+- name: Hot-water boiler at zero pressure, burner still running, cutoff jumpered
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.lwco: stuck_closed, blr.start: normal, gen.output: weak}
+  inputs: {blr.hw_psi: 0}
+  expect:
+    top: blr.lwco_failed_closed
+    measured: {blr.pressure_hw: low}
+
+- name: Hot water, relief popping, limit fine, pressure high, fill-shut test holds
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.relief: popping, blr.pressure_hw: high, blr.limit_open: 'no', blr.fill_isolated: 'no', gen.output: normal,
+    blr.start: normal}
+  expect:
+    top3: [blr.exp_tank_bad, blr.fill_valve_passing]
+    not_top: [blr.tankless_leak, blr.limit_stuck_closed]
+    next_any: [blr.exp_tank, blr.fill_valve]
+
+- name: Expansion tank solid, water at the air valve, boiler at 28 psi hot
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.relief: popping, blr.exp_tank: waterlogged}
+  inputs: {blr.hw_psi: 28}
+  expect:
+    top: blr.exp_tank_bad
+    measured: {blr.pressure_hw: high}
+
+- name: Pressure creeps up cold, tank tests good, closing the shutoff ahead of the fill valve stops it
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.relief: weeping, blr.pressure_hw: high, blr.fill_valve: passing, blr.exp_tank: ok, blr.fill_isolated: 'no'}
+  expect:
+    top: blr.fill_valve_passing
+
+- name: Boiler at 25 psi hot on a 30 psi valve, relief weeping
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.relief: weeping}
+  inputs: {blr.hw_psi: 25}
+  expect:
+    top3: [blr.exp_tank_bad]
+    measured: {blr.pressure_hw: high}
+    next_any: [blr.exp_tank, blr.fill_valve, blr.aquastat_set]
+
+- name: CO alarm, rich burner, combustion air and flue verified
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.co_room: 'yes', blr.combustion_air: ok, blr.flue: clear}
+  inputs: {blr.o2_pct: 1.8, blr.co_ppm: 600, blr.smoke_no: 5, blr.stack_f: 520, blr.room_f: 70}
+  expect:
+    top: blr.too_little_air
+    measured: {blr.o2: low, blr.co: very_high, blr.smoke: heavy}
+
+- name: CO alarm in the building and nothing else known — the rich burner and the sooted exchanger are in the running
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.co_room: 'yes'}
+  expect:
+    top3: [blr.too_little_air, blr.hx_sooted]
+
+- name: Spill switch tripped, flue clear, breech draft weak
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.spill_switch: tripped, blr.flue: clear}
+  inputs: {blr.br_draft_inwc: -0.005}
+  expect:
+    top: blr.draft_poor
+    measured: {blr.draft_br: weak}
+
+- name: Spill switch tripped and the combustion-air intake drifted shut
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.spill_switch: tripped, blr.combustion_air: restricted}
+  expect:
+    top: blr.combustion_air_short
+
+- name: Aquastat turned up, relief popping
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.aquastat_set: too_high, blr.relief: popping}
+  expect:
+    top: blr.controls_set_high
+
+- name: Steam pressuretrol turned up toward the safety valve, valve lifting at 12 psi
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: steam}
+  findings: {blr.aquastat_set: too_high, blr.relief: popping, blr.steam_press: high}
+  expect:
+    top: blr.controls_set_high
+    not_top: [blr.limit_stuck_closed]
+
+- name: Nuisance lockouts, supply voltage low under load
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.lockout: once, gen.voltage: low}
+  expect:
+    top: blr.low_voltage
+
+- name: Cracked exchanger found by flame disturbance, no CO alarm
+  system: fuel.furnace
+  ctx: {fuel_type: kero, flame_sensor: cad}
+  findings: {blr.flame_look: pulsing, blr.co_room: 'no', blr.hx_crack: cracked}
+  expect:
+    top: blr.hx_cracked
+
+# ---------------- cold-region fuel ----------------
+- name: Kerosene-class fuel at −45 °F, outdoor filter packed with wax, cloudy sample, vacuum pegged
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.line_cold: 'yes', blr.filter: waxed_iced, blr.fuel_sample: cloudy_wax, blr.start: flame_lost, blr.lockout: once}
+  inputs: {blr.odt_f: -45, blr.pump_vac_inhg: 18, blr.lift_ft: 3}
+  expect:
+    top: blr.fuel_gelled
+    measured: {blr.cold: extreme, blr.pump_vac: high}
+
+- name: Fuel type not known, −10 °F, outdoor filter white with wax, cloudy sample, vacuum pegged
+  system: fuel.boiler
+  ctx: {flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.line_cold: 'yes', blr.filter: waxed_iced, blr.fuel_sample: cloudy_wax, blr.lockout: once}
+  inputs: {blr.odt_f: -10, blr.pump_vac_inhg: 18, blr.lift_ft: 3}
+  expect:
+    top: blr.fuel_gelled
+
+- name: Vacuum pegged in the cold, filter clean, fuel clear, tank vent packed with rime
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.cold: cold, blr.line_cold: 'yes', blr.pump_vac: high, blr.filter: clean, blr.fuel_sample: clear, blr.tank: ok,
+    blr.start: flame_lost, blr.tank_vent: blocked}
+  expect:
+    top: blr.tank_vent_blocked
+    not_top: [blr.line_frozen]
+
+- name: Vacuum pegged in the cold, filter clean, fuel clear, vent not looked at yet — look at the vent
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.cold: cold, blr.line_cold: 'yes', blr.pump_vac: high, blr.filter: clean, blr.fuel_sample: clear, blr.tank: ok,
+    blr.start: flame_lost}
+  expect:
+    top3: [blr.tank_vent_blocked, blr.line_frozen]
+    next_any: [blr.tank_vent]
+
+- name: Deep cold, kerosene, motor hums on cold starts, vacuum high, no wax anywhere
+  system: fuel.boiler
+  ctx: {fuel_type: kero, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.cold: extreme, blr.motor: hums_bound, blr.start: nothing, blr.pump_vac: high, blr.fuel_sample: clear,
+    blr.filter: clean, blr.line_cold: 'yes'}
+  expect:
+    top: blr.cold_thick_fuel
+    not_top: [blr.pump_seized]
+
+- name: Burner draws outside air, −40 °F, stringy flame, O2 8.2 %, rough light-off
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flame_look: stringy, blr.cold: extreme, blr.start: delayed}
+  inputs: {blr.o2_pct: 8.2, blr.smoke_no: 0}
+  expect:
+    top: blr.too_much_air
+    measured: {blr.o2: high}
+
+# ---------------- fuel unit and readings ----------------
+- name: One-pipe unit lifting 7 ft pulls 9 in. Hg — over the one-pipe limit, pump noisy
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw, oil_piping: one_pipe}
+  findings: {blr.pump_noise: noisy, blr.start: flame_lost, blr.lockout: once}
+  inputs: {blr.pump_vac_inhg: 9, blr.lift_ft: 7}
+  expect:
+    top: blr.supply_restricted
+    measured: {blr.pump_vac: high}
+
+- name: Two-stage pump pulling 13 in. Hg on 6 ft of lift is normal for that pump
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw, oil_piping: two_stage}
+  findings: {blr.lockout: 'no'}
+  inputs: {blr.pump_vac_inhg: 13, blr.lift_ft: 6}
+  expect:
+    measured: {blr.pump_vac: normal}
+
+- name: Two-pipe single-stage pump pulling 14 in. Hg on 8 ft of lift is over its limit
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw, oil_piping: two_pipe}
+  findings: {blr.lockout: repeats, blr.filter: clogged}
+  inputs: {blr.pump_vac_inhg: 14, blr.lift_ft: 8}
+  expect:
+    top: blr.supply_restricted
+    measured: {blr.pump_vac: high}
+
+- name: Whining pump, flame pulses, only 2 in. Hg on 5 ft of lift — air is getting in
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.pump_noise: noisy, blr.flame_look: pulsing, blr.lockout: once}
+  inputs: {blr.pump_vac_inhg: 2, blr.lift_ft: 5}
+  expect:
+    top: blr.air_leak_suction
+    measured: {blr.pump_vac: low_zero}
+
+- name: Smoky fire, pump reads 86 psi on a 100 psi burner
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flame_look: smoky}
+  inputs: {blr.pump_psi_meas: 86, blr.pump_psi_spec: 100, blr.pump_vac_inhg: 3, blr.lift_ft: 2}
+  expect:
+    top: blr.pump_pressure_low
+    measured: {blr.pump_psi: low}
+
+- name: Pulsing flame, flue clear, breech draft reads −0.015 in. w.c.
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flame_look: pulsing, blr.flue: clear}
+  inputs: {blr.br_draft_inwc: -0.015}
+  expect:
+    top: blr.draft_poor
+    measured: {blr.draft_br: weak}
+
+- name: Breech draft −0.03 in. w.c. is normal, over-fire +0.02 is pressure (a plus sign is not draft)
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.soot_outside: 'yes'}
+  inputs: {blr.br_draft_inwc: -0.03, blr.of_draft_inwc: 0.02}
+  expect:
+    measured: {blr.draft_br: normal, blr.draft_of: none_positive}
+
+- name: Rusty smoke pipe, stack 240 °F net, aquastat found turned down
+  system: fuel.boiler
+  ctx: {fuel_type: no2, flame_sensor: cad, boiler_kind: hw}
+  findings: {blr.flue: wet, blr.aquastat_set: too_low}
+  inputs: {blr.stack_f: 310, blr.room_f: 70}
+  expect:
+    top: blr.underfired_condensing
+    not_top: [blr.controls_misset]
+    measured: {blr.stack_temp: low}
+
+- name: Furnace cycling on its limit, plenum 165 °F, filter black
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.short_cycle: 'yes', blr.air_filter: dirty, blr.limit_open: open_overheat}
+  inputs: {blr.plenum_temp_f: 165}
+  expect:
+    top: blr.furnace_airflow
+    measured: {blr.plenum_f: high}

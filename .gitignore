@@ -1,0 +1,8 @@
+# local work areas
+.lane/
+.venv/
+research/.dl/
+research/captures/
+tests/scenarios.json
+__pycache__/
+node_modules/

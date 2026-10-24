@@ -1,0 +1,28 @@
+# Shared power and control causes, exercised on the air handler (which has no module of its own yet).
+- name: Breaker trips again right after reset, burnt smell
+  system: ahu
+  findings: {gen.breaker: retrips, gen.burnt_smell: 'yes'}
+  expect: {top: gen.short_to_ground}
+
+- name: Line voltage present, no 24 V
+  system: fuel.boiler
+  findings: {gen.power: present, gen.control_v: missing}
+  expect: {top: gen.control_power}
+
+- name: Thermostat not calling
+  system: hydronic
+  findings: {gen.output: none, gen.call: not_calling}
+  expect: {top: gen.no_call}
+
+- name: Supply voltage low under load (from the meter)
+  system: vc.ac
+  findings: {gen.short_cycle: 'yes'}
+  inputs: {gen.volts: 190, gen.volts_nominal: 230}
+  expect:
+    top3: [gen.low_voltage]
+    measured: {gen.voltage: low}
+
+- name: Burnt smell and it comes and goes
+  system: steam
+  findings: {gen.burnt_smell: 'yes', gen.intermittent: 'yes'}
+  expect: {top3: [gen.loose_connection]}

@@ -1,0 +1,676 @@
+# Scenario suite for Hydronic, Glycol & Steam distribution (kb/hydronic.yaml).
+# Covers every hyd.* cause, every hyd.* measure from raw numeric inputs, and opening-move checks.
+# The last section holds the regression scenarios from the 2026-10-24 blind technical review
+# (.lane/qc/hydronic-review.md): one per failure the review found, plus one per cause it added.
+
+# ==================== HYDRONIC & STEAM — OPENING MOVES ====================
+- name: Hydronic loop — no heat in one zone (opening move)
+   # First checks should look at the zone valve, circulator, terminal unit, or bleeding air
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone}
+  expect:
+    next_any: [hyd.circ, hyd.zone_valve, hyd.air_bleed, hyd.loop_noise, hyd.terminal_air]
+
+- name: Hydronic loop — whole building cold (opening move)
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: whole_loop}
+  expect:
+    next_any: [hyd.circ, hyd.supply_temp, hyd.pressure, hyd.iso_valves]
+
+- name: Hydronic loop — relief valve weeping water on the floor (opening move)
+  system: hydronic
+  findings: {hyd.relief_weeping: weeping, gen.water_leak: 'yes'}
+  expect:
+    top3: [hyd.exp_tank_waterlogged, hyd.fill_valve_passing, hyd.relief_valve_bad]
+    next_any: [hyd.pressure, hyd.exp_tank, hyd.fill_valve]
+
+- name: Steam — single radiator cold (opening move)
+  system: steam
+  findings: {gen.output: none, hyd.steam_scope: one_unit}
+  expect:
+    top3: [hyd.air_vent_closed, hyd.trap_failed_closed, hyd.supply_valve_closed]
+    next_any: [hyd.steam_vent, hyd.rad_valve, hyd.trap_check]
+
+- name: Steam — loud water hammer in the pipes (opening move)
+  system: steam
+  findings: {hyd.water_hammer: 'yes'}
+  expect:
+    top3: [hyd.water_hammer_pitch, hyd.drip_trap_failed, hyd.trap_failed_closed]
+    next_any: [hyd.pipe_pitch, hyd.drip_trap, hyd.steam_scope, hyd.trap_check]
+
+- name: Steam — condensate receiver issue / steam from vent (opening move)
+  system: steam
+  findings: {hyd.steam_scope: return_issue}
+  expect:
+    next_any: [hyd.cond_pump, hyd.vent_plume, hyd.cond_temp]
+
+# ==================== HYDRONIC — CIRCULATOR NOT RUNNING ====================
+- name: Circulator silent with 120 V at motor leads and open winding
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: 'off', hyd.circ_volts: present, hyd.circ_windings: failed}
+  expect:
+    top: hyd.circ_motor
+
+- name: Circulator humming and hot, rotor free, run capacitor measures low
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: hums, hyd.circ_cap: bad, hyd.circ_shaft: ok}
+  expect:
+    top: hyd.circ_cap
+
+- name: Thermostat calling and end switch closed, but switching relay sends no voltage to circulator
+  system: hydronic
+  findings: {gen.output: none, gen.call: calling, hyd.circ: 'off', hyd.circ_volts: missing, hyd.zv_endswitch: closes}
+  expect:
+    top: hyd.circ_relay
+
+- name: Circulator humming after sitting all summer, capacitor good, cartridge rotor seized
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: hums, hyd.circ_cap: ok, hyd.circ_shaft: seized, hyd.circ_amps: high}
+  expect:
+    top: hyd.circ_seized
+
+# ==================== HYDRONIC — CIRCULATOR RUNNING WITH NO FLOW ====================
+- name: 3-piece circulator running at low amps, zero head from gauges, broken coupler
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: running, hyd.circ_shaft: sheared, hyd.circ_amps: low}
+  inputs: {hyd.pump_suction_psig: 14, hyd.pump_discharge_psig: 14.5, hyd.pump_rated_hd: 25}
+  expect:
+    top: hyd.circ_coupling
+    measured: {hyd.pump_head: zero}
+
+- name: Circulator motor and shaft spinning, bled full of water, zero head — stripped impeller
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: running, hyd.circ_shaft: impeller_slip, hyd.air_bleed: water,
+    hyd.iso_valves: open}
+  inputs: {hyd.pump_suction_psig: 15, hyd.pump_discharge_psig: 15.2, hyd.pump_rated_hd: 25}
+  expect:
+    top: hyd.circ_impeller
+    measured: {hyd.pump_head: zero}
+
+- name: Circulator noisy with zero head after repair, air hisses from pump bleed plug
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: noisy, hyd.air_bleed: air, gen.recent_work: 'yes'}
+  inputs: {hyd.pump_suction_psig: 12, hyd.pump_discharge_psig: 12.4, hyd.pump_rated_hd: 25}
+  expect:
+    top: hyd.circ_airlocked
+    measured: {hyd.pump_head: zero}
+
+- name: Isolation ball valve left closed after service — pump deadheaded at high head
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: running, hyd.iso_valves: closed, gen.recent_work: 'yes'}
+  inputs: {hyd.pump_suction_psig: 12, hyd.pump_discharge_psig: 26, hyd.pump_rated_hd: 25}
+  expect:
+    top: hyd.iso_valve_closed
+    measured: {hyd.pump_head: high}
+
+- name: Plugged Y-strainer causing wide loop ΔT and high pump head
+  system: hydronic
+  findings: {gen.output: weak, hyd.strainer: clogged, hyd.circ: running, hyd.iso_valves: open}
+  inputs: {hyd.supply_f: 180, hyd.return_f: 138, hyd.design_dt: 20, hyd.pump_suction_psig: 12,
+    hyd.pump_discharge_psig: 25, hyd.pump_rated_hd: 25}
+  expect:
+    top: hyd.strainer_clogged
+    measured: {hyd.loop_dt: high, hyd.pump_head: high}
+
+# ==================== HYDRONIC — AIR IN THE LOOP ====================
+- name: One zone cold with gurgling baseboard and air at coin vent
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: one_zone, hyd.loop_noise: gurgling, hyd.air_bleed: air, hyd.circ: running}
+  expect:
+    top: hyd.air_in_loop
+
+- name: Automatic air vent (hyvent) cap screwed tight and trapping air
+  system: hydronic
+  findings: {hyd.auto_vent: stuck_closed, hyd.loop_noise: gurgling, hyd.air_bleed: air}
+  expect:
+    top: hyd.air_vent_failed
+
+# ==================== HYDRONIC — SYSTEM PRESSURE, FILL & EXPANSION ====================
+- name: Low loop pressure (4 psig) with glycol make-up feeder empty and no leaks
+  system: hydronic
+  ctx: {fluid: pg}
+  findings: {gen.output: weak, hyd.fill_valve: blocked, gen.water_leak: 'no'}
+  inputs: {hyd.loop_psig: 4, hyd.fill_psig: 15}
+  expect:
+    top: hyd.low_pressure_fill
+    measured: {hyd.pressure: low}
+
+- name: Low loop pressure from a leaking pipe fitting (relief and pump seal dry)
+  system: hydronic
+  findings: {gen.water_leak: 'yes', hyd.seal_leak: 'no', hyd.relief_weeping: 'no', hyd.auto_vent: ok}
+  inputs: {hyd.loop_psig: 5, hyd.fill_psig: 15}
+  expect:
+    top: hyd.system_leak
+    measured: {hyd.pressure: low}
+
+- name: Relief valve weeping at 30 psig when hot — expansion tank waterlogged
+  system: hydronic
+  findings: {hyd.relief_weeping: discharging, hyd.exp_tank: waterlogged, hyd.fill_valve: ok, gen.water_leak: 'yes'}
+  inputs: {hyd.loop_psig: 30, hyd.fill_psig: 15}
+  expect:
+    top: hyd.exp_tank_waterlogged
+    measured: {hyd.pressure: high}
+
+- name: Pressure creeps to 29 psig cold and lifts relief — fill valve (PRV) passing
+  system: hydronic
+  findings: {hyd.relief_weeping: discharging, hyd.fill_valve: passing, hyd.exp_tank: ok}
+  inputs: {hyd.loop_psig: 29, hyd.fill_psig: 15}
+  expect:
+    top: hyd.fill_valve_passing
+    measured: {hyd.pressure: high}
+
+- name: Relief valve dripping while loop pressure is steady at 14 psig and tank is good
+  system: hydronic
+  findings: {hyd.relief_weeping: weeping, hyd.exp_tank: ok, hyd.fill_valve: ok, gen.water_leak: 'yes'}
+  inputs: {hyd.loop_psig: 14, hyd.fill_psig: 15}
+  expect:
+    top: hyd.relief_valve_bad
+    measured: {hyd.pressure: normal}
+
+# ==================== HYDRONIC — ZONE VALVES, MIXING, CHECKS & BALANCE ====================
+- name: One zone cold, thermostat calling, zone valve stays closed (manual lever stiff)
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.zone_valve: stays_closed, gen.call: calling}
+  expect:
+    top: hyd.zv_actuator
+
+- name: Zone valve opens on call (lever floppy), but failed end switch leaves circulator off
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.zone_valve: ok, hyd.zv_endswitch: open,
+    hyd.circ: 'off', gen.call: calling}
+  expect:
+    top: hyd.zv_endswitch
+
+- name: Zone valve body mechanically jammed closed even with actuator head removed
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.zone_valve: jammed_closed, hyd.check_valve: ok,
+    hyd.circ: running}
+  expect:
+    top: hyd.zv_stuck_closed
+
+- name: Zone overheating with thermostat off — zone valve latched or stuck open
+  system: hydronic
+  findings: {hyd.scope: overheating, hyd.zone_valve: stuck_open, hyd.check_valve: ok, gen.call: not_calling}
+  expect:
+    top: hyd.zv_stuck_open
+
+- name: 3-way mixing valve stuck in bypass — cold loop supply and narrow ΔT
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: whole_loop, hyd.supply_temp: low, hyd.mixing_valve_state: stuck_bypass,
+    hyd.circ: running, hyd.reset_setpoint: ok}
+  inputs: {hyd.supply_f: 92, hyd.return_f: 88, hyd.design_dt: 20}
+  expect:
+    top: hyd.mixing_valve
+    measured: {hyd.loop_dt: low}
+
+- name: Zone overheating with thermostat off — flow-check stuck open (ghost flow)
+  system: hydronic
+  findings: {hyd.scope: overheating, hyd.check_valve: stuck_open, hyd.zone_valve: ok, gen.call: not_calling}
+  expect:
+    top: hyd.check_valve_open
+
+- name: One zone cold with pump running — spring check valve stuck closed
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.check_valve: stuck_closed, hyd.circ: running,
+    hyd.air_bleed: water, hyd.iso_valves: open}
+  expect:
+    top: hyd.check_valve_closed
+
+- name: Loop short-circuiting through open bypass valve — narrow 5 °F ΔT
+  system: hydronic
+  findings: {gen.output: weak, hyd.iso_valves: bypass_open, hyd.supply_temp: normal, hyd.circ: running}
+  inputs: {hyd.supply_f: 175, hyd.return_f: 170, hyd.design_dt: 20}
+  expect:
+    top: hyd.short_circuit
+    measured: {hyd.loop_dt: low}
+
+# ==================== HYDRONIC — HEAT EXCHANGER, GLYCOL, FREEZE & TERMINALS ====================
+- name: McMurdo plate heat exchanger fouled — 34 °F approach temp and high ΔP
+  system: hydronic
+  ctx: {fluid: pg}
+  findings: {gen.output: weak, hyd.scope: whole_loop, hyd.hx_dp: high, hyd.supply_temp: low, hyd.primary_source: ok}
+  inputs: {hyd.hx_hot_in_f: 185, hyd.hx_cold_out_f: 151, hyd.hx_valve_pct: 100}
+  expect:
+    top: hyd.hx_fouled
+    measured: {hyd.hx_approach: high}
+
+- name: McMurdo glycol loop diluted to 35% PG (freezes at +1 °F vs -40 °F target)
+  system: hydronic
+  ctx: {fluid: pg}
+  findings: {hyd.glycol_cond: good, gen.output: weak}
+  inputs: {hyd.glycol_pct: 35, hyd.req_freeze_f: -40}
+  expect:
+    top: hyd.glycol_weak
+    measured: {hyd.freeze_point: weak}
+
+- name: Ethylene glycol loop degraded — acidic pH and black magnetite sludge fouling strainer
+  system: hydronic
+  ctx: {fluid: eg}
+  findings: {hyd.glycol_cond: degraded, hyd.strainer: clogged}
+  inputs: {hyd.glycol_pct: 54, hyd.req_freeze_f: -40}
+  expect:
+    top: hyd.glycol_degraded
+    measured: {hyd.freeze_point: ok}
+
+- name: Frozen unit-heater branch pipe in subzero vestibule
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.pipe_frost: iced, hyd.air_bleed: nothing}
+  expect:
+    top: hyd.frozen_pipe_coil
+
+- name: Circulator cavitating — gravel sound at pump and low differential head
+  system: hydronic
+  findings: {hyd.circ: noisy, hyd.loop_noise: gravel, gen.output: weak}
+  inputs: {hyd.pump_suction_psig: 6, hyd.pump_discharge_psig: 11, hyd.pump_rated_hd: 25,
+    hyd.loop_psig: 7, hyd.fill_psig: 15}
+  expect:
+    top: hyd.pump_cavitation
+    measured: {hyd.pump_head: low, hyd.pressure: low}
+
+- name: Glycol dripping from circulator bearing bracket weep hole (shaft seal leak)
+  system: hydronic
+  ctx: {fluid: pg}
+  findings: {gen.water_leak: 'yes', hyd.seal_leak: pump_seal, hyd.relief_weeping: 'no', hyd.circ: running}
+  expect:
+    top: hyd.pump_seal_leak
+
+- name: Hot pipes at hydronic unit heater, but unit-heater fan motor is dead
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.terminal_air: fan_off, hyd.supply_temp: normal}
+  expect:
+    top: hyd.terminal_fan
+
+- name: Room cold with hot baseboard tube — fins matted with dust and damper closed
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: one_zone, hyd.terminal_air: fins_blocked, hyd.supply_temp: normal,
+    hyd.circ: running}
+  expect:
+    top: hyd.terminal_blocked
+
+- name: Whole building lukewarm — outdoor-reset sensor drifted so supply setpoint is too low
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: whole_loop, hyd.supply_temp: low, hyd.reset_setpoint: too_low,
+    hyd.mixing_valve_state: ok, hyd.circ: running}
+  expect:
+    top: hyd.reset_control
+
+- name: McMurdo primary heat-recovery loop cold and backup boiler failed to stage on
+  system: hydronic
+  ctx: {fluid: pg}
+  findings: {gen.output: none, hyd.scope: whole_loop, hyd.supply_temp: low, hyd.primary_source: cold_no_stage,
+    hyd.circ: running}
+  inputs: {hyd.hx_hot_in_f: 85, hyd.hx_cold_out_f: 80, hyd.hx_valve_pct: 100}
+  expect:
+    top: hyd.primary_recovery_cold
+    measured: {hyd.hx_approach: normal}
+
+- name: Indirect domestic water heater lukewarm — failed tempering valve / DHW zone fault
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: one_zone, hyd.dhw_status: fault, hyd.supply_temp: normal}
+  expect:
+    top: hyd.dhw_indirect
+
+# ==================== LOW-PRESSURE STEAM & CONDENSATE (steam) ====================
+- name: Steam trap failed open — 208 °F condensate return and live steam jetting from receiver vent
+  system: steam
+  findings: {hyd.steam_scope: return_issue, hyd.vent_plume: live_steam, hyd.trap_check: failed_open}
+  inputs: {hyd.cond_return_f: 208}
+  expect:
+    top: hyd.trap_failed_open
+    measured: {hyd.cond_temp: high}
+
+- name: Radiator cold and waterlogged — steam trap cold on both sides (failed closed)
+  system: steam
+  findings: {gen.output: none, hyd.steam_scope: one_unit, hyd.trap_check: failed_closed, hyd.rad_valve: open}
+  expect:
+    top: hyd.trap_failed_closed
+
+- name: One-pipe steam radiator cold — air vent stuck closed and never hisses
+  system: steam
+  findings: {gen.output: none, hyd.steam_scope: one_unit, hyd.steam_vent: stuck_closed, hyd.rad_valve: open}
+  expect:
+    top: hyd.air_vent_closed
+
+- name: Radiator air vent stuck open and spitting steam and water into the room
+  system: steam
+  findings: {hyd.steam_vent: stuck_open, gen.water_leak: 'yes', hyd.steam_scope: one_unit, hyd.rad_valve: open}
+  expect:
+    top: hyd.air_vent_open
+
+- name: Violent water hammer on warm-up from sagging steam runout with broken hanger
+  system: steam
+  findings: {hyd.water_hammer: 'yes', hyd.pipe_pitch: sagged, hyd.drip_trap: ok, hyd.rad_valve: open}
+  expect:
+    top: hyd.water_hammer_pitch
+
+- name: Flooded steam main and loud water hammer — end-of-main F&T drip trap cold and plugged
+  system: steam
+  findings: {hyd.water_hammer: 'yes', hyd.drip_trap: cold_plugged, hyd.steam_scope: main_slow, hyd.pipe_pitch: good}
+  expect:
+    top: hyd.drip_trap_failed
+
+- name: Single radiator cold and hammering at inlet — supply valve half-throttled on one-pipe steam
+  system: steam
+  findings: {gen.output: none, hyd.steam_scope: one_unit, hyd.rad_valve: closed_or_throttled, hyd.steam_vent: ok,
+    hyd.trap_check: ok}
+  expect:
+    top: hyd.supply_valve_closed
+
+- name: Condensate receiver overflowing with pump off — float switch stuck open
+  system: steam
+  findings: {hyd.steam_scope: return_issue, hyd.cond_pump: off_full, hyd.cond_float: stuck, hyd.vent_plume: water,
+    gen.water_leak: 'yes', gen.power: present}
+  expect:
+    top: hyd.cond_pump_float
+
+- name: Condensate receiver overflowing with float switch closed — pump motor dead
+  system: steam
+  findings: {hyd.steam_scope: return_issue, hyd.cond_pump: off_full, hyd.cond_float: ok, hyd.vent_plume: water,
+    gen.water_leak: 'yes', gen.burnt_smell: 'yes'}
+  expect:
+    top: hyd.cond_pump_motor
+
+- name: Condensate pump runs nonstop without pumping down receiver (clogged impeller or vapor-bound)
+  system: steam
+  findings: {hyd.steam_scope: return_issue, hyd.cond_pump: runs_no_pump, hyd.cond_float: ok, hyd.cond_check: holds,
+    hyd.vent_plume: water}
+  expect:
+    top: hyd.cond_pump_impeller
+
+- name: Condensate pump short-cycling — boiler water rushing back through leaking discharge check valve
+  system: steam
+  findings: {hyd.steam_scope: return_issue, hyd.cond_pump: short_cycles, hyd.cond_check: leaks_back,
+    gen.short_cycle: 'yes'}
+  inputs: {hyd.cond_return_f: 180}
+  expect:
+    top: hyd.cond_check_leak
+    measured: {hyd.cond_temp: normal}
+
+- name: Vacuum return pump running nonstop with 0 in. Hg vacuum on gauge
+  system: steam
+  findings: {hyd.vac_reading: low, gen.runs_constantly: 'yes', hyd.steam_scope: main_slow, gen.output: weak}
+  expect:
+    top: hyd.vac_pump_failed
+
+- name: Live steam hissing and dripping from radiator valve stem packing
+  system: steam
+  findings: {hyd.steam_leak_loc: 'yes', gen.water_leak: 'yes', hyd.vent_plume: normal, hyd.cond_pump: normal}
+  expect:
+    top: hyd.steam_leak
+
+# ==================== REVIEW REGRESSIONS (2026-10-24 blind technical review) ====================
+# --- fluid not known / glycol vs water (item 1)
+- name: Freeze point reads weak and the fluid type was never entered — glycol stays in play
+  system: hydronic
+  findings: {hyd.freeze_point: weak}
+  expect:
+    top: hyd.glycol_weak
+
+- name: Glycol of unknown type, refractometer says the freeze point is too weak
+  system: hydronic
+  ctx: {fluid: glycol}
+  findings: {hyd.freeze_point: weak}
+  expect:
+    top: hyd.glycol_weak
+
+- name: Plain water loop — a weak freeze-point reading does not call weak glycol
+  system: hydronic
+  ctx: {fluid: water}
+  findings: {hyd.freeze_point: weak}
+  expect:
+    not_top: [hyd.glycol_weak]
+
+# --- pressure against the cold-fill target and the actual relief setting (item 2)
+- name: Cold fill 40 psig and a reading of 40 psig under a 100 psig relief is normal
+  system: hydronic
+  inputs: {hyd.loop_psig: 40, hyd.fill_psig: 40, hyd.relief_psig: 100}
+  expect:
+    measured: {hyd.pressure: normal}
+
+- name: Reading 28 psig under a 30 psig relief is high even though it is only 6 over a 22 psig fill
+  system: hydronic
+  inputs: {hyd.loop_psig: 28, hyd.fill_psig: 22, hyd.relief_psig: 30}
+  expect:
+    measured: {hyd.pressure: high}
+    top3: [hyd.exp_tank_waterlogged, hyd.fill_valve_passing]
+
+- name: Near-relief test runs without a fill target — 28 psig under a 30 psig relief is high
+  system: hydronic
+  inputs: {hyd.loop_psig: 28, hyd.relief_psig: 30}
+  expect:
+    measured: {hyd.pressure: high}
+
+- name: No fill target and no relief setting entered — 7 psig is still low on any loop
+  system: hydronic
+  inputs: {hyd.loop_psig: 7}
+  expect:
+    measured: {hyd.pressure: low}
+
+# --- expansion tank states (items 3, 8, 34)
+- name: Tank ruptured but read cold — water at the Schrader, pressure normal, relief dry
+  system: hydronic
+  findings: {hyd.exp_tank: ruptured, hyd.pressure: normal, hyd.relief_weeping: 'no'}
+  expect:
+    top: hyd.exp_tank_waterlogged
+
+- name: Bladder intact but precharge flat (Schrader dry) — relief lifting when hot
+  system: hydronic
+  findings: {hyd.exp_tank: low_precharge, hyd.pressure: high, hyd.relief_weeping: discharging, hyd.fill_valve: ok}
+  expect:
+    top: hyd.exp_tank_waterlogged
+
+- name: Expansion tank valve found shut — hot pressure high, relief discharging, fill valve fine
+  system: hydronic
+  findings: {hyd.exp_tank: isolated, hyd.pressure: high, hyd.relief_weeping: discharging, hyd.fill_valve: ok}
+  expect:
+    top: hyd.exp_tank_isolated
+
+- name: Tank open and precharge right but hot pressure still high — tank too small for the glycol swing
+  system: hydronic
+  findings: {hyd.exp_tank: ok, hyd.pressure: high, hyd.relief_weeping: discharging, hyd.fill_valve: ok}
+  expect:
+    top3: [hyd.exp_tank_isolated]
+
+# --- condensate temperature thresholds for vented receivers (item 4)
+- name: Condensate return at 200 °F on an F&T trap system is normal, not live steam
+  system: steam
+  inputs: {hyd.cond_return_f: 200}
+  expect:
+    measured: {hyd.cond_temp: normal}
+
+- name: Condensate return at 208 °F is high
+  system: steam
+  inputs: {hyd.cond_return_f: 208}
+  expect:
+    measured: {hyd.cond_temp: high}
+
+# --- glycol range (item 5) and freeze point against the required target
+- name: EG loop at 70 % is over-concentrated, not protected
+  system: hydronic
+  ctx: {fluid: eg}
+  inputs: {hyd.glycol_pct: 70, hyd.req_freeze_f: -40}
+  expect:
+    top: hyd.glycol_rich
+    measured: {hyd.freeze_point: rich}
+
+- name: PG loop at 62 % is also over-concentrated
+  system: hydronic
+  ctx: {fluid: pg}
+  inputs: {hyd.glycol_pct: 62, hyd.req_freeze_f: -40}
+  expect:
+    measured: {hyd.freeze_point: rich}
+
+- name: EG loop at 54 % against a -40 °F target still reads protected
+  system: hydronic
+  ctx: {fluid: eg}
+  inputs: {hyd.glycol_pct: 54, hyd.req_freeze_f: -40}
+  expect:
+    measured: {hyd.freeze_point: ok}
+
+- name: Glycol type not entered — 54 % is judged on the PG table and reads weak against -40 °F
+  system: hydronic
+  inputs: {hyd.glycol_pct: 54, hyd.req_freeze_f: -40}
+  expect:
+    measured: {hyd.freeze_point: weak}
+
+- name: Refractometer reads rich, output weak and loop ΔT wide — glycol over-concentrated
+  system: hydronic
+  ctx: {fluid: pg}
+  findings: {hyd.freeze_point: rich, gen.output: weak, hyd.loop_dt: high}
+  expect:
+    top: hyd.glycol_rich
+
+# --- heat exchanger approach only counts with the primary valve open (item 6) and the starved-HX cause (item 36)
+- name: Part-load HX, 190 in and 140 out with the primary valve at 45 % open, is not read as fouling
+  system: hydronic
+  inputs: {hyd.hx_hot_in_f: 190, hyd.hx_cold_out_f: 140, hyd.hx_valve_pct: 45}
+  expect:
+    not_top: [hyd.hx_fouled]
+
+- name: Same HX temperatures with the valve position not entered — approach is not computed
+  system: hydronic
+  inputs: {hyd.hx_hot_in_f: 190, hyd.hx_cold_out_f: 140}
+  expect:
+    not_top: [hyd.hx_fouled]
+
+- name: Same HX temperatures with the primary valve wide open — approach is high
+  system: hydronic
+  inputs: {hyd.hx_hot_in_f: 190, hyd.hx_cold_out_f: 140, hyd.hx_valve_pct: 100}
+  expect:
+    measured: {hyd.hx_approach: high}
+
+- name: Approach high, plate ΔP normal, primary source fine — HX starved on the primary side
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: whole_loop, hyd.supply_temp: low, hyd.hx_approach: high, hyd.hx_dp: normal,
+    hyd.primary_source: ok}
+  expect:
+    top: hyd.hx_primary_flow
+
+- name: Approach high with a much wider primary drop than design — primary flow is short
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: whole_loop, hyd.supply_temp: low, hyd.hx_approach: high,
+    hyd.hx_primary_dt: wide, hyd.primary_source: ok}
+  expect:
+    top: hyd.hx_primary_flow
+
+- name: Approach high with a narrow primary drop — plates are fouled
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: whole_loop, hyd.supply_temp: low, hyd.hx_approach: high,
+    hyd.hx_primary_dt: narrow, hyd.primary_source: ok}
+  expect:
+    top: hyd.hx_fouled
+
+- name: EG loop with weak glycol, falling pressure and no external leak — plate crossover
+  system: hydronic
+  ctx: {fluid: eg}
+  findings: {hyd.freeze_point: weak, hyd.pressure: low, gen.water_leak: 'no'}
+  expect:
+    top: hyd.hx_leak
+
+# --- wide loop ΔT is not a weak-glycol sign (item 10)
+- name: Wide loop ΔT with a clean strainer does not point at weak glycol
+  system: hydronic
+  ctx: {fluid: pg}
+  findings: {hyd.loop_dt: high, hyd.strainer: clean}
+  expect:
+    not_top: [hyd.glycol_weak]
+
+# --- a closed branch valve leaves pump head near normal (item 11)
+- name: Closed branch valve on a multi-zone loop — one zone cold, pump running, head normal
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.iso_valves: closed, hyd.circ: running, hyd.pump_head: normal}
+  expect:
+    top: hyd.iso_valve_closed
+
+# --- one blowing trap leaves the receiver and header looking normal (item 13)
+- name: One blowing radiator trap while the receiver vent and condensate header look normal
+  system: steam
+  findings: {hyd.trap_check: failed_open, hyd.steam_scope: normal, hyd.vent_plume: normal}
+  expect:
+    top: hyd.trap_failed_open
+
+# --- site and nameplate numbers are inputs, not silent defaults (item 14)
+- name: Pump differential of 12 psi on an 80 ft pump reads low, not normal
+  system: hydronic
+  ctx: {fluid: pg}
+  inputs: {hyd.pump_suction_psig: 30, hyd.pump_discharge_psig: 42, hyd.pump_rated_hd: 80}
+  expect:
+    measured: {hyd.pump_head: low}
+
+- name: Near-zero pump differential is flagged even when the rated head was not entered
+  system: hydronic
+  inputs: {hyd.pump_suction_psig: 14, hyd.pump_discharge_psig: 14.3}
+  expect:
+    measured: {hyd.pump_head: zero}
+
+- name: A 38 °F ΔT on a loop designed for 40 °F is normal
+  system: hydronic
+  inputs: {hyd.supply_f: 180, hyd.return_f: 142, hyd.design_dt: 40}
+  expect:
+    measured: {hyd.loop_dt: normal}
+
+# --- iced versus split pipe (item 15)
+- name: Split unit-heater return bend leaking after the freeze
+  system: hydronic
+  findings: {gen.output: none, hyd.scope: one_zone, hyd.pipe_frost: split, gen.water_leak: 'yes'}
+  expect:
+    top: hyd.frozen_pipe_coil
+
+# --- overtemperature (item 35)
+- name: Supply water too hot and the relief valve discharging
+  system: hydronic
+  findings: {hyd.supply_temp: high, hyd.relief_weeping: discharging}
+  expect:
+    top: hyd.overtemp
+
+# --- pressure loss with nothing wet (item 38) and air that keeps returning (item 39)
+- name: Pressure keeps dropping, nothing wet, fill valve fine, relief dry
+  system: hydronic
+  findings: {hyd.pressure: low, gen.water_leak: 'no', hyd.fill_valve: ok, hyd.relief_weeping: 'no'}
+  expect:
+    top3: [hyd.loss_hidden]
+
+- name: Air back after every purge, pressure sagging, no recent work on the loop
+  system: hydronic
+  findings: {hyd.air_bleed: air, hyd.pressure: low, hyd.loop_noise: gurgling, gen.recent_work: 'no'}
+  expect:
+    top3: [hyd.air_chronic]
+
+# --- unit heater and fan-coil coils (item 43) and circulator rotation (item 44)
+- name: Unit heater pipes hot, fan running, weak air off a coil loaded with lint and a plugged filter
+  system: hydronic
+  findings: {gen.output: weak, hyd.scope: one_zone, hyd.terminal_air: coil_fouled, hyd.supply_temp: normal, hyd.circ: running}
+  expect:
+    top: hyd.coil_fouled
+
+- name: New three-phase circulator motor fitted, runs smoothly but head is low and the bleed is solid water
+  system: hydronic
+  findings: {gen.output: weak, hyd.circ: running, hyd.pump_head: low, hyd.circ_shaft: ok, hyd.air_bleed: water,
+    gen.recent_work: 'yes'}
+  expect:
+    top: hyd.circ_rotation
+
+# --- steam: carryover, flooded receiver, reducing station (items 40, 41, 42)
+- name: Steam hammer with sound pitch, working drip traps and unit traps, water line bouncing in the glass
+  system: steam
+  findings: {hyd.water_hammer: 'yes', hyd.pipe_pitch: good, hyd.drip_trap: ok, hyd.boiler_level: bouncing}
+  expect:
+    top: hyd.steam_carryover
+
+- name: Receiver overflowing while the condensate pump cycles normally
+  system: steam
+  findings: {hyd.steam_scope: return_issue, hyd.vent_plume: water, hyd.cond_pump: normal}
+  expect:
+    top: hyd.cond_receiver_flood
+
+- name: Steam units starved — low-pressure main well under its set pressure past the reducing valve
+  system: steam
+  findings: {hyd.prv_outlet: low, hyd.steam_scope: main_slow, gen.output: weak}
+  expect:
+    top: hyd.steam_prv_failed
+
+- name: Low-pressure steam main over its set pressure and the low-side relief lifting
+  system: steam
+  findings: {hyd.prv_outlet: high}
+  expect:
+    top3: [hyd.steam_prv_failed]

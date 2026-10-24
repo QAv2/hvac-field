@@ -1,0 +1,554 @@
+{
+  "R-454B": {
+    "source": "Arkema (Forane) 'Forane Ref PT Regular Chart EN' (PDF text layer): R-454B Liquid and Vapor columns, PRESSURE (PSIG), Sat. Temp in F",
+    "url": "https://forane.arkema.com/files/live/sites/shared_arkema/files/downloads/fluorochemicals/Forane%20Ref%20PT%20Regular%20Chart%20EN",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 24.3,
+        "vapor_psig": 22.6
+      },
+      {
+        "F": 0,
+        "liquid_psig": 45.3,
+        "vapor_psig": 42.7
+      },
+      {
+        "F": 20,
+        "liquid_psig": 73.9,
+        "vapor_psig": 70.3
+      },
+      {
+        "F": 40,
+        "liquid_psig": 112.0,
+        "vapor_psig": 107.0
+      },
+      {
+        "F": 90,
+        "liquid_psig": 260.1,
+        "vapor_psig": 251.0
+      },
+      {
+        "F": 100,
+        "liquid_psig": 300.8,
+        "vapor_psig": 290.9
+      },
+      {
+        "F": 110,
+        "liquid_psig": 345.9,
+        "vapor_psig": 335.2
+      },
+      {
+        "F": 120,
+        "liquid_psig": 395.7,
+        "vapor_psig": 384.3
+      }
+    ]
+  },
+  "R-448A": {
+    "source": "Hudson Technologies R-448A PT chart (PDF): Liquid and Vapor psig columns (distributor copy)",
+    "url": "https://www.hudsontech.com/pdfs/pt-charts/R-448A-Pressure-Temperature-Chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 17.0,
+        "vapor_psig": 9.8
+      },
+      {
+        "F": 0,
+        "liquid_psig": 34.2,
+        "vapor_psig": 24.3
+      },
+      {
+        "F": 20,
+        "liquid_psig": 57.8,
+        "vapor_psig": 44.6
+      },
+      {
+        "F": 40,
+        "liquid_psig": 89.0,
+        "vapor_psig": 72.1
+      },
+      {
+        "F": 90,
+        "liquid_psig": 211.0,
+        "vapor_psig": 183.0
+      },
+      {
+        "F": 100,
+        "liquid_psig": 244.0,
+        "vapor_psig": 214.0
+      },
+      {
+        "F": 110,
+        "liquid_psig": 281.0,
+        "vapor_psig": 249.0
+      },
+      {
+        "F": 120,
+        "liquid_psig": 321.0,
+        "vapor_psig": 288.0
+      }
+    ]
+  },
+  "R-449A": {
+    "source": "Hudson Technologies R-449A PT chart (PDF): Liquid and Vapor psig columns (distributor copy)",
+    "url": "https://www.hudsontech.com/pdfs/pt-charts/R-449A-Pressure-Temperature-Chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 16.7,
+        "vapor_psig": 9.8
+      },
+      {
+        "F": 0,
+        "liquid_psig": 33.8,
+        "vapor_psig": 24.1
+      },
+      {
+        "F": 20,
+        "liquid_psig": 57.1,
+        "vapor_psig": 44.3
+      },
+      {
+        "F": 40,
+        "liquid_psig": 88.0,
+        "vapor_psig": 71.6
+      },
+      {
+        "F": 90,
+        "liquid_psig": 208.0,
+        "vapor_psig": 182.0
+      },
+      {
+        "F": 100,
+        "liquid_psig": 241.0,
+        "vapor_psig": 213.0
+      },
+      {
+        "F": 110,
+        "liquid_psig": 278.0,
+        "vapor_psig": 247.0
+      },
+      {
+        "F": 120,
+        "liquid_psig": 318.0,
+        "vapor_psig": 286.0
+      }
+    ]
+  },
+  "R-513A": {
+    "source": "Arkema (Forane) 'Forane Ref PT Regular Chart EN' (PDF text layer): R-513A Liquid and Vapor columns, PRESSURE (PSIG)",
+    "url": "https://forane.arkema.com/files/live/sites/shared_arkema/files/downloads/fluorochemicals/Forane%20Ref%20PT%20Regular%20Chart%20EN",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 0.5,
+        "vapor_psig": 0.4
+      },
+      {
+        "F": 0,
+        "liquid_psig": 9.6,
+        "vapor_psig": 9.5
+      },
+      {
+        "F": 20,
+        "liquid_psig": 22.5,
+        "vapor_psig": 22.4
+      },
+      {
+        "F": 40,
+        "liquid_psig": 40.1,
+        "vapor_psig": 40.1
+      },
+      {
+        "F": 90,
+        "liquid_psig": 111.9,
+        "vapor_psig": 111.9
+      },
+      {
+        "F": 100,
+        "liquid_psig": 132.1,
+        "vapor_psig": 132.1
+      },
+      {
+        "F": 110,
+        "liquid_psig": 154.7,
+        "vapor_psig": 154.7
+      },
+      {
+        "F": 120,
+        "liquid_psig": 179.8,
+        "vapor_psig": 179.7
+      }
+    ]
+  },
+  "R-407A": {
+    "source": "Arkema Forane 407A 'Saturation Pressure-Temperature Data for R-407A (psig)' (PDF text layer): Liquid and Vapor columns; footer cites NIST REFPROP 9.0",
+    "url": "https://www.Arkema.com/files/live/sites/shared_arkema/files/downloads/fluorochemicals/forane-407a-pressuretemperature-chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 15.6,
+        "vapor_psig": 8.5
+      },
+      {
+        "F": 0,
+        "liquid_psig": 32.2,
+        "vapor_psig": 22.5
+      },
+      {
+        "F": 20,
+        "liquid_psig": 55.1,
+        "vapor_psig": 42.3
+      },
+      {
+        "F": 40,
+        "liquid_psig": 85.6,
+        "vapor_psig": 69.4
+      },
+      {
+        "F": 90,
+        "liquid_psig": 204.8,
+        "vapor_psig": 179.3
+      },
+      {
+        "F": 100,
+        "liquid_psig": 237.7,
+        "vapor_psig": 210.4
+      },
+      {
+        "F": 110,
+        "liquid_psig": 273.9,
+        "vapor_psig": 245.2
+      },
+      {
+        "F": 120,
+        "liquid_psig": 314.0,
+        "vapor_psig": 284.0
+      }
+    ]
+  },
+  "R-407F": {
+    "source": "Hudson Technologies R-407F PT chart (PDF): single psig column headed 'R-407F', no liquid/vapor split on the chart. Values held in pt-validation.md, not in these fields.",
+    "url": "https://www.hudsontech.com/pdfs/pt-charts/R-407F-Pressure-Temperature-Chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": null,
+        "vapor_psig": null
+      },
+      {
+        "F": 0,
+        "liquid_psig": null,
+        "vapor_psig": null
+      },
+      {
+        "F": 20,
+        "liquid_psig": null,
+        "vapor_psig": null
+      },
+      {
+        "F": 40,
+        "liquid_psig": null,
+        "vapor_psig": null
+      },
+      {
+        "F": 90,
+        "liquid_psig": null,
+        "vapor_psig": null
+      },
+      {
+        "F": 100,
+        "liquid_psig": null,
+        "vapor_psig": null
+      },
+      {
+        "F": 110,
+        "liquid_psig": null,
+        "vapor_psig": null
+      },
+      {
+        "F": 120,
+        "liquid_psig": null,
+        "vapor_psig": null
+      }
+    ]
+  },
+  "R-452A": {
+    "source": "Hudson Technologies R-452A PT chart (PDF): Liquid and Vapor psig columns (distributor copy)",
+    "url": "https://www.hudsontech.com/pdfs/pt-charts/R-452A-Pressure-Temperature-Chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 18.2,
+        "vapor_psig": 13.3
+      },
+      {
+        "F": 0,
+        "liquid_psig": 35.9,
+        "vapor_psig": 28.8
+      },
+      {
+        "F": 20,
+        "liquid_psig": 60.1,
+        "vapor_psig": 50.4
+      },
+      {
+        "F": 40,
+        "liquid_psig": 92.0,
+        "vapor_psig": 79.2
+      },
+      {
+        "F": 90,
+        "liquid_psig": 215.0,
+        "vapor_psig": 194.0
+      },
+      {
+        "F": 100,
+        "liquid_psig": 248.0,
+        "vapor_psig": 226.0
+      },
+      {
+        "F": 110,
+        "liquid_psig": 286.0,
+        "vapor_psig": 261.0
+      },
+      {
+        "F": 120,
+        "liquid_psig": 326.0,
+        "vapor_psig": 301.0
+      }
+    ]
+  },
+  "R-422D": {
+    "source": "A-Gas technical information sheet r422d (PDF): Liquid and Vapor psig. Header block reads 'Physical Properties of Refrigerants R407C'; property block and table match R-422D. Hudson R-422D PT chart gives identical values.",
+    "url": "https://www.agas.com/media/ll0nb212/r422d-technical-information.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 12.9,
+        "vapor_psig": 8.1
+      },
+      {
+        "F": 0,
+        "liquid_psig": 27.9,
+        "vapor_psig": 21.7
+      },
+      {
+        "F": 20,
+        "liquid_psig": 48.5,
+        "vapor_psig": 40.7
+      },
+      {
+        "F": 40,
+        "liquid_psig": 75.9,
+        "vapor_psig": 66.4
+      },
+      {
+        "F": 90,
+        "liquid_psig": 183.0,
+        "vapor_psig": 170.0
+      },
+      {
+        "F": 100,
+        "liquid_psig": 212.0,
+        "vapor_psig": 198.0
+      },
+      {
+        "F": 110,
+        "liquid_psig": 245.0,
+        "vapor_psig": 231.0
+      },
+      {
+        "F": 120,
+        "liquid_psig": 281.0,
+        "vapor_psig": 266.0
+      }
+    ]
+  },
+  "R-407C": {
+    "source": "Arkema Forane 407C 'Saturation Pressure-Temperature Data for R-407C (psig)' (PDF text layer): Liquid and Vapor columns",
+    "url": "https://www.Arkema.com/files/live/sites/shared_arkema/files/downloads/fluorochemicals/forane-407c-pressure-temperature-chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 13.7,
+        "vapor_psig": 6.5
+      },
+      {
+        "F": 0,
+        "liquid_psig": 29.5,
+        "vapor_psig": 19.4
+      },
+      {
+        "F": 20,
+        "liquid_psig": 51.2,
+        "vapor_psig": 37.9
+      },
+      {
+        "F": 40,
+        "liquid_psig": 80.2,
+        "vapor_psig": 63.2
+      },
+      {
+        "F": 90,
+        "liquid_psig": 194.1,
+        "vapor_psig": 166.7
+      },
+      {
+        "F": 100,
+        "liquid_psig": 225.5,
+        "vapor_psig": 196.1
+      },
+      {
+        "F": 110,
+        "liquid_psig": 260.3,
+        "vapor_psig": 229.0
+      },
+      {
+        "F": 120,
+        "liquid_psig": 298.6,
+        "vapor_psig": 265.8
+      }
+    ]
+  },
+  "R-404A": {
+    "source": "Arkema Forane 404A 'Saturation Pressure-Temperature Data for R-404A (psig)' (PDF text layer): Liquid and Vapor columns",
+    "url": "https://www.Arkema.com/files/live/sites/shared_arkema/files/downloads/fluorochemicals/forane-404a-pressure-temperature-chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 16.8,
+        "vapor_psig": 16.0
+      },
+      {
+        "F": 0,
+        "liquid_psig": 33.7,
+        "vapor_psig": 32.6
+      },
+      {
+        "F": 20,
+        "liquid_psig": 56.6,
+        "vapor_psig": 55.3
+      },
+      {
+        "F": 40,
+        "liquid_psig": 86.9,
+        "vapor_psig": 85.4
+      },
+      {
+        "F": 90,
+        "liquid_psig": 204.5,
+        "vapor_psig": 202.4
+      },
+      {
+        "F": 100,
+        "liquid_psig": 236.8,
+        "vapor_psig": 234.6
+      },
+      {
+        "F": 110,
+        "liquid_psig": 272.5,
+        "vapor_psig": 270.4
+      },
+      {
+        "F": 120,
+        "liquid_psig": 312.1,
+        "vapor_psig": 309.9
+      }
+    ]
+  },
+  "R-32": {
+    "source": "Hudson Technologies R-32 PT chart (PDF): single psig column 'R-32' (pure fluid). The same value is copied into both liquid and vapor fields. Chadwell Supply A2L chart shows matching R-32 values.",
+    "url": "https://hudsontech.com/pdfs/pt-charts/R-32-Pressure-Temperature-Chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 26.8,
+        "vapor_psig": 26.8
+      },
+      {
+        "F": 0,
+        "liquid_psig": 49.3,
+        "vapor_psig": 49.3
+      },
+      {
+        "F": 20,
+        "liquid_psig": 80.0,
+        "vapor_psig": 80.0
+      },
+      {
+        "F": 40,
+        "liquid_psig": 121.0,
+        "vapor_psig": 121.0
+      },
+      {
+        "F": 90,
+        "liquid_psig": 281.3,
+        "vapor_psig": 281.3
+      },
+      {
+        "F": 100,
+        "liquid_psig": 325.7,
+        "vapor_psig": 325.7
+      },
+      {
+        "F": 110,
+        "liquid_psig": 374.9,
+        "vapor_psig": 374.9
+      },
+      {
+        "F": 120,
+        "liquid_psig": 429.3,
+        "vapor_psig": 429.3
+      }
+    ]
+  },
+  "R-410A": {
+    "source": "Arkema Forane 410A 'Saturation Pressure-Temperature Data for R-410A (psig)' (PDF text layer): Liquid and Vapor columns",
+    "url": "https://www.Arkema.com/files/live/sites/shared_arkema/files/downloads/fluorochemicals/forane-410a-pressure-temperature-chart.pdf",
+    "points": [
+      {
+        "F": -20,
+        "liquid_psig": 26.3,
+        "vapor_psig": 26.2
+      },
+      {
+        "F": 0,
+        "liquid_psig": 48.4,
+        "vapor_psig": 48.2
+      },
+      {
+        "F": 20,
+        "liquid_psig": 78.7,
+        "vapor_psig": 78.4
+      },
+      {
+        "F": 40,
+        "liquid_psig": 118.8,
+        "vapor_psig": 118.4
+      },
+      {
+        "F": 90,
+        "liquid_psig": 275.4,
+        "vapor_psig": 274.5
+      },
+      {
+        "F": 100,
+        "liquid_psig": 318.6,
+        "vapor_psig": 317.6
+      },
+      {
+        "F": 110,
+        "liquid_psig": 366.4,
+        "vapor_psig": 365.4
+      },
+      {
+        "F": 120,
+        "liquid_psig": 419.4,
+        "vapor_psig": 418.3
+      }
+    ]
+  }
+}
