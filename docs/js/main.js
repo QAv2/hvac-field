@@ -6,7 +6,7 @@ import { diagnose, explain } from './engine.js';
 import { computeMeasures } from './measure.js';
 import * as calc from './calcs.js';
 import { Search, norm } from './search.js';
-import { TOOL_LIST, renderTool, updateTool } from './tools.js';
+import { TOOL_LIST, renderTool, updateTool, numBox } from './tools.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -375,7 +375,7 @@ function causeRow(r, lead) {
 function fitNote(res, m) {
   let html = '';
   if (m?.sanity?.length) {
-    html += m.sanity.map((w) => `<div class="safety"><b>Thermodynamic sanity check.</b> ${esc(w.msg || w)}</div>`).join('');
+    html += m.sanity.map((w) => `<div class="safety"><b>${esc(w.title || 'Thermodynamic sanity check.')}</b> ${esc(w.msg || w)}</div>`).join('');
   }
   if (res.fit && !res.fit.ok && res.post[0] && res.post[0].id !== '_ok') {
     const misses = res.fit.misses.slice(0, 3).map((x) => esc(x.label)).join(', ');
@@ -421,9 +421,10 @@ function viewReadings() {
         const lab = typeof c === 'object' ? c.label ?? val : c;
         return `<option value="${esc(val)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(lab)}</option>`;
       }).join('')}</select>`
-      : `<input id="in-${esc(i.id)}" data-in="${esc(i.id)}" type="text" inputmode="decimal" autocomplete="off" value="${esc(v)}" placeholder="${esc(ph)}">`;
+      : numBox(`<input id="in-${esc(i.id)}" data-in="${esc(i.id)}" type="text" inputmode="decimal" autocomplete="off" value="${esc(v)}" placeholder="${esc(ph)}">`, i.unit);
     return `<div class="field ${focusIds.has(i.id) ? 'focus' : ''}"><label for="in-${esc(i.id)}">${esc(i.name)} <span class="unit">${esc(i.unit || '')}</span></label>
       ${control}
+      <span class="hint readnote" aria-live="polite">${esc(calc.readValue(v, i.unit).note || '')}</span>
       ${i.hint ? `<span class="hint">${esc(i.hint)}</span>` : ''}</div>`;
   }).join('');
   $('#main').innerHTML = `
@@ -458,7 +459,7 @@ function vitalsHtml() {
     && Object.keys(job.inputs).some((k) => /psig/.test(k));
   let html = missingRef ? '<div class="warnbox">Pick the refrigerant to turn pressures into temperatures.</div>' : '';
   if (m.sanity?.length) {
-    html += m.sanity.map((w) => `<div class="safety"><b>Thermodynamic sanity check.</b> ${esc(w.msg || w)}</div>`).join('');
+    html += m.sanity.map((w) => `<div class="safety"><b>${esc(w.title || 'Thermodynamic sanity check.')}</b> ${esc(w.msg || w)}</div>`).join('');
   }
   if (!rows.length) return html + '<p class="muted">Results show up here as you enter numbers.</p>';
   html += `<div class="vitals">${rows.map((r) => {
@@ -569,6 +570,16 @@ function onClick(e) {
       break;
     }
     case 'go': go(el.dataset.href); break;
+    case 'negate': {
+      // the phone's number pad has no minus key: flip the sign of the box next to this button
+      const box = el.parentElement.querySelector('input');
+      if (!box) break;
+      const v = box.value.trim().replace(/^[\u2212\u2013]/, '-');
+      box.value = v.startsWith('-') ? v.slice(1) : `-${v}`;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.focus();
+      break;
+    }
     case 'sys': newJob(el.dataset.id); go('#/setup'); break;
     case 'start-text': {
       const text = $('#homeq')?.value || '';
@@ -623,6 +634,8 @@ function onInput(e) {
     const v = t.value.trim();
     if (v === '') delete job.inputs[t.dataset.in]; else job.inputs[t.dataset.in] = v;
     save();
+    const note = t.closest('.field')?.querySelector('.readnote');
+    if (note) note.textContent = calc.readValue(v, kb.inputs.get(t.dataset.in)?.unit).note || '';
     $('#vitals').innerHTML = vitalsHtml();
     return;
   }

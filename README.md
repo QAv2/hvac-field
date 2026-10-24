@@ -27,7 +27,10 @@ opened online.
   before it becomes a diagnosis (`checkSanity`): wet bulb above dry bulb, suction line colder than evaporator
   saturation, supply air colder than evaporator saturation, condensing saturation below the air entering the
   condenser, liquid line hotter than condensing saturation, mixed air outside the outdoor-to-return range (NIST
-  APAR rules 26–27), and a draft entered with a plus sign.
+  APAR rules 26–27), a draft entered with a plus sign, and a pressure outside the refrigerant's PT table. Readings
+  that can't all be right are left out of the diagnosis until they agree. Typed readings are read in the box's own
+  unit: "8,1 bar" or "815 kPa" in a psig box is converted, "24,000" is twenty-four thousand, "4,5" is 4.5; °C in a
+  °F box, a unit that doesn't belong, or a value no instrument could show is refused with a note.
 - `docs/js/calcs.js` — refrigerant PT (22 baked CoolProp tables, plus a two-point Clausius–Clapeyron fit for a
   refrigerant that isn't in them), elevation correction for gauge readings, psychrometrics, charging targets
   (California ACM RD-2/RD-3), glycol freeze points, oil and gas combustion efficiency, fan and pump affinity laws,
@@ -40,6 +43,7 @@ opened online.
 ```
 python3 tools/build.py && node tools/check.mjs     # compile KB + standalone HTML, run every check and scenario
 node tools/coverage.mjs                            # verify per-system and per-module scenario coverage
+node tools/fuzz.mjs                                # odd input: search text, readings, calculators, engine
 node tools/offline_check.mjs                       # headless Chromium: precache, offline launch, updates, file://
 node tools/dx.mjs --help                           # terminal CLI diagnostics & physics calculators
 python3 tools/check_pt.py                          # PT tables vs published manufacturer charts

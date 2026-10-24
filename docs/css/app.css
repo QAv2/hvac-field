@@ -156,6 +156,12 @@ p.lead { color: var(--dim); margin: 0 0 12px; }
 .field input:focus, .field select:focus { outline: none; border-color: var(--accent); }
 .field.focus input { border-color: var(--accent); }
 .field .hint { font-size: 12px; color: var(--faint); }
+.field .readnote:empty { display: none; }
+.field .readnote { color: var(--warn); font-size: 13px; }
+.inrow { display: flex; gap: 6px; }
+.inrow input { min-width: 0; flex: 1; }
+.pm { flex: none; width: 48px; height: 52px; border-radius: 12px; border: 2px solid var(--line); background: var(--panel2);
+  font-size: 22px; font-weight: 800; }
 
 /* ---------- setup questions ---------- */
 .qrow { margin: 16px 0; }
