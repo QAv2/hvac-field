@@ -40,11 +40,16 @@ opened online.
 ```
 python3 tools/build.py && node tools/check.mjs     # compile KB + standalone HTML, run every check and scenario
 node tools/coverage.mjs                            # verify per-system and per-module scenario coverage
+node tools/offline_check.mjs                       # headless Chromium: precache, offline launch, updates, file://
 node tools/dx.mjs --help                           # terminal CLI diagnostics & physics calculators
 python3 tools/check_pt.py                          # PT tables vs published manufacturer charts
 .venv/bin/python -I tools/bake_pt.py               # re-bake PT and glycol tables (needs CoolProp)
 ```
 `build.py` compiles `docs/data/kb.json`, emits the self-contained single-file `docs/field-dx-standalone.html`, and stamps `docs/sw.js` with a content hash so phones pick up a new version on next launch.
+The browser checks need Playwright with Chromium (`npm i -g playwright && npx playwright install chromium`).
+`offline_check.mjs` serves `docs/` locally, loads the app online, goes offline and diagnoses; ships a new build and
+checks the cache is replaced byte for byte; breaks an update halfway and checks the old version still works; and
+opens the standalone file from `file://` with the network blocked.
 
 ## Sources and rights
 Fault directions follow NIST SP 1087 and TN 1648 and the NIST APAR rules (NISTIR 6964) — US Government works —

@@ -4,6 +4,8 @@ Usage: python3 tools/build.py            (then: node tools/check.mjs for the dee
        python3 tools/build.py --only boiler-oil.yaml --out .lane/blr
          builds just that module on top of the shared ones (systems, common, vc-core) into its own
          folder, so several people (or agents) can work on different modules at once.
+       python3 tools/build.py --stamp DIR
+         only re-stamps DIR/sw.js (version + cache list) from the files in DIR.
 Also compiles tests/scenarios/*.yaml → tests/scenarios.json for the test runner.
 Exit code 1 on any error, with every problem listed (file, item id, what's wrong).
 """
@@ -303,9 +305,9 @@ def scenarios():
     return out
 
 
-def stamp():
+def stamp(docs=None):
     """Write the offline cache list and a content hash into docs/sw.js."""
-    docs = ROOT / "docs"
+    docs = docs or ROOT / "docs"
     files = sorted(p for p in docs.rglob("*")
                    if p.is_file() and p.name not in ("sw.js", "field-dx-standalone.html") and not p.name.startswith("."))
     h = hashlib.sha256()
@@ -367,6 +369,11 @@ def bundle_standalone():
 
 
 def main():
+    if arg("--stamp"):
+        # re-stamp a copy of docs/ (tools/offline_check.mjs builds test versions this way)
+        v, n = stamp(Path(arg("--stamp")).resolve())
+        print(f"sw.js: version {v}, {n} files cached for offline use")
+        return
     if OUTDIR:
         OUTDIR.mkdir(parents=True, exist_ok=True)
     kb, modules = load()
