@@ -27,39 +27,7 @@ notes: |
   - Anything that exists only on ducted or variable-speed ducted equipment (O/B thermostat, defrost control
     board with TEST pins, strip heat, check-valve pairs) carries requires: {hp_unit: [ducted, inverter]}.
     A wall head has none of those.
-
-context:
-  - id: hp_unit
-    ask: What type of system is it?
-    hint: A conventional ducted split or packaged unit, a variable-speed (inverter) ducted system, or a ductless
-      mini-split / multi-zone. Inverter boards and electronic expansion valves come with the last two. Flare
-      joints, wall heads, condensate pumps and branch boxes come only with the ductless one. Strip heat,
-      defrost boards and O/B thermostats belong to the ducted ones.
-    systems: [vc.ac, vc.hp]
-    options:
-      - id: ducted
-        label: Conventional ducted split or packaged
-        p: 0.6
-        words: [ducted, air handler, strip heat, aux heat, auxiliary heat, emergency heat, sequencer, package unit,
-          packaged unit, rooftop]
-      - id: inverter
-        label: Variable-speed (inverter) ducted
-        p: 0.1
-        words: [variable speed, communicating, inverter ducted]
-      - id: minisplit
-        label: Ductless mini-split / multi-zone (inverter)
-        p: 0.3
-        words: [mini split, minisplit, mini-split, ductless, wall head, cassette, multi split, multi-zone, branch box]
-
-  - id: rv_energized
-    ask: Which mode energizes the reversing-valve coil?
-    hint: Meter the coil leads in cooling and in heating, or read the wiring diagram. Most US ducted splits
-      energize it in cooling (thermostat terminal O). B-type units, and many ductless heads, energize it in
-      heating. Go by the diagram or the meter, never by the brand name.
-    systems: [vc.hp]
-    options:
-      - {id: cool, label: Energized in cooling (O), p: 0.8, words: [o type, o valve, energized in cooling]}
-      - {id: heat, label: Energized in heating (B), p: 0.2, words: [b type, b valve, energized in heating]}
+  - The hp_unit and rv_energized questions live in systems.yaml, because vc-core gates on hp_unit too.
 
 features:
   # ---------------- heating-mode temperatures & pressures ----------------

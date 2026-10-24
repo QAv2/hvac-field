@@ -30,7 +30,7 @@ features:
   - id: vc.cond_fan
     name: Condenser fan
     ask: Is the condenser fan running at full speed?
-    ask_for: {vc.hp: 'Is the outdoor fan running at full speed?'}
+    ask_for: {vc.hp: 'Is the outdoor fan running at full speed?', vc.walkin: 'Is the condenser fan doing what its control calls for? (Running when head is above cut-in; off or slow in cold air with head at cut-out is normal for fan cycling or a VFD.)', vc.reachin: 'Is the condenser fan doing what its control calls for? (Running when head is above cut-in; off or slow in cold air with head at cut-out is normal for fan cycling or a VFD.)', vc.ice: 'Is the condenser fan doing what its control calls for? (Running when head is above cut-in; off or slow in cold air with head at cut-out is normal for fan cycling or a VFD.)'}
     systems: [vc]
     requires: {condenser: air}
     states:
@@ -66,7 +66,7 @@ features:
     ask: What is the contactor doing (with the unit calling)?
     how: Look at the plunger, then meter line voltage in and out across each pole.
     systems: [vc]
-    ask_if: {vc.comp: [off, hums]}
+    ask_if: {vc.comp: [off, hums, running]}
     states:
       ok: Pulled in, full voltage through
       not_pulling: Not pulled in
@@ -93,12 +93,12 @@ features:
   - id: vc.cap
     name: Run capacitor
     ask: What does the run capacitor test at (µF vs rating)?
-    how: Power off, discharge it, test each section (HERM–C, FAN–C) with a µF meter. Bulged tops or oil leaking
-      mean replace.
+    how: Power off, discharge it through a resistor (not a screwdriver), then test each section (HERM–C, FAN–C)
+      with a µF meter. Bulged tops or oil leaking mean replace.
     systems: [vc]
     ask_if: {vc.comp: [hums, off, running]}
     states:
-      ok: Within rating
+      ok: Within rating (−7 % to +10 % of the µF on the label)
       bad: Low, open, or bulged
     normal: ok
     cost: 2
@@ -106,11 +106,27 @@ features:
     phrases:
       bad: [bad capacitor, bad cap, weak capacitor, capacitor bulged, swollen capacitor, capacitor out of range,
         capacitor failed, dead cap]
+  - id: vc.start_parts
+    name: Start capacitor, relay or PTC
+    ask: Do the start capacitor, potential relay or PTC test good?
+    how: Power off, then discharge the capacitors through a resistor. Start cap in range and not bulged; relay coil
+      continuity and contacts not pitted or stuck; PTC cold resistance a few ohms (open or very high when cold is bad).
+    systems: [vc]
+    ask_if: {vc.comp: [hums, off]}
+    states:
+      ok: Test good
+      bad: Open, burnt, low µF, relay contacts pitted or stuck
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      bad: [bad start capacitor, bad start relay, potential relay bad, ptc bad, hard start kit failed]
   - id: vc.windings
     name: Compressor windings
     ask: What do the compressor windings read (C–R, C–S, R–S, each to ground)?
     how: Power off and locked out. R–S should equal C–R + C–S. Any terminal to ground should read open
       (megohms). If C–R and C–S read open but R–S reads normal, the internal overload is open — let it cool.
+    caution: Never megger a compressor that is under vacuum.
     systems: [vc]
     ask_if: {vc.comp: [off, hums]}
     states:
@@ -126,9 +142,45 @@ features:
       grounded: [compressor grounded, grounded compressor, compressor shorted to ground, megger fail]
       open: [open winding, compressor winding open]
       overload_open: [internal overload open, compressor overload open, compressor hot and off]
+  - id: vc.phase
+    name: Three-phase supply at the compressor
+    ask: Are all three legs present and balanced at the compressor contactor?
+    how: Open the panel with the power off. Then, with the call on and proper PPE, meter L1–L2, L2–L3 and L1–L3 on the
+      line side of the contactor and again on the load side. Within 2 % of each other is good; one pair far low, or a
+      leg that drops across a pole, is a lost leg. With the compressor running, clamp each leg — more than 10 % apart
+      is bad.
+    caution: Live metering — rated PPE and meter, one hand, and treat every terminal as live until proven dead.
+    systems: [vc]
+    ask_if: {gen.power: present}
+    states:
+      ok: All three present and balanced
+      phase_loss: One leg missing or far off
+      unbalanced: Present but unbalanced (over 2 % volts or 10 % amps)
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      phase_loss: [single phasing, lost a leg, lost a phase, phase loss, one leg dead, blown fuse one leg, missing phase]
+      unbalanced: [unbalanced phases, phase imbalance, voltage imbalance, high amps one leg]
+  - id: vc.rotation
+    name: Phase sequence at the compressor
+    ask: Does a phase-sequence tester (or the unit's phase monitor) say the rotation is correct?
+    how: Rotation meter on the line terminals, power on. A scroll compressor with two legs swapped runs backwards — loud,
+      pumps nothing, and trips its protector after a few minutes.
+    caution: Live metering — rated PPE and meter, one hand, and treat every terminal as live until proven dead.
+    systems: [vc]
+    states:
+      correct: Correct sequence
+      reversed: Reversed
+    normal: correct
+    cost: 3
+    needs: meter
+    phrases:
+      reversed: [phase reversed, wrong rotation, compressor running backwards, scroll backwards, phases swapped, phase monitor fault]
   - id: vc.comp_hot
     name: Compressor overheated
-    ask: Is the compressor shell too hot to keep your hand on, or cycling off on its overload?
+    ask: Is the compressor cycling off on its internal overload, or hotter than the same model normally runs
+      (use a thermometer, not your hand)?
     systems: [vc]
     chip: state
     states:
@@ -141,12 +193,12 @@ features:
         overload tripping, thermal overload, compressor shuts off hot]
   - id: vc.comp_sweat
     name: Compressor sweating or frosting (floodback)
-    ask: Is the compressor shell or crankcase sweating or frosted?
+    ask: Is the crankcase frosted, or sweating all the way up the shell (not just the lower shell on a humid day)?
     systems: [vc]
     chip: state
     states:
-      'yes': Compressor sweating/frosted — liquid floodback
-      'no': Compressor shell dry
+      'yes': Frost on the crankcase / sweating up the whole shell — liquid floodback
+      'no': No frost; shell dry or only a damp lower shell
     normal: 'no'
     cost: 1
     phrases:
@@ -170,7 +222,7 @@ features:
     ask: How much ice or frost is on the evaporator coil?
     systems: [vc.ac, vc.walkin, vc.reachin, vc.ice]
     states:
-      none: None (or normal light frost between defrosts)
+      none: None, or the normal light frost between defrosts (on an A/C coil any frost is abnormal)
       partial: Frost on part of the coil only
       heavy: Iced up / blocked with ice
     normal: none
@@ -355,7 +407,8 @@ features:
       high: [high suction, high suction pressure, high back pressure, high low side, suction pressure high]
   - id: vc.cond_sat
     name: Head pressure (condensing temp)
-    ask: How does the head pressure / condensing temperature compare with normal?
+    ask: How does the head pressure / condensing temperature compare with normal (an A/C usually condenses
+      20–30 °F above the outdoor air, 15–20 °F on a high-efficiency unit)?
     how: Condensing temperature from the high-side pressure, compared with the air entering the condenser — on a
       heat pump in heating that is the indoor coil, normally about 20–40 °F above return air.
     systems: [vc]
@@ -371,7 +424,8 @@ features:
         high pressure trip, high pressure switch]
   - id: vc.superheat
     name: Superheat
-    ask: What is the superheat compared with its target?
+    ask: What is the superheat compared with its target (a TXV usually holds 8–12 °F at the evaporator outlet and
+      more at the compressor end)?
     systems: [vc]
     states:
       low: Low
@@ -398,13 +452,15 @@ features:
   - id: vc.discharge_temp
     name: Discharge line temperature
     ask: How hot is the discharge line 6 in. from the compressor?
-    how: Over 225 °F is high and above 250 °F starts breaking down oil. Within about 25 °F of the condensing
-      temperature means liquid is coming back.
+    how: Read it 6 in. from the compressor and compare it with the condensing temperature. It runs about 60–90 °F
+      above it on R-410A and R-134a, 50–75 °F on R-404A medium-temp, and 85–125 °F on low-temp and R-22 (typical —
+      the maker's data wins). Above 250 °F the oil starts to break down whatever the condensing temperature is.
+      Within about 25 °F of the condensing temperature means liquid is coming back.
     systems: [vc]
     states:
       low: Low (liquid coming back)
       normal: Normal
-      high: High (over 225 °F)
+      high: High for the condensing temperature (or over 250 °F)
     cost: 3
     needs: gauges
     phrases:
@@ -417,7 +473,7 @@ features:
     systems: [vc]
     ask_if: {vc.comp: running}
     states:
-      low: Low (under half of RLA)
+      low: Low (under 50 % of RLA, under 35 % on a freezer)
       normal: Normal
       high: High (over RLA)
     cost: 2
@@ -462,13 +518,15 @@ features:
     name: Standing pressure (system off)
     ask: With the system off and equalized, does the standing pressure match the refrigerant's PT at that
       temperature?
-    how: Off at least 15 minutes (longer for big systems), pressures equalized, coil and condenser at about the
-      same temperature. Read the pressure and the temperature of the condenser or the room.
+    how: Off at least an hour (overnight is best), with the coil and condenser shaded and at the same temperature
+      as the air around them. If the condensing unit and the evaporator are at different temperatures (winter,
+      outdoor unit), the pressure follows the colder liquid-holding part — use that temperature and treat the
+      result as a hint, or wait for them to equalize.
     systems: [vc]
     states:
       matches: Matches the PT chart
-      high: Higher than the PT chart
-      low: Lower than the PT chart
+      high: Higher than the PT chart (by more than 4 psi or 4 %, whichever is larger)
+      low: Lower than the PT chart (by more than 4 psi or 4 %, whichever is larger)
     normal: matches
     cost: 4
     needs: gauges
@@ -489,18 +547,24 @@ features:
   - id: vc.pumpdown
     name: Compressor pumping test
     ask: Does the compressor pull the suction down and hold it (pump-down / efficiency test)?
-    how: Front-seat the king valve or close the liquid solenoid and watch suction fall; on shutdown, pressures
-      that equalize within a minute or two through a closed TXV point to leaking compressor valves.
+    how: Close the liquid valve with the compressor running and watch the suction gauge. A healthy compressor
+      reaches about 0 psig in a minute or two on a small system. Stop it there, then watch whether suction climbs
+      back — with everything closed, a rise of more than a few psi a minute means leaking valves. The climb-back
+      part is not valid on a piston, cap tube or bleed-port TXV — they equalize by themselves; use the pull-down
+      only.
+    caution: Stop the compressor at about 0 psig. Never run a scroll or hermetic compressor into a vacuum — it
+      arcs at the terminals and loses oil.
     systems: [vc]
     states:
       ok: Pulls down and holds
-      weak: Can't pull down, or pressures equalize fast
+      weak: Can't pull down — or, with the liquid valve closed on a non-bleed TXV, pressures equalize in a minute
+        or two
     normal: ok
     cost: 4
     needs: gauges
     phrases:
       weak: [compressor not pumping, weak compressor, compressor wont pump down, bad valves, valves leaking,
-        pressures equalize fast, inefficient compressor]
+        inefficient compressor]
   - id: vc.txv_bulb
     name: TXV bulb test
     ask: Does the TXV respond when you warm or cool its sensing bulb?
@@ -531,6 +595,7 @@ features:
   - id: vc.lps_trip
     name: Low-pressure switch
     ask: Is it cycling off on the low-pressure switch?
+    ask_for: {vc.walkin: 'Is it cutting out on the low-pressure switch while the box is still calling? (The normal pump-down cut-out at the end of a cycle does not count.)'}
     systems: [vc]
     chip: state
     states:
@@ -572,8 +637,9 @@ inputs:
       pump in heating this is NOT the big vapor service valve — that one is discharge in heating}
   - {id: vc.suction_line_f, name: Suction line temp, unit: °F, systems: [vc], probe: pipe, hint: Where superheat is
       read — see the location question}
-  - {id: vc.liquid_psig, name: Liquid / high-side pressure, unit: psig, systems: [vc], probe: pressure, hint: Liquid
-      line service valve (or discharge on units without one)}
+  - {id: vc.liquid_psig, name: Liquid / high-side pressure, unit: psig, systems: [vc], probe: pressure, hint: "Liquid
+      line service valve (or discharge on units without one — discharge pressure adds 1–3 °F of apparent subcooling
+      from the condenser's pressure drop)"}
   - {id: vc.liquid_line_f, name: Liquid line temp, unit: °F, systems: [vc], probe: pipe, hint: Next to the liquid
       service valve}
   - {id: vc.discharge_line_f, name: Discharge line temp, unit: °F, systems: [vc], probe: pipe, hint: 6 in. from the
@@ -595,8 +661,10 @@ inputs:
   - {id: vc.cap_meas_uf, name: Capacitor reading, unit: µF, systems: [vc]}
   - {id: vc.cap_rated_uf, name: Capacitor rating, unit: µF, systems: [vc]}
   - {id: vc.standing_psig, name: Standing pressure (off), unit: psig, systems: [vc], probe: pressure}
-  - {id: vc.standing_temp_f, name: System temperature (off), unit: °F, systems: [vc], hint: Room or condenser
-      temperature after equalizing}
+  - {id: vc.standing_temp_f, name: System temperature (off), unit: °F, systems: [vc], hint: "The colder of the
+      condenser and the coil after the unit has been off at least an hour (overnight is best) and shaded. If they
+      differ (winter, outdoor unit) the pressure follows the colder liquid-holding part — treat the result as a
+      hint."}
   - {id: vc.tesp_inwc, name: Total external static, unit: in. w.c., systems: [vc.ac, vc.hp], probe: manometer}
   - {id: vc.tesp_rated, name: Rated external static, unit: in. w.c., systems: [vc.ac, vc.hp], default: 0.5}
 
@@ -627,14 +695,15 @@ measures:
       fixed: (ctx.metering ?? 'txv') == 'fixed'
       cap: (ctx.metering ?? 'txv') == 'captube'
       app: ctx.app ?? 'mt'
+      unk: "!has(ctx.sh_location) && app != 'ac'"
       atcomp: "(ctx.sh_location ?? (app == 'ac' ? 'comp' : 'evap')) == 'comp'"
       wb: vc.air_in_wb ?? wetbulb(vc.air_in_f, vc.air_in_rh)
     value: vc.suction_line_f - tsat_dew(vc.suction_psig)
-    target: 'fixed ? (fo_target_sh(wb, vc.ambient_f) ?? 12) : cap ? (atcomp ? 20 : 10) : app == ''ac'' ? (atcomp ? 12 : 10) : atcomp ? 25 : (app == ''lt'' ? 6 : 8)'
+    target: 'fixed ? (fo_target_sh(wb, vc.ambient_f) ?? 12) : cap ? (atcomp ? 20 : 10) : app == ''ac'' ? (atcomp ? 12 : 10) : atcomp ? (app == ''lt'' ? 40 : 25) : (app == ''lt'' ? 6 : 8)'
     sets: vc.superheat
     states:
-      - [low, 'v < t - (fixed ? 5 : max(4, 0.45 * t))']
-      - [high, 'v > t + (fixed ? 6 : max(7, 0.7 * t))']
+      - [low, 'v < max(t - (fixed ? 5 : max(4, 0.45 * t)), fixed ? 4 : 0)']
+      - [high, 'unk ? v > (app == ''lt'' ? 68 : 43) : v > t + (fixed ? 6 : max(7, 0.7 * t))']
       - [normal, 'true']
   - id: vc.subcool
     name: Subcooling
@@ -642,12 +711,13 @@ measures:
     systems: [vc]
     let:
       rcv: (ctx.receiver ?? 'no') == 'yes'
+      fo: "(ctx.metering ?? 'txv') == 'fixed' || (ctx.metering ?? 'txv') == 'captube'"
     value: tsat_bubble(vc.liquid_psig) - vc.liquid_line_f
     target: 'rcv ? 5 : vc.sc_target'
     sets: vc.subcool
     states:
       - [low, 'v < (rcv ? -1.5 : t - 4.5)']
-      - [high, 'rcv ? (v > 20 && (vc.ambient_f ?? 80) > 65) : v > t + 5.5']
+      - [high, 'rcv ? (v > 20 && (vc.ambient_f ?? 80) > 65) : v > t + (fo ? 7 : 5.5) + max(0, 0.4 * (65 - (vc.ambient_f ?? 95)))']
       - [normal, 'true']
   - id: vc.evap_td
     name: Evaporator temperature vs air entering
@@ -685,9 +755,9 @@ measures:
       ac: (ctx.app ?? 'mt') == 'ac'
       ctoa: '(ctx.ac_eff ?? ''unknown'') == ''high'' ? 15 : (ctx.ac_eff ?? ''unknown'') == ''standard'' ? 25 : 20'
       td: "(ctx.app ?? 'mt') == 'lt' ? 15 : 20"
-      floor: '(ctx.hpc ?? ''unknown'') == ''none'' ? -100 : 85'
+      floor: '85'
     value: vc.cond_mid_t
-    target: 'ac ? vc.ambient_f + ctoa : max(vc.ambient_f + td, floor)'
+    target: 'ac ? max(vc.ambient_f + ctoa, 80) : max(vc.ambient_f + td, floor)'
     sets: vc.cond_sat
     states:
       - [low, 'v < t - (ac ? 10 : 12)']
@@ -697,11 +767,16 @@ measures:
     name: Discharge line temperature
     unit: °F
     systems: [vc]
+    let:
+      # k = typical discharge-line rise over the condensing temperature. An estimate (CoolProp at 55-65 % isentropic
+      # efficiency), not maker data: R-410A/R-134a 60-90, R-404A medium-temp 50-75, low-temp and R-22 85-125.
+      # k sits mid-range and the "high" line is k + 20 °F. 250 °F is the oil alarm at any head.
+      k: "((ctx.app ?? 'mt') == 'lt' || (ctx.refrigerant ?? '') == 'R-22') ? 100 : 75"
     value: vc.discharge_line_f
-    target: '225'
+    target: vc.cond_mid_t + k
     sets: vc.discharge_temp
     states:
-      - [high, v > 225]
+      - [high, 'v > 250 || v > t + 20']
       - [low, 'v < coalesce(vc.cond_mid_t + 25, -999)']
       - [normal, 'true']
   - id: vc.evap_split
@@ -734,12 +809,13 @@ measures:
     name: Compressor amps vs RLA
     unit: '%'
     systems: [vc]
+    requires: {hp_unit: [ducted]}   # an inverter compressor's amps follow its speed, not RLA
     value: vc.comp_amps_meas / vc.comp_rla * 100
     target: '75'
     sets: vc.comp_amps
     states:
       - [high, v > 100]
-      - [low, v < 50]
+      - [low, 'v < ((ctx.app ?? ''mt'') == ''lt'' ? 35 : 50)']
       - [normal, 'true']
   - id: vc.drier_drop
     name: Drier temperature drop
@@ -801,16 +877,17 @@ causes:
       vc.evap_sat: low
       vc.superheat: high
       vc.subcool: low
-      vc.cond_sat: low?
-      vc.discharge_temp: high?
-      vc.evap_split: low?
-      vc.cond_split: low?
-      vc.comp_amps: low?
+      vc.cond_sat: {low: 0.4, normal: 0.55}
+      vc.discharge_temp: {high: 0.4, normal: 0.55}
+      vc.evap_split: {low: 0.4, normal: 0.55}
+      vc.cond_split: {low: 0.4, normal: 0.55}
+      vc.comp_amps: {low: 0.4, normal: 0.55}
       vc.sight_glass: bubbles
       vc.oil: yes?
       vc.leak_found: yes
       vc.evap_frost: partial?
       vc.lps_trip: yes?
+      gen.short_cycle: yes?
       vc.standing: {matches: 0.72, low: 0.25, high: 0.03}
       vc.comp_hot: yes?
     when:
@@ -828,8 +905,14 @@ causes:
     fix: |
       Find the leak before adding refrigerant: electronic detector along every joint, valve core and coil, bubbles
       to pinpoint, UV dye if it's slow. Repair, pressure-test with dry nitrogen, evacuate to 500 microns with a
-      decay test, and weigh in the nameplate charge (liquid-charge blends). Replace the filter-drier whenever the
-      system is opened.
+      decay test, and weigh in the nameplate charge plus the manufacturer's line-set adjustment (liquid-charge
+      blends), then trim to the subcooling (TXV) or superheat (piston) target. With a receiver there is no
+      subcooling target — trim to a clear sight glass and a receiver level in range at steady head pressure.
+      Replace the filter-drier whenever the system is opened.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     notes: With a TXV a small shortage hides — the valve opens up and holds superheat, so subcooling falling is the
       first tell. Superheat only climbs once the valve is wide open.
     refs: [nist-sp1087, practice]
@@ -847,10 +930,10 @@ causes:
       vc.evap_sat: high?
       vc.discharge_temp: high?
       vc.comp_amps: high?
-      vc.cond_split: high?
       vc.comp_sweat: yes?
       vc.standing: matches
       vc.hps_trip: yes?
+      gen.short_cycle: yes?
     when:
       - if: {metering: [txv, eev]}
         signs:
@@ -864,8 +947,15 @@ causes:
       pressure that matches the PT chart (rules out air in the system).
     fix: |
       Recover refrigerant to a recovery cylinder in small amounts until subcooling (TXV) or superheat (fixed
-      orifice) reaches target at steady conditions. Don't vent. If the charge history is unknown, recover it all
-      and weigh in the nameplate charge.
+      orifice) reaches target at steady conditions. With a receiver, recover until the receiver sight-glass level
+      is in range and head pressure is right for the ambient (a flooded condenser reads high head when overfull).
+      Don't vent. If the charge history is unknown, recover it all and weigh in the nameplate charge plus the
+      manufacturer's line-set adjustment, then trim to the subcooling (TXV) or superheat (piston) target — with a
+      receiver, to the sight-glass level.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     refs: [nist-sp1087, practice]
   - id: vc.noncondensables
     name: Air or non-condensables in the system
@@ -882,12 +972,18 @@ causes:
       vc.cond_split: normal?
       vc.cond_dirty: no?
       vc.hps_trip: yes?
+      gen.short_cycle: yes?
     confirm: With the system off and equalized at a known temperature, the standing pressure is well above the PT
       chart for that temperature.
     fix: |
       Recover the charge, find how air got in (poor evacuation, a leak on the low side running in vacuum, a
       contaminated cylinder), replace the drier, pull a deep vacuum with a decay test, and weigh in fresh
-      refrigerant. Purging off the top of the condenser is not allowed with modern refrigerants.
+      refrigerant (the nameplate charge plus the manufacturer's line-set adjustment). Venting any refrigerant —
+      CFC, HCFC or HFC — is prohibited, so don't purge off the top of the condenser; recover it.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     notes: NIST leaves non-condensables out of its running chart — the standing-pressure test is the clean way to
       catch it.
     refs: [nist-sp1087, practice]
@@ -906,7 +1002,12 @@ causes:
       records or a refrigerant identifier point to a top-off with something else.
     fix: |
       Recover the whole charge into a cylinder marked as mixed/contaminated (it can't be reused), evacuate, and
-      recharge with the nameplate refrigerant by weight. Check the oil type matches too.
+      recharge with the nameplate refrigerant by weight (the nameplate charge plus the manufacturer's line-set
+      adjustment). Check the oil type matches too.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     refs: [practice]
 
   # ======================= restrictions and metering =======================
@@ -924,25 +1025,55 @@ causes:
       vc.discharge_temp: high?
       vc.evap_split: low?
       vc.cond_split: low?
-      vc.drier_dt: high?
+      vc.comp_amps: low?
+      vc.drier_dt: high
       vc.liquid_cold_spot: yes?
       vc.sight_glass: bubbles?
       vc.lps_trip: yes?
+      gen.short_cycle: yes?
     when:
       - if: {metering: [txv, eev]}
         signs:
           vc.superheat: {normal: 0.4, high: 0.55, low: 0.05}
           vc.evap_sat: {normal: 0.4, low: 0.55, high: 0.05}
+          vc.evap_split: {normal: 0.6, low: 0.35}
+          vc.cond_split: {normal: 0.6, low: 0.35}
     confirm: Temperature drop across the drier (3 °F or more) or a frosty/sweaty spot on the liquid line, with high
       subcooling and high superheat.
     fix: |
       Find the spot where the temperature drops: drier, strainer, solenoid, service valve, kinked or crushed tubing.
       Recover or pump down, replace the drier (and core/strainer), straighten or replace the tubing, and check
-      the solenoid opens fully (coil voltage, stem). Evacuate and recharge by weight.
+      the solenoid opens fully (coil voltage, stem). Evacuate and recharge with the nameplate charge plus the
+      manufacturer's line-set adjustment, then trim to the subcooling (TXV) or superheat (piston) target.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     notes: NIST SP 1087 found a mild restriction invisible on a TXV unit until the valve ran out of stroke.
       Sources disagree on the high-superheat + high-subcooling row; a starving TXV and an undersized piston
       look the same, so check the drier drop and the TXV bulb before condemning anything.
     refs: [nist-sp1087, practice]
+  - id: vc.suction_restriction
+    name: Suction line or service valve restricted — valve not back-seated, crushed or kinked line, plugged strainer
+    systems: [vc]
+    prior: uncommon
+    keywords: [suction restriction, service valve not open, crushed suction line, plugged suction strainer]
+    signs:
+      gen.output: weak
+      vc.evap_sat: low
+      vc.superheat: high
+      vc.cond_sat: low
+      vc.comp_amps: low
+      vc.discharge_temp: high?
+      gen.recent_work: yes?
+      vc.lps_trip: yes?
+    confirm: Suction at the compressor is lower than at a gauge on the evaporator side of the suspect point (more than
+      2–3 psi on medium-temp, about 1 psi on low-temp), or a cold or frosted spot at a service valve or kink. Common
+      right after the system was opened.
+    fix: |
+      Open the suspect service valve fully (back-seat it, then crack it off the seat for the gauge port). Look for kinks
+      and crushed tubing, and clean or replace a suction strainer. If the pressure drop is across a drier or filter, replace it.
+    refs: [practice]
   - id: vc.txv_underfeed
     name: TXV underfeeding — stuck closed, lost bulb charge, plugged inlet screen or ice in the valve
     systems: [vc]
@@ -961,6 +1092,7 @@ causes:
       vc.evap_frost: partial?
       vc.sight_glass: clear?
       vc.lps_trip: yes?
+      gen.short_cycle: yes?
     confirm: High superheat and high subcooling with no drop across the drier, and the valve doesn't open when its
       bulb is warmed.
     fix: |
@@ -968,6 +1100,10 @@ causes:
       head or a stuck valve. Pump down, check the inlet screen, and replace the power head or the valve (match the
       refrigerant and capacity). If it works intermittently and the moisture indicator shows wet, moisture is
       freezing at the port — replace the drier and evacuate deeply.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     refs: [practice]
   - id: vc.txv_overfeed
     name: TXV overfeeding — stuck open, bulb loose or uninsulated, oversized valve or superheat set too low
@@ -990,9 +1126,10 @@ causes:
       before blaming the valve.
     fix: |
       Re-mount the bulb tight on a clean, straight run of suction line (4 or 8 o'clock on larger lines) and
-      insulate it. If superheat is still low, try closing the adjustment in quarter turns (wait 15 min each). A
-      valve that won't throttle when the bulb is iced is stuck open — replace it. Liquid floodback kills
-      compressors, so don't leave it running flooded.
+      insulate it. If superheat is still low, turn the adjusting stem clockwise (in) a quarter turn at a time to
+      raise superheat, waiting 15 minutes between turns; on an EEV, change the controller's superheat setpoint
+      instead. A valve that won't throttle when the bulb is iced is stuck open — replace it. Liquid floodback
+      kills compressors, so don't leave it running flooded.
     refs: [practice]
   - id: vc.piston_large
     name: Metering orifice too large or piston missing
@@ -1012,7 +1149,11 @@ causes:
     fix: |
       Recover, pull the piston and compare the size with the condensing unit's literature (the outdoor unit
       decides it). Install the correct piston with a new O-ring/seal, replace the drier, evacuate and weigh in the
-      charge.
+      nameplate charge plus the manufacturer's line-set adjustment, then trim to the superheat target.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     refs: [practice]
   - id: vc.metering_small
     name: Metering device too small or partly plugged (piston or cap tube)
@@ -1034,7 +1175,13 @@ causes:
     fix: |
       For a piston: recover, inspect and clean or replace with the correct size. For a cap tube: look for kinks;
       a plugged cap tube is replaced (with the drier) or cleared with a cap-tube cleaner by a shop with the right
-      tool. Evacuate deeply and weigh in the charge — cap-tube systems are critically charged.
+      tool. Evacuate deeply and weigh in the nameplate charge plus the manufacturer's line-set adjustment, then trim
+      a piston system to the superheat target — cap-tube systems are critically charged, so don't trim them by
+      gauge readings.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     refs: [practice]
   - id: vc.moisture
     name: Moisture in the system
@@ -1050,7 +1197,13 @@ causes:
       melts at the metering device.
     fix: |
       Recover the charge, replace the filter-drier (oversize it or add a suction-line drier if acid is
-      suspected — test the oil), evacuate to 500 microns or lower with a decay test, and recharge by weight.
+      suspected — test the oil), evacuate to 500 microns or lower with a decay test, and recharge with the nameplate
+      charge plus the manufacturer's line-set adjustment, then trim to the subcooling (TXV) or superheat (piston)
+      target.
+    safety: R-32, R-454B (A2L) and R-290/R-600a (A3) are flammable — no ignition sources, ventilate, use a rated
+      recovery machine and leak detector, and follow the nameplate before brazing. Pressure-test with nitrogen
+      through a regulator and never above the lowest test pressure on the nameplate; never use air or oxygen. Fill a
+      recovery cylinder to 80 % by weight at most.
     refs: [practice]
 
   # ======================= air across the evaporator =======================
@@ -1074,6 +1227,9 @@ causes:
       - if: {metering: [txv, eev]}
         signs:
           vc.superheat: normal?
+      - if: {metering: [fixed, captube]}
+        signs:
+          vc.subcool: low|normal
     confirm: Filter visibly loaded; temperature split high; suction low.
     fix: |
       Replace the filter (and thaw the coil first if it's iced — run the fan only, or heat). Check that the
@@ -1099,10 +1255,14 @@ causes:
       - if: {metering: [txv, eev]}
         signs:
           vc.superheat: normal?
+      - if: {metering: [fixed, captube]}
+        signs:
+          vc.subcool: low|normal
     confirm: Matted face on the air-entering side of the coil; high split; low suction.
     fix: |
-      Clean the coil with a coil cleaner and low-pressure water from the leaving-air side, straighten fins, and
-      check the drain afterward. Find out why it got dirty (filter missing, bypass around the filter).
+      Power off. Clean the coil with a coil cleaner and low-pressure water from the leaving-air side (keep water off
+      the blower motor and control board), straighten fins, and check the drain afterward. Find out why it got
+      dirty (filter missing, bypass around the filter).
     refs: [nist-sp1087, practice]
   - id: vc.evap_fan_weak
     name: Evaporator fan or blower running slow or weak (capacitor, speed tap, dirty wheel, slipping belt, failing
@@ -1123,11 +1283,16 @@ causes:
       - if: {metering: [txv, eev]}
         signs:
           vc.superheat: normal?
+      - if: {metering: [fixed, captube]}
+        signs:
+          vc.subcool: low|normal
     confirm: Fan turns but moves little air; blower amps low, wheel loaded with dirt, capacitor low, belt slipping
       or the wrong speed tap selected.
     fix: |
       Test the blower capacitor, clean the wheel, set the right speed tap (or ECM airflow setting), and tension or
       replace the belt. Check motor amps against nameplate and the bearings for drag.
+    safety: Lock out before reaching into a fan or testing a capacitor; discharge the capacitor through a resistor,
+      not a screwdriver.
     refs: [practice]
   - id: vc.evap_fan_off
     name: Evaporator fan or blower not running (motor, capacitor, relay, control board or fan delay)
@@ -1152,6 +1317,8 @@ causes:
       With voltage at the motor and nothing turning: check the capacitor, spin the shaft for seized bearings,
       ohm the windings (and the thermal protector). Without voltage: check the fan relay, board output, door
       switch, and fan-delay controls. Thaw the coil before testing the refrigeration side.
+    safety: Lock out before reaching into a fan or testing a capacitor; discharge the capacitor through a resistor,
+      not a screwdriver.
     refs: [practice]
   - id: vc.duct_restriction
     name: Duct restriction — closed registers or dampers, crushed or undersized duct
@@ -1191,16 +1358,12 @@ causes:
     signs:
       gen.output: weak
       gen.runs_constantly: yes!
-      vc.evap_sat: high
-      vc.superheat: high?
-      vc.cond_sat: high?
+      vc.evap_sat: {normal: 0.6, high: 0.35}
+      vc.superheat: normal?
+      vc.cond_sat: {normal: 0.6, high: 0.35}
       vc.evap_split: low?
       vc.subcool: normal?
       vc.comp_amps: high?
-    when:
-      - if: {metering: [txv, eev]}
-        signs:
-          vc.superheat: normal?
     confirm: Pressures high on both sides but in proportion, charge and airflow correct, unit runs nonstop.
     fix: |
       Confirm charge and airflow are right first. Then the fix is load or capacity: shade, seal, cut internal
@@ -1220,17 +1383,20 @@ causes:
       vc.cond_sat: high
       vc.subcool: low|normal
       vc.superheat: low?
-      vc.evap_sat: high?
-      vc.discharge_temp: high
-      vc.comp_amps: high
+      vc.evap_sat: {normal: 0.6, high: 0.35}
+      vc.evap_split: {normal: 0.6, low: 0.35}
+      vc.discharge_temp: {normal: 0.5, high: 0.5}
+      vc.comp_amps: {normal: 0.5, high: 0.5}
       vc.cond_split: high?
       vc.hps_trip: yes?
       vc.comp_hot: yes?
+      gen.short_cycle: yes?
       gen.output: weak?
     when:
       - if: {metering: [txv, eev]}
         signs:
           vc.superheat: normal?
+          vc.cond_split: normal|high?
     confirm: Head pressure high for the outdoor temperature with the fan running, and a matted or dirty coil.
     fix: |
       Power off. Clean from the inside out with coil cleaner and low-pressure water (or brush and vacuum on
@@ -1246,10 +1412,12 @@ causes:
       vc.cond_airpath: blocked!
       vc.cond_dirty: no?
       vc.cond_sat: high
-      vc.discharge_temp: high?
-      vc.comp_amps: high?
+      vc.discharge_temp: {normal: 0.5, high: 0.5}
+      vc.comp_amps: {normal: 0.5, high: 0.5}
+      vc.evap_split: low?
       vc.hps_trip: yes?
       vc.subcool: low|normal
+      gen.short_cycle: yes?
     confirm: The air going into the condenser is warmer than the outdoor air, or the coil is boxed in or drifted
       over.
     fix: Clear snow and debris, open the space around the unit, add baffles or relocate so discharge air can't
@@ -1276,6 +1444,8 @@ causes:
       Shut the compressor off before head pressure trips it repeatedly. Test the fan capacitor, spin the blade
       (seized bearings), ohm the windings, and check voltage at the motor. Replace with matching HP, RPM,
       rotation and frame. Check the fan-cycling or head-pressure control if voltage never reaches the motor.
+    safety: Lock out before reaching into a fan or testing a capacitor; discharge the capacitor through a resistor,
+      not a screwdriver.
     refs: [practice]
   - id: vc.cond_fan_slow
     name: Condenser fan weak or slow (capacitor, bearings, wrong blade or rotation)
@@ -1291,6 +1461,8 @@ causes:
     confirm: Fan turns slower than its siblings or than nameplate RPM, wobbles, or blows the wrong way.
     fix: Test and replace a weak capacitor, check bearings and blade pitch, correct rotation, and confirm the
       blade is the right one for the motor.
+    safety: Lock out before reaching into a fan or testing a capacitor; discharge the capacitor through a resistor,
+      not a screwdriver.
     refs: [practice]
   - id: vc.low_ambient
     name: Running in cold outdoor air without low-ambient control
@@ -1303,9 +1475,11 @@ causes:
       vc.cond_sat: low
       vc.evap_sat: low
       vc.superheat: high?
+      vc.subcool: high?
       vc.evap_frost: partial|heavy
       gen.output: weak
       vc.comp_sweat: yes?
+      gen.short_cycle: yes?
     confirm: Head pressure low because the outdoor air is cold; the coil ices and suction falls.
     fix: |
       Add or repair a low-ambient kit (fan cycling or fan-speed head pressure control, crankcase heater, low-ambient
@@ -1326,22 +1500,24 @@ causes:
       vc.cond_sat: low
       vc.subcool: low
       vc.superheat: low?
-      vc.discharge_temp: high
+      vc.discharge_temp: {high: 0.5, normal: 0.45}
       vc.evap_split: low
       vc.cond_split: low
-      vc.comp_amps: low
+      vc.comp_amps: {low: 0.6, normal: 0.35}
       vc.pumpdown: weak!
       vc.comp_noise: knock?
     when:
       - if: {metering: [txv, eev]}
         signs:
           vc.superheat: normal
-    confirm: Suction high and head low together with low amps; the compressor can't pump down, or pressures
-      equalize within a minute or two after shutdown.
+    confirm: Suction high and head low together with low amps; the compressor can't pump down — or, on a non-bleed
+      TXV with the liquid valve closed, pressures equalize within a minute or two after shutdown (a piston, cap
+      tube or bleed-port TXV equalizes by itself, so that proves nothing there).
     fix: |
       Confirm with a pump-down or compressor efficiency test before condemning it, and rule out an open internal
-      relief valve after a high-pressure event and (on heat pumps) a reversing valve leaking through. Replace the
-      compressor, the drier (suction drier if it burned), and test the oil for acid.
+      relief valve after a high-pressure event and (on heat pumps) a reversing valve leaking through. On a
+      three-phase scroll, prove the phase rotation first — a reversed scroll looks exactly like a worn one.
+      Replace the compressor, the drier (suction drier if it burned), and test the oil for acid.
     refs: [nist-sp1087, practice]
   - id: vc.comp_cap
     name: Compressor run capacitor failed (or the HERM side of a dual capacitor)
@@ -1349,17 +1525,20 @@ causes:
     prior: common
     keywords: [bad capacitor, compressor capacitor, run capacitor, dual capacitor]
     signs:
-      vc.comp: hums!
+      vc.comp: {hums: 0.65, running: 0.2, off: 0.15}
       vc.cap: bad!
       vc.comp_hot: yes?
       vc.windings: ok?
       gen.breaker: ok?
       vc.comp_amps: high?
-    confirm: Capacitor reads low or open (or is bulged) and the compressor hums and trips on overload.
+    confirm: Capacitor reads low or open (or is bulged) and the compressor hums and trips on overload — or, when
+      the capacitor is only weak, the compressor starts, runs hot with high amps and trips on its overload.
     fix: |
-      Discharge and replace with the same µF and equal or higher voltage rating. If the compressor still won't
-      start on a good capacitor, try a hard-start kit; if that fails, the compressor is locked or a winding is
-      bad.
+      Discharge the capacitor through a resistor and replace it with the same µF and equal or higher voltage
+      rating. If the compressor still won't start on a good capacitor, try a hard-start kit (single-phase only, two
+      start attempts at most); if that fails, the compressor is locked or a winding is bad.
+    safety: Lock out before reaching into a fan or testing a capacitor; discharge the capacitor through a resistor,
+      not a screwdriver.
     refs: [practice]
   - id: vc.fan_cap
     name: Condenser fan capacitor failed (or the FAN side of a dual capacitor)
@@ -1372,28 +1551,47 @@ causes:
       vc.cond_sat: high
       vc.comp_hot: yes?
       vc.hps_trip: yes?
+      gen.short_cycle: yes?
     confirm: Fan hums but doesn't spin (or starts only when pushed); the FAN–C side tests low.
     fix: Replace with matching µF and voltage. If the fan was running hot for a while, check the motor bearings
       too.
+    safety: Lock out before reaching into a fan or testing a capacitor; discharge the capacitor through a resistor,
+      not a screwdriver.
     refs: [practice]
   - id: vc.contactor
-    name: Contactor failed — open coil, burnt contacts, or stuck closed
+    name: Contactor failed — open coil or burnt contacts
     systems: [vc]
     prior: common
-    keywords: [bad contactor, contactor stuck, contactor burnt, pitted contacts]
+    keywords: [bad contactor, contactor burnt, pitted contacts]
     signs:
-      vc.contactor: {not_pulling: 0.3, burnt: 0.42, welded: 0.18, ok: 0.1}
+      vc.contactor: {not_pulling: 0.4, burnt: 0.5, welded: 0.02, ok: 0.08}
       vc.coil_24v: yes
-      vc.comp: {off: 0.55, hums: 0.25, running: 0.2}
+      vc.comp: {off: 0.6, hums: 0.3, running: 0.1}
       gen.call: calling?
       gen.power: present
       gen.output: none
-    confirm: 24 V on the coil but it won't pull in (open coil); or pulled in with voltage lost across the contacts;
-      or the unit runs with no call (welded).
+    confirm: 24 V on the coil but it won't pull in (open coil); or pulled in with voltage lost across the contacts.
+      A contactor welded closed is its own cause (the unit runs with no call).
     fix: |
       Replace the contactor (match coil voltage, poles and amp rating). Look for why it burned: loose terminals,
       a hard-starting compressor, or chattering from low control voltage. Ants and dirt in the contacts are a
       classic cause on outdoor units.
+    refs: [practice]
+  - id: vc.contactor_welded
+    name: Contactor welded closed — unit runs with no call
+    systems: [vc]
+    prior: occasional
+    keywords: [contactor stuck closed, contactor welded, runs with thermostat off, wont shut off]
+    signs:
+      vc.contactor: welded!
+      gen.call: not_calling!
+      vc.comp: running
+      vc.evap_frost: partial|heavy?
+    confirm: The compressor and fans run with the call off; the contactor stays in with no 24 V on its coil.
+    fix: |
+      Lock out. Replace the contactor (match coil voltage, poles and amp rating) and find why it welded: a hard-starting
+      compressor, loose terminals, low control voltage that made it chatter. Check for an iced coil after a long run.
+    safety: Lock out; a welded contactor means the unit can start at any moment.
     refs: [practice]
   - id: vc.safety_open
     name: A safety in the control circuit is open (pressure switch, float switch, overload pilot, freeze stat)
@@ -1405,6 +1603,7 @@ causes:
       gen.call: calling
       gen.control_v: present
       gen.output: none
+      vc.comp: off!
     confirm: The call reaches the unit but the 24 V stops at a safety. Meter across each switch in the circuit —
       the open one shows 24 V across it.
     fix: |
@@ -1429,9 +1628,11 @@ causes:
       gen.output: none
     confirm: Good capacitor, good windings, good voltage — it still hums at locked-rotor amps and trips.
     fix: |
-      Let pressures equalize (TXV systems without a bleed need minutes). Try a hard-start kit (start capacitor and
-      relay) sized for the compressor. If it still won't start, replace the compressor — and find why it failed
-      (floodback, overheating, low oil).
+      Let pressures equalize (TXV systems without a bleed need minutes). Single-phase only: then try a hard-start
+      kit (start capacitor and relay) sized for the compressor, and limit yourself to two start attempts — each
+      locked-rotor start heats the winding. On a three-phase compressor check all three legs, the fuses and each
+      contactor pole first; no hard-start kit exists for it. If it still won't start, replace the compressor — and
+      find why it failed (floodback, overheating, low oil).
     refs: [practice]
   - id: vc.comp_windings
     name: Compressor windings open, shorted or grounded
@@ -1452,6 +1653,77 @@ causes:
       before starting the new one.
     safety: A grounded compressor can blow its terminals out — never energize it to test.
     refs: [practice]
+  - id: vc.single_phase
+    name: Three-phase compressor single-phased — one leg lost (blown fuse, burnt contactor pole, loose lug, utility)
+    systems: [vc]
+    requires: {phases: three}
+    prior: occasional
+    keywords: [single phasing, lost a leg, lost phase, one fuse blown, phase loss, hums three phase]
+    signs:
+      vc.phase: phase_loss!
+      vc.comp: {hums: 0.5, off: 0.3, running: 0.2}
+      gen.output: none
+      vc.comp_hot: yes?
+      vc.comp_amps: high?
+      gen.breaker: tripped?
+      gen.after_outage: yes?
+    confirm: One pair of legs reads far below the other two, or a leg drops across a contactor pole; a compressor that
+      was running draws high amps on the two good legs and trips its overload.
+    fix: |
+      Lock out. Work back from the compressor: voltage in and out of each contactor pole, the fuses in the disconnect
+      (one blown fuse is the classic), lugs and terminals for heat, then the supply. Replace the whole fuse set and any
+      burnt contactor or lug. Before restarting, meter the windings (T1–T2, T2–T3 and T1–T3 equal, none to ground).
+      Don't keep re-trying a humming compressor — every locked-rotor start heats the windings.
+    safety: Lock out; a lost leg can still leave the other two live. Verify dead with a tested meter.
+    refs: [practice]
+  - id: vc.phase_reversed
+    name: Scroll compressor running backwards — phase sequence reversed after power, generator or wiring work
+    systems: [vc]
+    requires: {phases: three}
+    prior: rare
+    keywords: [scroll backwards, phase reversed, wrong rotation, noisy compressor not pumping, generator phases]
+    signs:
+      vc.rotation: reversed!
+      gen.recent_work: yes!
+      gen.after_outage: yes?
+      vc.comp: running
+      vc.comp_amps: low
+      vc.evap_sat: high
+      vc.cond_sat: low
+      gen.output: weak|none
+      vc.comp_hot: yes?
+      vc.pumpdown: weak
+    confirm: A phase-sequence tester reads reversed, or the compressor is loud and pumps nothing right after power or
+      wiring work (suction doesn't fall, head doesn't rise).
+    fix: |
+      Shut it down — a reversed scroll overheats, trips its protector and can fail if left running. Lock out and swap
+      any two line leads: at the compressor's contactor (load side) if only the compressor is wrong, or at the
+      disconnect if the fans are backwards too; then check the rotation of every three-phase motor. Confirm with a
+      rotation meter; suction should fall and head should rise within seconds.
+      Do not condemn the compressor on this signature until rotation is proven.
+    safety: Lock out; verify dead before swapping leads.
+    refs: [practice]
+  - id: vc.start_relay
+    name: Start capacitor, relay or PTC failed — single-phase compressor hums and won't start
+    systems: [vc]
+    requires: {phases: single}
+    prior: occasional
+    keywords: [start relay, potential relay, start capacitor, ptc relay, hard start kit, hums and trips on overload]
+    signs:
+      vc.comp: hums!
+      vc.start_parts: bad!
+      vc.cap: ok?
+      vc.windings: ok?
+      vc.comp_hot: yes?
+      gen.output: none
+    confirm: Run capacitor and windings test good, but the start capacitor is open or low, the relay coil reads open or its
+      contacts are pitted or stuck, or the PTC is open.
+    fix: |
+      Lock out and discharge the capacitors. Replace the start capacitor, relay or PTC with the exact manufacturer's
+      part — relay pick-up and drop-out are matched to the compressor, and a wrong relay burns the start winding.
+      Replace an old run capacitor at the same time. If it still won't start, the compressor is stuck or a winding is bad.
+    safety: Lock out; discharge capacitors through a resistor before touching them.
+    refs: [practice]
   - id: vc.overheat_overload
     name: Compressor overheating and cycling on its internal overload
     systems: [vc]
@@ -1467,8 +1739,10 @@ causes:
       it cools.
     fix: |
       It's a symptom — find why it's hot: low charge (high return-gas superheat), high head (dirty condenser,
-      fan), low voltage, a weak run capacitor, or short cycling. Cool it with water mist only if you know the
-      shell won't be thermally shocked — usually just wait. Fix the root cause before restarting.
+      fan), low voltage, a weak run capacitor, or short cycling. Lock out, then let it cool on its own (the
+      internal overload resets in 30–60 minutes); a fan on the shell is fine. Fix the root cause before
+      restarting.
+    safety: Never spray water on a compressor or its terminal box.
     refs: [practice]
 
   # ======================= A/C basics =======================
@@ -1492,7 +1766,7 @@ causes:
   - id: vc.control_cycling
     name: Short cycling from controls (thermostat placement or differential, oversized unit)
     systems: [vc]
-    prior: uncommon
+    prior: common
     signs:
       gen.short_cycle: yes!
       vc.lps_trip: no

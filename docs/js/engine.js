@@ -42,7 +42,8 @@ export function prepare(kb, system, ctx = {}) {
     causes.push({ id: c.id, c, prior: (PRIOR[c.prior] ?? PRIOR.occasional) * rf, dist });
   }
   // "Nothing wrong here": the system checks out, so look at load, settings, expectations or the
-  // equipment upstream. It predicts every feature at its base rates.
+  // equipment upstream. It accounts for the complaint at base rates but expects every check to read
+  // normal, at the same leak rate as a silent cause.
   const sys = kb.systems.get(system);
   causes.push({
     id: '_ok', prior: PRIOR.occasional, dist: new Map(),
@@ -53,9 +54,13 @@ export function prepare(kb, system, ctx = {}) {
 }
 
 // The distribution a cause predicts for a feature: its sign if it has one; the leak rate if it is
-// silent (see SILENT_ABNORMAL in kb.js); the plain base rate for "nothing wrong found".
+// silent (see SILENT_ABNORMAL in kb.js). "Nothing wrong found" takes the plain base rate on the
+// complaint features only, so the complaint alone doesn't count against it.
 function distFor(cause, f) {
-  return cause.dist.get(f.id) || (cause.id === '_ok' ? f.obsBase : f.silentDist);
+  const d = cause.dist.get(f.id);
+  if (d) return d;
+  if (cause.id === '_ok' && f.complaint) return f.obsBase;
+  return f.silentDist;
 }
 
 function lik(model, cause, fid, state) {

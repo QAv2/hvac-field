@@ -134,7 +134,9 @@ features:
   - id: gen.power
     name: Line voltage at the unit
     ask: Is there line voltage at the unit's disconnect or power terminals?
-    how: Meter across the line terminals (L1–L2, or L–N on 120 V) at the unit, not just at the panel.
+    how: Meter across the line terminals (L1–L2, or L–N on 120 V) at the unit, not just at the panel. On a
+      three-phase unit meter L1–L2, L2–L3 and L1–L3 — a dead leg shows as two low pairs, while one pair alone can
+      read full voltage.
     systems: ['*']
     states:
       present: Present
@@ -194,9 +196,9 @@ features:
     ask: What is the supply voltage at the unit with it running?
     systems: ['*']
     states:
-      low: Low (more than 10 % under)
-      normal: Within ±10 %
-      high: High (more than 10 % over)
+      low: Low (more than 10 % under; under 187 V on a 208/230 unit)
+      normal: Within ±10 % (187–253 V on a 208/230 unit)
+      high: High (more than 10 % over; over 253 V on a 208/230 unit)
     cost: 2
     needs: meter
     ask_if: {gen.power: present}
@@ -213,19 +215,23 @@ inputs:
     name: Nameplate voltage
     unit: V
     systems: ['*']
-    choices: [115, 208, 230, 460, 575]
+    choices: [115, 208, 220, 230, 460, 575]   # 220 = the dual-rated 208/230 V nameplate
+    hint: "Dual-rated 208/230 V nameplate: enter 220 (it is judged against 187–253 V, so a 208 V supply reads
+      normal). Otherwise enter the single rated voltage — the band is ±10 %."
 
 measures:
   - id: gen.voltage_ratio
     name: Supply voltage vs nameplate
     unit: '%'
     systems: ['*']
+    let:
+      dual: gen.volts_nominal == 220
     value: gen.volts / gen.volts_nominal * 100
     target: '100'
     sets: gen.voltage
     states:
-      - [low, v < 90]
-      - [high, v > 110]
+      - [low, 'v < (dual ? 85 : 90)']
+      - [high, 'v > (dual ? 115 : 110)']
       - [normal, 'true']
 
 causes:
@@ -238,6 +244,7 @@ causes:
       gen.output: none!
       gen.power: missing!
       gen.breaker: {tripped: 0.6, ok: 0.37, retrips: 0.03}
+      vc.comp: off!
     confirm: No voltage across the line terminals at the unit's disconnect, then work back toward the panel.
     fix: |
       Find where the power stops: panel breaker, disconnect switch, fuses (in the disconnect and inside the unit),
@@ -255,6 +262,7 @@ causes:
       gen.dead: yes?
       gen.output: none
       gen.burnt_smell: yes?
+      vc.comp: off|hums
     confirm: With power locked out, meter (or megger) each load to ground — compressor terminals, motor leads,
       heaters — and look for scorched wiring.
     fix: |
@@ -272,6 +280,7 @@ causes:
       gen.control_v: missing!
       gen.dead: yes?
       gen.output: none
+      vc.comp: off!
     confirm: Line voltage on the transformer primary but no 24 V on the secondary (transformer bad), or a
       blown low-voltage fuse on the board.
     fix: |
@@ -290,6 +299,7 @@ causes:
       gen.control_v: present?
       gen.output: none
       gen.dead: no?
+      vc.comp: off!
     confirm: No call signal at the unit while the space is away from setpoint; jumpering the call (e.g. R to Y
       or R to W) at the unit starts it.
     fix: |

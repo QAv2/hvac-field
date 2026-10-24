@@ -117,6 +117,38 @@ systems:
       plant that feeds its coils.
 
 context:
+  # ---------- split systems & heat pumps (vc-core and heatpump both gate on these) ----------
+  - id: hp_unit
+    ask: What type of system is it?
+    hint: A conventional ducted split or packaged unit, a variable-speed (inverter) ducted system, or a ductless
+      mini-split / multi-zone. Inverter boards and electronic expansion valves come with the last two. Flare
+      joints, wall heads, condensate pumps and branch boxes come only with the ductless one. Strip heat,
+      defrost boards and O/B thermostats belong to the ducted ones.
+    systems: [vc.ac, vc.hp]
+    options:
+      - id: ducted
+        label: Conventional ducted split or packaged
+        p: 0.6
+        words: [ducted, air handler, strip heat, aux heat, auxiliary heat, emergency heat, sequencer, package unit,
+          packaged unit, rooftop]
+      - id: inverter
+        label: Variable-speed (inverter) ducted
+        p: 0.1
+        words: [variable speed, communicating, inverter ducted]
+      - id: minisplit
+        label: Ductless mini-split / multi-zone (inverter)
+        p: 0.3
+        words: [mini split, minisplit, mini-split, ductless, wall head, cassette, multi split, multi-zone, branch box]
+  - id: rv_energized
+    ask: Which mode energizes the reversing-valve coil?
+    hint: Meter the coil leads in cooling and in heating, or read the wiring diagram. Most US ducted splits
+      energize it in cooling (thermostat terminal O). B-type units, and many ductless heads, energize it in
+      heating. Go by the diagram or the meter, never by the brand name.
+    systems: [vc.hp]
+    options:
+      - {id: cool, label: Energized in cooling (O), p: 0.8, words: [o type, o valve, energized in cooling]}
+      - {id: heat, label: Energized in heating (B), p: 0.2, words: [b type, b valve, energized in heating]}
+
   # ---------- refrigeration ----------
   - id: refrigerant
     kind: refrigerant
@@ -186,6 +218,14 @@ context:
       - {id: off_cycle, label: Off-cycle / air (coolers)}
       - {id: electric, label: Electric heaters}
       - {id: hot_gas, label: Hot gas}
+  - id: phases
+    ask: Is the compressor single-phase or three-phase?
+    hint: Nameplate. One run capacitor and two power leads is single-phase; three line leads (T1 T2 T3) and no capacitor
+      is three-phase.
+    systems: [vc]
+    options:
+      - {id: single, label: Single-phase (run capacitor), p: 0.55}
+      - {id: three, label: Three-phase (T1 T2 T3), p: 0.45, words: [three phase, 3 phase, 3 ph, 3ph]}
 
 refs:
   - id: nist-sp1087

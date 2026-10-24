@@ -213,7 +213,7 @@
 - name: Compressor hums on a good capacitor with good windings
   system: vc.ac
   findings: {vc.comp: hums, vc.cap: ok, vc.windings: ok}
-  expect: {top: vc.comp_locked}
+  expect: {top3: [vc.comp_locked], next_any: [vc.contactor, vc.start_parts]}
 
 - name: Compressor terminal reads to ground, breaker trips again
   system: vc.ac
@@ -224,3 +224,229 @@
   system: vc.walkin
   findings: {vc.comp_hot: 'yes', gen.short_cycle: 'yes', vc.windings: overload_open}
   expect: {top3: [vc.overheat_overload]}
+
+# ---------------------------------------------------------------------------------------------------------------
+# Added with the core review: three-phase supply, start devices, suction restriction, a welded contactor, and the
+# measures that used to call healthy equipment faulty (freezers read at the compressor, cool weather, hot-day R-22).
+
+- name: Three-phase compressor hums with one leg dead at the contactor
+  system: vc.walkin
+  ctx: {phases: three}
+  findings: {gen.output: none, vc.comp: hums, gen.power: present, vc.phase: phase_loss}
+  expect: {top: vc.single_phase}
+
+- name: Three-phase compressor hums, line voltage present — the three-leg check comes early
+  system: vc.walkin
+  ctx: {phases: three}
+  findings: {gen.output: none, vc.comp: hums, gen.power: present}
+  expect:
+    top3: [vc.single_phase]
+    next_any: [vc.phase]
+
+- name: Rooftop scroll weak right after the generator transfer, rotation not yet checked
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air, phases: three}
+  findings: {gen.output: weak, gen.after_outage: 'yes'}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 75, vc.suction_psig: 155, vc.suction_line_f: 66, vc.liquid_psig: 300,
+    vc.comp_amps_meas: 8, vc.comp_rla: 18}
+  expect:
+    top: vc.phase_reversed
+    top3: [vc.comp_inefficient]
+    next_any: [gen.recent_work, vc.rotation]
+    measured: {vc.evap_sat: high, vc.cond_sat: low, vc.comp_amps: low}
+
+- name: Same scroll after the generator transfer, phase-sequence tester reads reversed
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air, phases: three}
+  findings: {gen.output: weak, gen.after_outage: 'yes', vc.rotation: reversed}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 75, vc.suction_psig: 155, vc.suction_line_f: 66, vc.liquid_psig: 300,
+    vc.comp_amps_meas: 8, vc.comp_rla: 18}
+  expect: {top: vc.phase_reversed}
+
+- name: Same weak scroll after the transfer, but the rotation proves correct — the compressor really is worn
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air, phases: three}
+  findings: {gen.output: weak, gen.after_outage: 'yes', vc.rotation: correct, vc.pumpdown: weak}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 75, vc.suction_psig: 155, vc.suction_line_f: 66, vc.liquid_psig: 300,
+    vc.comp_amps_meas: 8, vc.comp_rla: 18}
+  expect: {top: vc.comp_inefficient}
+
+- name: Reach-in compressor hums and trips, run capacitor and windings good, start relay tests bad
+  system: vc.reachin
+  ctx: {phases: single}
+  findings: {gen.output: none, vc.comp: hums, vc.cap: ok, vc.windings: ok, vc.start_parts: bad}
+  expect: {top: vc.start_relay}
+
+- name: Single-phase hummer with a good run capacitor and good windings — the start parts are the next look
+  system: vc.reachin
+  ctx: {phases: single}
+  findings: {gen.output: none, vc.comp: hums, vc.cap: ok, vc.windings: ok}
+  expect:
+    top3: [vc.start_relay]
+    next_any: [vc.start_parts]
+
+- name: Weak cooling right after service — suction service valve not back-seated
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak, gen.recent_work: 'yes'}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 76, vc.suction_psig: 92, vc.suction_line_f: 52, vc.liquid_psig: 300.7,
+    vc.liquid_line_f: 86, vc.comp_amps_meas: 8, vc.comp_rla: 18}
+  expect:
+    top: vc.suction_restriction
+    measured: {vc.superheat: high, vc.subcool: normal, vc.evap_sat: low, vc.cond_sat: low, vc.comp_amps: low}
+
+- name: Unit keeps running with the thermostat satisfied and the contactor is stuck in
+  system: vc.ac
+  findings: {gen.call: not_calling, vc.comp: running, vc.contactor: welded}
+  expect: {top: vc.contactor_welded}
+
+- name: Unit runs with no call for cooling — the contactor is the next look
+  system: vc.ac
+  findings: {gen.call: not_calling, vc.comp: running}
+  expect:
+    top: vc.contactor_welded
+    next_any: [vc.contactor]
+
+- name: Healthy low-temp walk-in read at the compressor — superheat 48 °F and amps at 41 % of RLA are normal there
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, app: lt, metering: txv, condenser: air, hpc: flooding, receiver: 'yes', sh_location: comp}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 40, vc.air_in_f: -10, vc.suction_psig: 14.6, vc.suction_line_f: 26, vc.liquid_psig: 192.5,
+    vc.liquid_line_f: 71, vc.comp_amps_meas: 6.5, vc.comp_rla: 16}
+  expect:
+    not_top: [vc.undercharge]
+    measured: {vc.superheat: normal, vc.subcool: normal, vc.comp_amps: normal}
+
+- name: Starved low-temp walk-in — superheat 85 °F at the compressor and bubbles in the sight glass
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, app: lt, metering: txv, condenser: air, hpc: flooding, receiver: 'yes', sh_location: comp}
+  findings: {gen.output: weak, vc.sight_glass: bubbles}
+  inputs: {vc.ambient_f: 40, vc.air_in_f: -10, vc.suction_psig: 14.6, vc.suction_line_f: 63, vc.liquid_psig: 192.5,
+    vc.liquid_line_f: 86, vc.comp_amps_meas: 6.5, vc.comp_rla: 16}
+  expect:
+    top: vc.undercharge
+    measured: {vc.superheat: high}
+
+- name: Medium-temp walk-in with the suction line read at the condensing unit and the location not answered
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, app: mt, metering: txv, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.air_in_f: 36, vc.suction_psig: 60.7, vc.suction_line_f: 50}
+  expect:
+    not_top: [vc.undercharge]
+    measured: {vc.superheat: normal, vc.evap_sat: normal}
+
+- name: Moderately dirty condenser — head high, but the discharge line and amps still read in range
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak, vc.cond_fan: running}
+  inputs: {vc.ambient_f: 95, vc.air_in_f: 80, vc.suction_psig: 130.1, vc.suction_line_f: 59, vc.liquid_psig: 496.8,
+    vc.liquid_line_f: 124, vc.discharge_line_f: 215, vc.comp_amps_meas: 17.5, vc.comp_rla: 18}
+  expect:
+    top: vc.dirty_condenser
+    next_any: [vc.cond_dirty]
+    measured: {vc.cond_sat: high, vc.discharge_temp: normal, vc.comp_amps: normal}
+
+- name: Walk-in condensing unit with a moderately dirty coil — head high, discharge line and amps in range
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, app: mt, metering: txv, sh_location: evap, condenser: air, hpc: flooding, receiver: 'yes'}
+  findings: {gen.output: weak, vc.cond_fan: running}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 36, vc.suction_psig: 60.7, vc.suction_line_f: 32, vc.liquid_psig: 346.6,
+    vc.liquid_line_f: 118, vc.discharge_line_f: 205, vc.comp_amps_meas: 14.4, vc.comp_rla: 16}
+  expect:
+    top3: [vc.dirty_condenser]
+    measured: {vc.cond_sat: high, vc.discharge_temp: normal, vc.comp_amps: normal}
+
+- name: Mild TXV shortage — subcooling 5 °F with everything else in range
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 95, vc.air_in_f: 80, vc.suction_psig: 130.1, vc.suction_line_f: 57, vc.liquid_psig: 392.3,
+    vc.liquid_line_f: 110}
+  expect:
+    top: vc.undercharge
+    measured: {vc.subcool: low, vc.superheat: normal}
+
+- name: TXV A/C on a 60 °F day with subcooling 16 °F — normal in cool weather, not an overcharge
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.recent_work: 'yes'}
+  inputs: {vc.ambient_f: 60, vc.air_in_f: 76, vc.suction_psig: 120.7, vc.suction_line_f: 53, vc.liquid_psig: 243.9,
+    vc.liquid_line_f: 66}
+  expect:
+    not_top: [vc.overcharge]
+    measured: {vc.subcool: normal, vc.cond_sat: normal}
+
+- name: Piston A/C at 95 °F with subcooling 17 °F — a result, not a target, on a fixed orifice
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: fixed, sh_location: comp, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 95, vc.air_in_f: 78, vc.air_in_rh: 50, vc.suction_psig: 118.4, vc.suction_line_f: 53,
+    vc.liquid_psig: 392.3, vc.liquid_line_f: 98}
+  expect:
+    measured: {vc.subcool: normal, vc.superheat: normal}
+
+- name: Piston A/C at 40 °F outdoors with the head collapsed to 62 °F — low against the condensing floor
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: fixed, sh_location: comp, condenser: air}
+  findings: {gen.output: weak, vc.evap_frost: heavy}
+  inputs: {vc.ambient_f: 40, vc.air_in_f: 75, vc.air_in_rh: 50, vc.suction_psig: 89.2, vc.suction_line_f: 34,
+    vc.liquid_psig: 176.6, vc.liquid_line_f: 54}
+  expect:
+    measured: {vc.cond_sat: low, vc.evap_sat: low}
+
+- name: Outdoor walk-in unit in a deep freeze with no head-pressure control — a collapsed head reads low
+  system: vc.walkin
+  ctx: {refrigerant: R-404A, app: mt, metering: txv, sh_location: evap, condenser: air, hpc: none}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: -10, vc.air_in_f: 36, vc.suction_psig: 55.3, vc.suction_line_f: 28, vc.liquid_psig: 95.8,
+    vc.liquid_line_f: 40}
+  expect:
+    not_top: [vc.dirty_condenser]
+    measured: {vc.cond_sat: low}
+
+- name: Clean R-22 condensing unit on a 115 °F day — a 245 °F discharge line is normal for a 140 °F head
+  system: vc.ac
+  ctx: {refrigerant: R-22, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 115, vc.air_in_f: 80, vc.liquid_psig: 337.4, vc.liquid_line_f: 130, vc.discharge_line_f: 245}
+  expect:
+    not_top: [vc.dirty_condenser]
+    measured: {vc.cond_sat: normal, vc.discharge_temp: normal}
+
+- name: R-410A at 75 °F outdoors with a 200 °F discharge line against a 100 °F head — high, though under 225 °F
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak}
+  inputs: {vc.ambient_f: 75, vc.air_in_f: 78, vc.liquid_psig: 318.5, vc.liquid_line_f: 90, vc.discharge_line_f: 200}
+  expect:
+    measured: {vc.cond_sat: normal, vc.discharge_temp: high}
+
+- name: Discharge line 255 °F with no head-pressure reading — over the 250 °F oil alarm
+  system: vc.ac
+  findings: {gen.output: weak}
+  inputs: {vc.discharge_line_f: 255}
+  expect:
+    measured: {vc.discharge_temp: high}
+
+- name: Runs nonstop on a 105 °F day with every reading in proportion to the weather
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', vc.filter: clean}
+  inputs: {vc.ambient_f: 105, vc.air_in_f: 82, vc.suction_psig: 145.2, vc.suction_line_f: 63, vc.liquid_psig: 484.2,
+    vc.liquid_line_f: 121}
+  expect:
+    top: vc.excess_load
+    measured: {vc.evap_sat: normal, vc.cond_sat: normal, vc.superheat: normal}
+
+- name: Short cycling is the only complaint — a dirty coil and the controls come before a failed fan
+  system: vc.ac
+  findings: {gen.short_cycle: 'yes'}
+  expect:
+    top3: [vc.dirty_condenser, vc.control_cycling]
+    not_top: [vc.cond_fan_failed]
+
+- name: Weak run capacitor — the compressor still starts, runs hot and trips on its overload
+  system: vc.ac
+  findings: {vc.comp: running, vc.cap: bad, vc.comp_hot: 'yes', gen.output: weak, vc.cond_fan: running}
+  expect: {top3: [vc.comp_cap]}

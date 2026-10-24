@@ -26,3 +26,32 @@
   system: steam
   findings: {gen.burnt_smell: 'yes', gen.intermittent: 'yes'}
   expect: {top3: [gen.loose_connection]}
+
+# Added with the core review.
+- name: A 208 V supply sagging to 195 V under load is still within band on a dual-rated 208/230 V unit
+  system: vc.ac
+  findings: {gen.short_cycle: 'yes'}
+  inputs: {gen.volts: 195, gen.volts_nominal: 220}
+  expect:
+    not_top: [gen.low_voltage]
+    measured: {gen.voltage: normal}
+
+- name: 180 V at a dual-rated 208/230 V unit is low
+  system: vc.ac
+  findings: {gen.short_cycle: 'yes'}
+  inputs: {gen.volts: 180, gen.volts_nominal: 220}
+  expect:
+    top3: [gen.low_voltage]
+    measured: {gen.voltage: low}
+
+- name: Compressor and both fans running, nothing cooling — not a power or thermostat fault
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: running, vc.cond_fan: running, vc.evap_fan: running}
+  expect:
+    not_top: [gen.no_line_power, gen.no_call, gen.control_power]
+
+- name: Walk-in not cooling with the compressor running — the breaker is not the first look
+  system: vc.walkin
+  findings: {gen.output: none, vc.comp: running}
+  expect:
+    not_top: [gen.no_line_power, gen.no_call, gen.control_power]

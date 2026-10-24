@@ -221,7 +221,7 @@
 
 - name: McMurdo outdoor condenser at -40 °F — flashing sight glass and collapsing head pressure from low winter charge
   system: vc.walkin
-  ctx: {refrigerant: R-404A, app: lt, metering: txv, condenser: air, hpc: flooding, receiver: 'yes'}
+  ctx: {refrigerant: R-404A, app: lt, metering: txv, condenser: air, hpc: flooding, receiver: 'yes', sh_location: evap}
   findings: {gen.output: weak, vc.low_ambient: 'yes', vc.sight_glass: bubbles, rf.headmaster_state: starving_cold}
   inputs: {vc.ambient_f: -40, vc.air_in_f: -5, vc.suction_psig: 8, vc.suction_line_f: -10, vc.liquid_psig: 95,
     vc.liquid_line_f: 44}
