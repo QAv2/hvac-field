@@ -55,3 +55,42 @@
   findings: {gen.output: none, vc.comp: running}
   expect:
     not_top: [gen.no_line_power, gen.no_call, gen.control_power]
+
+# Running equipment with every reading normal: the power and call faults stay out of the top 3, and on an A/C
+# "nothing wrong found" (look at the load, the ducts, the settings) makes it.
+- name: Weak cooling on a 90 °F day, compressor running, every gauge reading normal — the system checks out
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv, sh_location: comp, condenser: air}
+  findings: {gen.output: weak, vc.comp: running}
+  inputs: {vc.ambient_f: 90, vc.air_in_f: 76, vc.suction_psig: 120.7, vc.suction_line_f: 53, vc.liquid_psig: 330,
+    vc.liquid_line_f: 95}
+  expect:
+    top3: [_ok]
+    not_top3: [gen.no_line_power, gen.no_call, gen.control_power, vc.contactor]
+    measured: {vc.superheat: normal, vc.subcool: normal, vc.evap_sat: normal, vc.cond_sat: normal}
+
+- name: Boiler short of heat, burner lights normally and the combustion numbers are clean — not power or the call
+  system: fuel.boiler
+  ctx: {fuel_type: no2, boiler_kind: hw}
+  findings: {gen.output: weak, blr.start: normal}
+  inputs: {blr.stack_f: 480, blr.o2_pct: 5, blr.co_ppm: 40, blr.smoke_no: 0, blr.of_draft_inwc: -0.02,
+    blr.br_draft_inwc: -0.04, blr.hw_psi: 15}
+  expect:
+    not_top3: [gen.no_line_power, gen.no_call, gen.control_power]
+
+- name: Air handler fan running with normal static and a clean filter, not enough air reported — not power or the call
+  system: ahu
+  ctx: {fan_drive: belt, vfd: 'no'}
+  findings: {gen.output: weak, ahu.fan: running}
+  inputs: {ahu.fan_sp_inwc: 2.0, ahu.fan_sp_design: 2.0, ahu.filter_dp_inwc: 0.4, ahu.filter_dp_final: 1.0}
+  expect:
+    not_top3: [gen.no_line_power, gen.no_call, gen.control_power]
+
+- name: Hot-water loop short of heat with the circulator running and a normal loop ΔT — not power or the call
+  system: hydronic
+  ctx: {fluid: water}
+  findings: {gen.output: weak, hyd.circ: running}
+  inputs: {hyd.supply_f: 180, hyd.return_f: 160, hyd.design_dt: 20, hyd.loop_psig: 15, hyd.fill_psig: 12}
+  expect:
+    not_top3: [gen.no_line_power, gen.no_call, gen.control_power]
+

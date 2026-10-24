@@ -1,6 +1,6 @@
 // Offline cache. tools/build.py stamps VERSION and ASSETS from the files in docs/, so every
 // rebuild that changes anything ships a new cache and the phone picks it up on the next launch.
-const VERSION = '1c84ddea70';
+const VERSION = '3e8b11039b';
 const ASSETS = ["./", "css/app.css", "data/charging.json", "data/glycol.json", "data/kb.json", "data/pt.json", "icons/icon-180.png", "icons/icon-192.png", "icons/icon-512.png", "icons/icon.svg", "index.html", "js/calcs.js", "js/engine.js", "js/expr.js", "js/kb.js", "js/main.js", "js/measure.js", "js/search.js", "js/tools.js", "manifest.webmanifest"];
 const CACHE = `fdx-${VERSION}`;
 

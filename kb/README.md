@@ -33,9 +33,10 @@ the tech enters multiplies each cause by how likely that finding is **if that ca
 - **Next best check** = the unasked check with the most information gain about the leading causes, divided
   by its effort (`cost`). Cheap, decisive looks come first; a check that no cause in play has an opinion on is
   never suggested. So every cause needs at least one sign that sets it apart — ideally a cheap one.
-- A pseudo-cause "nothing wrong found" is always in the race. It reads the complaint features (`complaint:
-  true`) at their base rates, so the complaint alone doesn't count against it, and every other check at the
-  leak rate, so all-normal readings push the real faults down.
+- A pseudo-cause "nothing wrong found" is always in the race. The system's `ok_signs` say how a call with
+  nothing wrong gets reported (mostly "not enough", seldom "nothing at all"); other complaint features
+  (`complaint: true`) stay at their base rates, and every other check is read at the leak rate. So the
+  complaint alone doesn't count against it, and all-normal readings push the real faults down.
 
 ## Files and ids
 
@@ -50,6 +51,13 @@ One module per file. Ids are `prefix.name`, lowercase, prefix = the module's nam
 Selectable systems: `vc.ac`, `vc.hp`, `vc.walkin`, `vc.reachin`, `vc.ice`, `fuel.boiler`, `fuel.furnace`,
 `hydronic`, `steam`, `ahu`. Groups: `vc` (all refrigeration), `fuel` (both oil-fired systems). Tagging an item
 with a group applies it to every member. `'*'` = every system.
+
+A system's `ok_note` is the advice shown when "nothing wrong found" leads, and `ok_signs` (signs, as on a
+cause; the nearest system or group that has them wins) is how such calls get reported.
+
+The shared no-run causes in `common.yaml` (no line power, no control power, no call, short to ground) name
+the thing that moves on each system — `vc.comp`, `blr.start`, `ahu.fan`, `hyd.circ` — so a unit seen running
+counts against them. A new system with its own "is it running?" feature adds it there too.
 
 Context questions are asked once per job (refrigerant, metering device, …) and gate or bend causes:
 ```yaml
@@ -224,6 +232,7 @@ Every module ships service-call scenarios. They're the regression suite.
     top: blr.cad_cell_dirty                    # must be #1
     top3: [blr.cad_cell_dirty]                 # must be in the top 3
     not_top: [blr.nozzle_plugged]              # must not be #1
+    not_top3: [gen.no_line_power]              # must not be in the top 3
     measured: {blr.stack_temp: normal}         # what the numbers must classify as
     next_any: [blr.cad_ohms, blr.flame]        # one of the first three suggested checks
 ```

@@ -123,6 +123,7 @@ for (const sc of scen) {
   if (ex.top && ids[0] !== ex.top) fails.push(`top is ${ids[0]}, want ${ex.top} (rank ${ids.indexOf(ex.top) + 1})`);
   for (const id of ex.top3 || []) if (!top3.includes(id)) fails.push(`${id} not in top 3 (rank ${ids.indexOf(id) + 1})`);
   for (const id of ex.not_top || []) if (ids[0] === id) fails.push(`${id} should not be top`);
+  for (const id of ex.not_top3 || []) if (top3.includes(id)) fails.push(`${id} should not be in the top 3 (rank ${ids.indexOf(id) + 1})`);
   if (ex.next_any && !res.next.slice(0, 3).some((n) => ex.next_any.includes(n.id))) fails.push(`next checks ${res.next.slice(0, 3).map((n) => n.id).join(', ')} include none of ${ex.next_any.join(', ')}`);
   for (const [fid, s] of Object.entries(ex.measured || {})) {
     if (measured.findings[fid]?.s !== s) fails.push(`measured ${fid} = ${measured.findings[fid]?.s ?? 'nothing'} (value ${measured.findings[fid]?.v?.toFixed?.(1)}), want ${s}`);

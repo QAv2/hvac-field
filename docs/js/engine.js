@@ -42,11 +42,15 @@ export function prepare(kb, system, ctx = {}) {
     causes.push({ id: c.id, c, prior: (PRIOR[c.prior] ?? PRIOR.occasional) * rf, dist });
   }
   // "Nothing wrong here": the system checks out, so look at load, settings, expectations or the
-  // equipment upstream. It accounts for the complaint at base rates but expects every check to read
-  // normal, at the same leak rate as a silent cause.
+  // equipment upstream. The system's `ok_signs` say how such calls get reported (mostly "not enough",
+  // seldom "nothing at all"); other complaint features stay at base rates, and every check is expected
+  // to read normal, at the same leak rate as a silent cause.
   const sys = kb.systems.get(system);
+  const okSigns = kb.lineage(system).map((s) => kb.systems.get(s).ok_signs).find(Boolean) || {};
+  const okDist = new Map();
+  for (const [fid, spec] of Object.entries(okSigns)) if (fset.has(fid)) okDist.set(fid, signDist(kb.features.get(fid), spec));
   causes.push({
-    id: '_ok', prior: PRIOR.occasional, dist: new Map(),
+    id: '_ok', prior: PRIOR.occasional, dist: okDist,
     c: { id: '_ok', name: 'Nothing wrong found in this system yet', systems: [system],
       fix: sys?.ok_note || 'Everything entered so far reads normal. Check the load (doors, product, occupancy), the settings, and the equipment that feeds this system, and re-read any number that looked odd.' },
   });
@@ -55,7 +59,7 @@ export function prepare(kb, system, ctx = {}) {
 
 // The distribution a cause predicts for a feature: its sign if it has one; the leak rate if it is
 // silent (see SILENT_ABNORMAL in kb.js). "Nothing wrong found" takes the plain base rate on the
-// complaint features only, so the complaint alone doesn't count against it.
+// complaint features its ok_signs don't cover, so a complaint alone doesn't count against it.
 function distFor(cause, f) {
   const d = cause.dist.get(f.id);
   if (d) return d;

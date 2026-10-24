@@ -571,4 +571,4 @@
   findings: {gen.output: none, vc.comp: 'off', gen.call: calling}
   expect:
     top3: [vc.contactor]   # with power not yet checked, no line power can lead
-    not_top: [rf.llsv_stuck_closed, rf.oil_safety_lockout]
+    not_top3: [rf.llsv_stuck_closed, rf.oil_safety_lockout]

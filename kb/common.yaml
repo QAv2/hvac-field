@@ -244,7 +244,11 @@ causes:
       gen.output: none!
       gen.power: missing!
       gen.breaker: {tripped: 0.6, ok: 0.37, retrips: 0.03}
+      # whatever moves on this system stands still
       vc.comp: off!
+      blr.start: nothing!
+      ahu.fan: off!
+      hyd.circ: off!
     confirm: No voltage across the line terminals at the unit's disconnect, then work back toward the panel.
     fix: |
       Find where the power stops: panel breaker, disconnect switch, fuses (in the disconnect and inside the unit),
@@ -263,6 +267,9 @@ causes:
       gen.output: none
       gen.burnt_smell: yes?
       vc.comp: off|hums
+      blr.start: nothing
+      ahu.fan: off|trips
+      hyd.circ: off|hums
     confirm: With power locked out, meter (or megger) each load to ground — compressor terminals, motor leads,
       heaters — and look for scorched wiring.
     fix: |
@@ -281,6 +288,9 @@ causes:
       gen.dead: yes?
       gen.output: none
       vc.comp: off!
+      blr.start: nothing!
+      ahu.fan: 'off'
+      hyd.circ: 'off'
     confirm: Line voltage on the transformer primary but no 24 V on the secondary (transformer bad), or a
       blown low-voltage fuse on the board.
     fix: |
@@ -300,6 +310,9 @@ causes:
       gen.output: none
       gen.dead: no?
       vc.comp: off!
+      blr.start: nothing!
+      ahu.fan: 'off'   # an air handler's call is its start command; hand mode can still run it
+      hyd.circ: 'off'
     confirm: No call signal at the unit while the space is away from setpoint; jumpering the call (e.g. R to Y
       or R to W) at the unit starts it.
     fix: |

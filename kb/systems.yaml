@@ -6,6 +6,8 @@ systems:
   - id: vc
     name: Refrigeration & A/C
     abstract: true
+    # How a call with nothing wrong in the system gets reported: mostly "not enough", seldom "nothing at all".
+    ok_signs: &ok_signs {gen.output: {weak: 0.6, normal: 0.3, none: 0.1}}
   - id: vc.ac
     parent: vc
     name: A/C or heat pump — cooling
@@ -61,6 +63,7 @@ systems:
   - id: fuel
     name: Oil-fired heating
     abstract: true
+    ok_signs: *ok_signs
   - id: fuel.boiler
     parent: fuel
     name: Boiler & oil burner
@@ -85,6 +88,7 @@ systems:
   # ---------------- water & steam distribution ----------------
   - id: hydronic
     name: Hot-water & glycol loop
+    ok_signs: *ok_signs
     output: heat
     short: Hydronic loop
     icon: drop
@@ -96,6 +100,7 @@ systems:
       zone, and compare the load with what the terminal units can deliver.
   - id: steam
     name: Steam heat & condensate
+    ok_signs: *ok_signs
     output: heat
     short: Steam
     icon: steam
@@ -107,6 +112,7 @@ systems:
   # ---------------- air handling ----------------
   - id: ahu
     name: Air handler & ventilation
+    ok_signs: *ok_signs
     output: air
     short: Air handler
     icon: fan

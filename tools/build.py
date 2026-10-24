@@ -169,8 +169,13 @@ def check(kb):
                     if str(s) not in feats[fid]:
                         err(where(f), f"{key}: {fid} has no state {s}")
 
+    prefixes = {f.split(".")[0] for f in feats}
+
     def check_sign(it, fid, spec, label):
         if fid not in feats:
+            # a partial build (--only) leaves other modules out; a shared cause may still name their features
+            if ONLY and fid.split(".")[0] not in prefixes:
+                return
             err(where(it), f"{label}: unknown feature {fid}")
             return
         if isinstance(spec, dict):
@@ -210,6 +215,10 @@ def check(kb):
         for r in c.get("refs") or []:
             if r not in {x["id"] for x in kb["refs"]}:
                 err(where(c), f"unknown ref {r}")
+
+    for s in kb["systems"]:
+        for fid, spec in (s.get("ok_signs") or {}).items():
+            check_sign(s, fid, spec, "ok_signs")
 
     inputs = {i["id"] for i in kb["inputs"]}
     for i in kb["inputs"]:
