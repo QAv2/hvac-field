@@ -717,3 +717,49 @@
   expect:
     top: blr.furnace_airflow
     measured: {blr.plenum_f: high}
+
+# ---------------- oil furnaces: the burner-side calls, with the blower and plenum in play ----------------
+- name: Furnace lights, then locks out about 15 seconds later every try — CAD cell reads high with the flame on
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.output: none, blr.start: flame_lost, blr.lockout: repeats, blr.cad_ohms: high, blr.blower: ok}
+  expect:
+    top: blr.cad_cell_bad
+
+- name: Furnace motor runs and oil sprays but there's no spark at the electrodes
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.output: none, blr.start: no_flame, blr.motor: runs, blr.spark: none, blr.oil_at_nozzle: 'yes'}
+  expect:
+    top: blr.igniter_failed
+
+- name: Furnace short of heat with a smoky orange flame and a filter that hasn't been changed — nozzle first
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.output: weak, blr.start: normal, blr.flame_look: smoky, blr.nozzle: plugged}
+  expect:
+    top: blr.nozzle_bad
+
+- name: Kerosene furnace at −30 °F loses its flame mid-cycle, outdoor filter waxed and the line thaws back to normal
+  system: fuel.furnace
+  ctx: {fuel_type: kero, flame_sensor: cad}
+  findings: {gen.output: none, blr.start: flame_lost, blr.cold: extreme, blr.filter: waxed_iced, blr.thaw: restores}
+  expect:
+    top: blr.fuel_gelled
+    not_top3: [blr.cad_cell_bad]
+
+- name: Furnace burner dead on a call with the blower running — line voltage in at the primary, no call on T-T
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.output: none, blr.start: nothing, blr.blower: ok, blr.primary_line_in: present, blr.tt: 'no'}
+  expect:
+    top3: [gen.no_call]
+    not_top3: [gen.no_line_power]
+
+- name: Furnace cycles off on its limit with the plenum hot — dirty air filter, blower weak
+  system: fuel.furnace
+  ctx: {fuel_type: no2, flame_sensor: cad}
+  findings: {gen.output: weak, gen.short_cycle: 'yes', blr.limit_open: open_overheat, blr.plenum_f: high,
+    blr.air_filter: dirty, blr.blower: weak}
+  expect:
+    top: blr.furnace_airflow

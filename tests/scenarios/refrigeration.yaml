@@ -572,3 +572,85 @@
   expect:
     top3: [vc.contactor]   # with power not yet checked, no line power can lead
     not_top3: [rf.llsv_stuck_closed, rf.oil_safety_lockout]
+
+# ---------------- reach-ins: plug-in hermetic, cap tube, condensing unit in the cabinet ----------------
+- name: Reach-in cooler warm, bottom condenser coil packed with lint, compressor hot to the touch
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air, phases: single}
+  findings: {rf.box_temp: high, vc.comp: running, vc.cond_dirty: 'yes', vc.comp_hot: 'yes'}
+  expect:
+    top: vc.dirty_condenser
+
+- name: Prep-table cooler warm, evaporator fan silent and the coil frosting over
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air, defrost: off_cycle}
+  findings: {rf.box_temp: high, vc.comp: running, vc.evap_fan: 'off', vc.evap_frost: heavy}
+  expect:
+    top: vc.evap_fan_off
+    not_top3: [rf.fan_delay_stuck]   # an off-cycle cooler runs its fans through the off cycle — no fan delay
+
+- name: Reach-in freezer coil a solid block of ice, defrost starts on time but the heater draws zero amps
+  system: vc.reachin
+  ctx: {refrigerant: R-404A, app: lt, metering: captube, receiver: 'no', condenser: air, defrost: electric}
+  findings: {rf.box_temp: high, rf.ice_pattern: uniform_fin, vc.evap_frost: heavy, rf.defrost_init: initiating,
+    rf.defrost_power: present, rf.defrost_heater_amps: zero}
+  expect:
+    top3: [rf.defrost_heater_open, rf.defrost_klixon_open]
+    not_top3: [vc.undercharge]
+
+- name: Reach-in freezer with clear ice building up under the coil, drain line frozen and its heater cold
+  system: vc.reachin
+  ctx: {refrigerant: R-404A, app: lt, metering: captube, receiver: 'no', condenser: air, defrost: electric}
+  findings: {rf.ice_pattern: pan_backup, rf.drain_line: frozen, rf.drain_heater: open_cold}
+  expect:
+    top: rf.drain_heater_failed
+
+- name: Reach-in cooler warm, frost only around the door, gasket split at the hinge corner
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air}
+  findings: {rf.box_temp: high, rf.ice_pattern: snow_door, rf.door_seal: leaking}
+  expect:
+    top: rf.door_gasket_torn
+
+- name: Prep-table cooler warm, condenser fan seized, compressor hot and running
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air, phases: single}
+  findings: {rf.box_temp: high, vc.comp: running, vc.cond_fan: 'off', vc.comp_hot: 'yes'}
+  expect:
+    top: vc.cond_fan_failed
+
+- name: Reach-in cooler freezing the product at 28 °F, compressor never stops
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air}
+  findings: {rf.box_temp: low, gen.runs_constantly: 'yes', vc.comp: running}
+  expect:
+    top3: [rf.box_overcooling]
+    not_top3: [vc.undercharge, vc.dirty_condenser]
+
+- name: Cap-tube reach-in short of charge — suction low, superheat high, an oily joint by the compressor
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air}
+  findings: {rf.box_temp: high, vc.comp: running, vc.evap_sat: low, vc.superheat: high, vc.oil: 'yes'}
+  expect:
+    top: vc.undercharge
+
+- name: Reach-in dead quiet with 120 V at the cord and the breaker fine — the cold control isn't calling
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air}
+  findings: {gen.output: none, vc.comp: 'off', gen.breaker: ok, gen.power: present, gen.call: not_calling}
+  expect:
+    top: gen.no_call
+
+- name: Reach-in freezer warm with the coil iced over, the timer never advances into defrost
+  system: vc.reachin
+  ctx: {refrigerant: R-404A, app: lt, metering: captube, receiver: 'no', condenser: air, defrost: electric}
+  findings: {rf.box_temp: high, rf.ice_pattern: uniform_fin, rf.defrost_init: not_initiating}
+  expect:
+    top: rf.defrost_timer_failed
+
+- name: Reach-in cooler warm after a load of hot pans, product jammed against the evaporator
+  system: vc.reachin
+  ctx: {refrigerant: R-134a, app: mt, metering: captube, receiver: 'no', condenser: air}
+  findings: {rf.box_temp: high, vc.comp: running, rf.box_loading: blocked_or_hot}
+  expect:
+    top: rf.product_airflow_blocked

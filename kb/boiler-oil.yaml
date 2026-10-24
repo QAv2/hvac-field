@@ -290,6 +290,8 @@ features:
       LWCO or other safety is open — check each one.
     systems: [fuel]
     ask_if: {blr.start: nothing}
+    # power at the unit reaches the primary unless a limit is open: a cause silent here reads its gen.power sign
+    follows: {gen.power: {present: [present], missing: [missing]}}
     cost: 2
     needs: meter
     states:
@@ -310,6 +312,8 @@ features:
       the jumper off; if it fails to light, do not keep resetting.
     systems: [fuel]
     ask_if: {blr.start: nothing}
+    # the call at T–T is the thermostat's call arriving: a cause silent here reads its gen.call sign
+    follows: {gen.call: {'yes': [calling], 'no': [not_calling]}}
     cost: 2
     needs: meter
     states:
@@ -1263,36 +1267,35 @@ features:
         rusted through, flame rolls out when the blower starts]
 
 inputs:
-  - {id: blr.stack_f, name: Stack temperature, unit: °F, systems: [fuel], probe: air, hint: In the smoke pipe
-      between the appliance and the barometric regulator, after 10 minutes of running}
+  - {id: blr.stack_f, name: Stack temperature, unit: °F, systems: [fuel], probe: air, hint: "In the smoke pipe
+      between the appliance and the barometric regulator, after 10 minutes of running"}
   - {id: blr.room_f, name: Room / combustion air temperature, unit: °F, systems: [fuel], probe: air, default: 70}
   - {id: blr.o2_pct, name: Flue O2, unit: '%', systems: [fuel], hint: Same spot as the stack temperature}
   - {id: blr.co_ppm, name: Flue CO (as read), unit: ppm, systems: [fuel], hint: Enter the flue O2 from the same
       sample too — the air-free correction needs it}
-  - {id: blr.smoke_no, name: Smoke spot number, unit: '0–9', systems: [fuel], hint: Pump test on filter paper, read
-      against the scale}
+  - {id: blr.smoke_no, name: Smoke spot number, unit: '0–9', systems: [fuel], hint: "Pump test on filter paper, read
+      against the scale"}
   - {id: blr.of_draft_inwc, name: Over-fire draft, unit: in. w.c., systems: [fuel], probe: manometer, hint: Type draft
       as a NEGATIVE number (−0.04). If the gauge says "draft 0.04" that is −0.04; a plus sign means pressure}
   - {id: blr.br_draft_inwc, name: Breech draft, unit: in. w.c., systems: [fuel], probe: manometer, hint: Between the
       appliance and the barometric regulator. Type draft as a NEGATIVE number (−0.04). If the gauge says "draft
       0.04" that is −0.04; a plus sign means pressure}
-  - {id: blr.pump_psi_meas, name: Pump pressure, unit: psi, systems: [fuel], hint: Gauge in the pump's gauge or nozzle
-      port, burner running}
+  - {id: blr.pump_psi_meas, name: Pump pressure, unit: psi, systems: [fuel], hint: "Gauge in the pump's gauge or nozzle
+      port, burner running"}
   - {id: blr.pump_psi_spec, name: Rated pump pressure, unit: psi, systems: [fuel], default: 100, choices: [100, 140,
       150, 175, 200], hint: From the burner spec; 100 psi unless the burner says otherwise}
-  - {id: blr.pump_vac_inhg, name: Pump vacuum, unit: in. Hg, systems: [fuel], hint: Gauge on the pump inlet / vacuum
-      port, burner running}
+  - {id: blr.pump_vac_inhg, name: Pump vacuum, unit: in. Hg, systems: [fuel], hint: "Gauge on the pump inlet / vacuum
+      port, burner running"}
   - {id: blr.lift_ft, name: Lift from tank bottom to pump, unit: ft, systems: [fuel], hint: Zero or blank if the tank
       sits above the burner}
   - {id: blr.cad_flame_ohms, name: CAD cell resistance with flame, unit: Ω, systems: [fuel]}
-  - {id: blr.cad_dark_ohms, name: CAD cell resistance dark, unit: Ω, systems: [fuel], hint: Burner off, air tube
-      covered}
+  - {id: blr.cad_dark_ohms, name: CAD cell resistance dark, unit: Ω, systems: [fuel], hint: "Burner off, air tube
+      covered"}
   - {id: blr.odt_f, name: Outdoor temperature, unit: °F, systems: [fuel], probe: air}
   - {id: blr.hw_psi, name: Boiler pressure, unit: psi, systems: [fuel.boiler]}
   - {id: blr.relief_psi, name: Relief valve rating, unit: psi, systems: [fuel.boiler], default: 30, choices: [30, 50,
       75, 100]}
-  - {id: blr.plenum_temp_f, name: Supply plenum temperature, unit: °F, systems: [fuel.furnace], probe: air, hint:
-      Blower running, burner on 5 minutes}
+  - {id: blr.plenum_temp_f, name: Supply plenum temperature, unit: °F, systems: [fuel.furnace], probe: air, hint: "Blower running, burner on 5 minutes"}
 
 measures:
   # combustion

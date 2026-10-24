@@ -58,9 +58,13 @@ export function computeMeasures(kb, system, ctx, inputs) {
       lets.v = v;
       const t = m.target ? evaluate(m.target, env) : null;
       lets.t = t;
-      let state = null;
+      // First true condition wins. When an earlier condition can't be judged (a reference left blank), the
+      // bare 'true' catch-all doesn't fire: no verdict, rather than a "normal" nobody checked.
+      let state = null, unsure = false;
       for (const [s, cond] of m.states || []) {
-        if (evaluate(cond, env) === true) { state = s; break; }
+        const r = evaluate(cond, env);
+        if (r === true) { if (!(unsure && String(cond).trim() === 'true')) state = s; break; }
+        if (r === null) unsure = true;
       }
       results.set(m.id, { id: m.id, measure: m, v, t, state, sets: m.sets || null });
     }

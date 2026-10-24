@@ -83,7 +83,26 @@ def where(it):
     return f"{it.get('_file', '?')} [{it.get('id', '?')}]"
 
 
+KEYS = {
+    "systems": {"id", "name", "abstract", "parent", "output", "short", "icon", "keywords", "ok_note", "ok_signs"},
+    "context": {"id", "kind", "ask", "hint", "systems", "options", "defaults"},
+    "features": {"id", "name", "ask", "ask_for", "how", "caution", "systems", "states", "normal", "base", "cost", "needs",
+                 "ask_if", "ask_unless", "requires", "complaint", "confuse", "situational", "chip", "phrases", "follows"},
+    "inputs": {"id", "name", "unit", "systems", "probe", "hint", "default", "choices", "requires", "min", "max", "step"},
+    "measures": {"id", "name", "unit", "systems", "let", "value", "target", "sets", "states", "hidden", "requires", "note"},
+    "causes": {"id", "name", "systems", "requires", "prior", "keywords", "signs", "when", "confirm", "fix", "safety",
+               "notes", "refs"},
+}
+
+
 def check(kb):
+    # an unquoted comma inside a one-line {…} map ends the value and turns the rest into a key
+    for kind, allowed in KEYS.items():
+        for it in kb[kind]:
+            if isinstance(it, dict):
+                extra = sorted(str(k) for k in set(it) - allowed - {"_file"})
+                if extra:
+                    err(where(it), f"unknown key(s) {extra} — a comma in unquoted text inside {{…}}? Quote the text.")
     systems = {s["id"]: s for s in kb["systems"]}
     for s in kb["systems"]:
         if s.get("parent") and s["parent"] not in systems:
@@ -160,6 +179,21 @@ def check(kb):
         if f.get("requires"):
             check_cond(f, f["requires"], "requires")
     for f in kb["features"]:
+        fol = f.get("follows")
+        if fol is not None:
+            if not isinstance(fol, dict) or not all(isinstance(m, dict) for m in fol.values()):
+                err(where(f), "follows must be {feature: {state: [its states], ...}}")
+            else:
+                for src, m in fol.items():
+                    if src not in feats:
+                        err(where(f), f"follows unknown feature {src}")
+                        continue
+                    for s, xs in m.items():
+                        if str(s) not in feats[f["id"]]:
+                            err(where(f), f"follows: {f['id']} has no state {s}")
+                        for x in xs if isinstance(xs, list) else [xs]:
+                            if str(x) not in feats[src]:
+                                err(where(f), f"follows: {src} has no state {x}")
         for key in ("ask_if", "ask_unless"):
             for fid, states in (f.get(key) or {}).items():
                 if fid not in feats:

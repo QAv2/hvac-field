@@ -1378,11 +1378,11 @@ inputs:
   - {id: ahu.sat_f, name: Supply air temp, unit: °F, systems: [ahu], probe: air, hint: In the supply duct a few
       feet past the unit}
   - {id: ahu.sat_sp_f, name: Supply air setpoint, unit: °F, systems: [ahu], hint: From the controller}
-  - {id: ahu.mat_f, name: Mixed air temp, unit: °F, systems: [ahu], probe: air, hint: Before the coils — traverse
-      the plenum, the box stratifies}
+  - {id: ahu.mat_f, name: Mixed air temp, unit: °F, systems: [ahu], probe: air, hint: "Before the coils — traverse
+      the plenum, the box stratifies"}
   - {id: ahu.rat_f, name: Return air temp, unit: °F, systems: [ahu], probe: air}
-  - {id: ahu.oat_f, name: Outdoor air temp, unit: °F, systems: [ahu], probe: air, hint: At the intake, out of the
-      sun}
+  - {id: ahu.oat_f, name: Outdoor air temp, unit: °F, systems: [ahu], probe: air, hint: "At the intake, out of the
+      sun"}
   - {id: ahu.min_oa_pct, name: Design minimum outdoor-air fraction (ventilation schedule or balance report), unit: '%',
       systems: [ahu], hint: The share of the supply air that should be outdoor air at minimum position - not the
       damper blade position}
@@ -1390,11 +1390,11 @@ inputs:
       at 0 % (closed) or 100 % (full open) - leave blank when it's at minimum position}
   - {id: ahu.filter_dp_inwc, name: Filter pressure drop, unit: in. w.c., systems: [ahu], probe: manometer}
   - {id: ahu.filter_dp_final, name: Filter final (change-out) rating, unit: in. w.c., systems: [ahu], default: 1.0,
-      hint: From the filter frame or the maker — about 1.0 for pleats, 1.5 for bags}
-  - {id: ahu.fan_sp_inwc, name: Fan static rise, unit: in. w.c., systems: [ahu], probe: manometer, hint: Discharge
-      minus inlet, across the fan only}
-  - {id: ahu.fan_sp_design, name: Design fan static, unit: in. w.c., systems: [ahu], hint: Fan schedule, submittal
-      or balance report}
+      hint: "From the filter frame or the maker — about 1.0 for pleats, 1.5 for bags"}
+  - {id: ahu.fan_sp_inwc, name: Fan static rise, unit: in. w.c., systems: [ahu], probe: manometer, hint: "Discharge
+      minus inlet, across the fan only"}
+  - {id: ahu.fan_sp_design, name: Design fan static, unit: in. w.c., systems: [ahu], hint: "Fan schedule, submittal
+      or balance report"}
   - {id: ahu.fan_amps, name: Fan motor amps, unit: A, systems: [ahu], probe: clamp, hint: Highest leg}
   - {id: ahu.fan_fla, name: Motor FLA (nameplate), unit: A, systems: [ahu]}
   - {id: ahu.fan_rise_f, name: Fan temperature rise, unit: °F, systems: [ahu], default: 2, hint: About 0.4 °F per
@@ -1416,13 +1416,13 @@ inputs:
   - {id: ahu.hw_dt_design, name: Design water/glycol ΔT across the coil, unit: °F, systems: [ahu], hint: From the
       coil schedule - leave blank if unknown}
   - {id: ahu.vfd_hz, name: VFD output frequency, unit: Hz, systems: [ahu]}
-  - {id: ahu.vfd_cmd_hz, name: VFD commanded frequency, unit: Hz, systems: [ahu], hint: Read the drive's own
+  - {id: ahu.vfd_cmd_hz, name: VFD commanded frequency, unit: Hz, systems: [ahu], hint: "Read the drive's own
       speed-reference parameter (Hz) on its keypad. If you must convert from a BAS percent, Hz = Hz_min + % ×
-      (Hz_max − Hz_min). Also used to correct the amps and static for the speed the fan is asked to run at}
+      (Hz_max − Hz_min). Also used to correct the amps and static for the speed the fan is asked to run at"}
   - {id: ahu.glycol_pct_meas, name: Glycol concentration, unit: '%', systems: [ahu], probe: refractometer, hint: Read
       on the scale for the glycol type}
-  - {id: ahu.oat_min_f, name: Coldest air the coil sees, unit: °F, systems: [ahu], hint: Design low or the coldest
-      night on record, whichever is colder - −40 at McMurdo is a floor, not a ceiling}
+  - {id: ahu.oat_min_f, name: Coldest air the coil sees, unit: °F, systems: [ahu], hint: "Design low or the coldest
+      night on record, whichever is colder - −40 at McMurdo is a floor, not a ceiling"}
   - {id: ahu.hrv_sa_f, name: Supply air leaving the recovery core, unit: °F, systems: [ahu], probe: air, hint: Read
       at the same moment as the outdoor and exhaust temperatures}
   - {id: ahu.hrv_ra_f, name: Exhaust air entering the recovery core, unit: °F, systems: [ahu], probe: air}

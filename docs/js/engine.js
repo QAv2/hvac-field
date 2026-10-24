@@ -6,7 +6,7 @@
 // the cause can't explain counts against it. TAU < 1 tempers overconfidence from features that
 // overlap (e.g. a low suction pressure and an iced coil both point the same way).
 
-import { signDist, PRIOR } from './kb.js';
+import { signDist, signDistTrue, followDist, PRIOR } from './kb.js';
 
 export const TAU = 0.9;
 const COST_EXP = 0.8;
@@ -34,11 +34,13 @@ export function prepare(kb, system, ctx = {}) {
     if (!kb.inSystem(c, system)) continue;
     const rf = kb.requireFactor(c, ctx);
     if (rf === 0) continue;
+    const signs = kb.signsFor(c, ctx);
     const dist = new Map();
-    for (const [fid, spec] of Object.entries(kb.signsFor(c, ctx))) {
+    for (const [fid, spec] of Object.entries(signs)) {
       if (!fset.has(fid)) continue;
       dist.set(fid, signDist(kb.features.get(fid), spec));
     }
+    follow(kb, feats, signs, dist);
     causes.push({ id: c.id, c, prior: (PRIOR[c.prior] ?? PRIOR.occasional) * rf, dist });
   }
   // "Nothing wrong here": the system checks out, so look at load, settings, expectations or the
@@ -49,12 +51,28 @@ export function prepare(kb, system, ctx = {}) {
   const okSigns = kb.lineage(system).map((s) => kb.systems.get(s).ok_signs).find(Boolean) || {};
   const okDist = new Map();
   for (const [fid, spec] of Object.entries(okSigns)) if (fset.has(fid)) okDist.set(fid, signDist(kb.features.get(fid), spec));
+  // (no follow() here: ok_signs say how the complaint gets reported, while a measured box under "nothing
+  // wrong" sits at setpoint)
   causes.push({
     id: '_ok', prior: PRIOR.occasional, dist: okDist,
     c: { id: '_ok', name: 'Nothing wrong found in this system yet', systems: [system],
       fix: sys?.ok_note || 'Everything entered so far reads normal. Check the load (doors, product, occupancy), the settings, and the equipment that feeds this system, and re-read any number that looked odd.' },
   });
   return { kb, system, ctx, feats, fset, causes };
+}
+
+// Features that `follow` another (rf.box_temp follows gen.output) take a silent cause's reading from its
+// sign on the feature they follow, so a cause that only says "weak cooling" also predicts a warm box.
+function follow(kb, feats, signs, dist) {
+  for (const f of feats) {
+    if (!f.follows || dist.has(f.id)) continue;
+    for (const [src, map] of Object.entries(f.follows)) {
+      if (signs[src] === undefined) continue;
+      const sf = kb.features.get(src);
+      dist.set(f.id, followDist(f, map, sf, signDistTrue(sf, signs[src])));
+      break;
+    }
+  }
 }
 
 // The distribution a cause predicts for a feature: its sign if it has one; the leak rate if it is

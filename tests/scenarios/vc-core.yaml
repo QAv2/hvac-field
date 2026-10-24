@@ -394,6 +394,7 @@
     vc.liquid_psig: 176.6, vc.liquid_line_f: 54}
   expect:
     measured: {vc.cond_sat: low, vc.evap_sat: low}
+    unmeasured: [vc.superheat]   # the fixed-orifice superheat method doesn't hold below 55 °F outdoors
 
 - name: Outdoor walk-in unit in a deep freeze with no head-pressure control — a collapsed head reads low
   system: vc.walkin

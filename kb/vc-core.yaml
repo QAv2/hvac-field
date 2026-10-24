@@ -315,6 +315,7 @@ features:
     how: Give it 10–15 minutes of steady running. A few bubbles right after start-up or during head-pressure
       control swings are normal.
     systems: [vc]
+    requires: {receiver: 'yes'}   # the receiver question asks about the tank and its sight glass together
     states:
       clear: Full and clear
       bubbles: Bubbles or foam
@@ -698,11 +699,14 @@ measures:
       unk: "!has(ctx.sh_location) && app != 'ac'"
       atcomp: "(ctx.sh_location ?? (app == 'ac' ? 'comp' : 'evap')) == 'comp'"
       wb: vc.air_in_wb ?? wetbulb(vc.air_in_f, vc.air_in_rh)
+      # the fixed-orifice superheat method holds from 55 °F outdoors up (the CEC chart's range); below that there's
+      # no target, so only floodback (under 4 °F) gets a verdict
+      cold: (vc.ambient_f ?? 95) < 55
     value: vc.suction_line_f - tsat_dew(vc.suction_psig)
-    target: 'fixed ? (fo_target_sh(wb, vc.ambient_f) ?? 12) : cap ? (atcomp ? 20 : 10) : app == ''ac'' ? (atcomp ? 12 : 10) : atcomp ? (app == ''lt'' ? 40 : 25) : (app == ''lt'' ? 6 : 8)'
+    target: 'fixed ? (cold ? null : fo_target_sh(wb, vc.ambient_f) ?? 12) : cap ? (atcomp ? 20 : 10) : app == ''ac'' ? (atcomp ? 12 : 10) : atcomp ? (app == ''lt'' ? 40 : 25) : (app == ''lt'' ? 6 : 8)'
     sets: vc.superheat
     states:
-      - [low, 'v < max(t - (fixed ? 5 : max(4, 0.45 * t)), fixed ? 4 : 0)']
+      - [low, 'v < (fixed ? 4 : 0) || v < t - (fixed ? 5 : max(4, 0.45 * t))']
       - [high, 'unk ? v > (app == ''lt'' ? 68 : 43) : v > t + (fixed ? 6 : max(7, 0.7 * t))']
       - [normal, 'true']
   - id: vc.subcool

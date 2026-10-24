@@ -70,7 +70,8 @@ export function observe(f, dist) {
 
 // Parse one sign into a distribution over the feature's states. Throws on anything malformed,
 // so the checker can point at the exact cause and feature.
-export function signDist(f, spec) {
+// A sign's distribution over the feature's true states, before report confusion.
+export function signDistTrue(f, spec) {
   const n = f.stateIds.length;
   const out = new Float64Array(n);
   if (spec && typeof spec === 'object') {
@@ -83,9 +84,9 @@ export function signDist(f, spec) {
       used += v;
       given.add(s);
     }
-    if (used > 1.0001) return observe(f, normalize(out));
+    if (used > 1.0001) return normalize(out);
     spread(f, out, given, 1 - used);
-    return observe(f, normalize(out));
+    return normalize(out);
   }
   const m = SIGN_RE.exec(String(spec).trim());
   if (!m) throw new Error(`can't read sign "${spec}" for ${f.id}`);
@@ -99,6 +100,25 @@ export function signDist(f, spec) {
   strength = Math.max(strength, bTaken + (1 - bTaken) * NORMAL_LIFT[m[2]]);
   for (const s of targets) out[f.idx[s]] = strength / targets.length;
   spread(f, out, new Set(targets), 1 - strength);
+  return normalize(out);
+}
+
+export function signDist(f, spec) {
+  return observe(f, signDistTrue(f, spec));
+}
+
+// A feature that `follows` another (a box warm is the cooling falling short) gives a cause that doesn't
+// mention it the cause's own reading of the other feature: each mapped state takes the summed share of its
+// source states, and a state with no source (box too cold) keeps its leak-rate share.
+export function followDist(f, map, src, srcTrue) {
+  const out = new Float64Array(f.stateIds.length);
+  let free = 1;
+  for (const s of f.stateIds) if (!map[s]) { out[f.idx[s]] = f.silentDist[f.idx[s]]; free -= out[f.idx[s]]; }
+  for (const [s, from] of Object.entries(map)) {
+    let p = 0;
+    for (const x of from) p += srcTrue[src.idx[x]] ?? 0;
+    out[f.idx[s]] = free * p;
+  }
   return observe(f, normalize(out));
 }
 

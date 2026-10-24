@@ -173,9 +173,10 @@ context:
       - {id: captube, label: Cap tube, words: [cap tube, capillary]}
   - id: receiver
     ask: Is there a receiver tank with a sight glass?
-    hint: Common on walk-ins and commercial units; rare on home A/C.
+    hint: Common on walk-ins and commercial units; rare on home A/C, heat pumps and cap-tube reach-ins.
     systems: [vc]
     options: [{id: 'yes', label: 'Yes'}, {id: 'no', label: 'No'}]
+    defaults: {vc.ac: 'no', vc.hp: 'no', vc.reachin: 'no', vc.walkin: 'yes'}
   - id: app
     ask: What temperature does it run at?
     systems: [vc]

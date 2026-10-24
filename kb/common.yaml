@@ -215,9 +215,9 @@ inputs:
     name: Nameplate voltage
     unit: V
     systems: ['*']
-    choices: [115, 208, 220, 230, 460, 575]   # 220 = the dual-rated 208/230 V nameplate
-    hint: "Dual-rated 208/230 V nameplate: enter 220 (it is judged against 187–253 V, so a 208 V supply reads
-      normal). Otherwise enter the single rated voltage — the band is ±10 %."
+    choices: [115, 208, {value: 220, label: 208/230 (dual-rated)}, 230, 460, 575]   # 220 is the dual-rated nameplate
+    hint: "Pick 208/230 for a dual-rated nameplate: the supply is judged against 187–253 V, so a 208 V supply reads
+      normal. Otherwise pick the single rated voltage — the band is ±10 %."
 
 measures:
   - id: gen.voltage_ratio
@@ -247,6 +247,9 @@ causes:
       # whatever moves on this system stands still
       vc.comp: off!
       blr.start: nothing!
+      blr.motor_v: missing!
+      blr.blower: 'off'   # a furnace blower shares the burner's feed
+      blr.blower_v: missing
       ahu.fan: off!
       hyd.circ: off!
     confirm: No voltage across the line terminals at the unit's disconnect, then work back toward the panel.
@@ -285,10 +288,12 @@ causes:
     signs:
       gen.power: present!
       gen.control_v: missing!
+      gen.call: not_calling   # with the 24 V gone the call terminal meters dead
       gen.dead: yes?
       gen.output: none
       vc.comp: off!
       blr.start: nothing!
+      blr.motor_v: missing
       ahu.fan: 'off'
       hyd.circ: 'off'
     confirm: Line voltage on the transformer primary but no 24 V on the secondary (transformer bad), or a
@@ -311,6 +316,7 @@ causes:
       gen.dead: no?
       vc.comp: off!
       blr.start: nothing!
+      blr.motor_v: missing
       ahu.fan: 'off'   # an air handler's call is its start command; hand mode can still run it
       hyd.circ: 'off'
     confirm: No call signal at the unit while the space is away from setpoint; jumpering the call (e.g. R to Y

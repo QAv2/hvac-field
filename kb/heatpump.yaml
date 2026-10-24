@@ -223,7 +223,7 @@ features:
     name: Defrost coil sensor / termination thermostat
     ask: How does the outdoor defrost coil sensor or snap-disc thermostat test (and the outdoor ambient sensor, if the board has one)?
     how: |
-      A snap-disc defrost klixon clipped to the outdoor liquid/distributor tube should be closed (0 Ω)
+      A snap-disc defrost thermostat clipped to the outdoor liquid/distributor tube should be closed (0 Ω)
       below ~30 °F and open above ~55–70 °F. An NTC defrost thermistor should match its resistance-vs-temp
       table when checked against actual tube temperature. A demand-defrost board also reads an outdoor
       ambient sensor and compares coil to ambient, so check that sensor the same way. A drifted ambient sensor
@@ -1105,7 +1105,7 @@ causes:
       high suction pressure and low head pressure.
     fix: |
       First try cycling the solenoid several times under load to see if the slide seats fully. If the
-      suction-path temperature rise across the 4-way valve stays above 3–4 °F, the Teflon slide is scored
+      suction-path temperature rise across the 4-way valve stays above 3–4 °F, the PTFE slide is scored
       or warped (often from brazing too hot without wet rags or overheating on high discharge temp).
       Recover the refrigerant, remove the solenoid coil and shield the pilot tubes, braze in a new reversing valve
       with wet heat-sink wraps and a nitrogen sweep, replace the filter-drier, evacuate, and recharge by weight.
@@ -1559,7 +1559,7 @@ causes:
       is failing to open.
     fix: |
       Lightly tap the brass check-valve body while switching between cooling and heating to see if a stuck
-      Teflon ball or flapper frees up. If it stays restricted in heating, recover the charge, replace the
+      PTFE ball or flapper frees up. If it stays restricted in heating, recover the charge, replace the
       indoor check-valve / piston housing (or bi-flow TXV), install a new bi-flow filter-drier, evacuate,
       and recharge by weight.
     safety: R-32 and R-454B are mildly flammable (A2L). Use an A2L-rated recovery machine and leak detector, keep open flame and hot tools away from any leak, ventilate, and evacuate or purge with nitrogen fully before brazing.

@@ -116,6 +116,8 @@ Shared questions live in `systems.yaml`, a module's own questions in its module 
   requires: {fuel_type: [kerosene]}     # optional: only when the context fits (unknown context = allowed)
   complaint: true                       # optional: offered on the "what's wrong?" screen
   confuse: {none: {weak: 0.25}}         # optional: how often a true state gets reported as another
+  follows: {gen.output: {high: [none, weak], normal: [normal]}}   # optional: the same fact told another way —
+                                        #   a cause silent here reads it from its sign on that feature
   situational: true                     # optional: weather or history, not a symptom — a cause that doesn't
                                         #   mention it has no opinion (base rate), instead of being marked down
   chip: state                           # optional: state labels read alone ("No heat at all")
@@ -163,8 +165,13 @@ The expression language: numbers, `'strings'`, `+ - * /`, `< <= > >= == !=`, `&&
 `dewpoint(db, rh)`, `rh_from_wb(db, wb)`, `fo_target_sh(wb, odb)`, `split_target(db, wb)`,
 `glycol_freeze(pct, 'EG'|'PG')`, `flue_eff(stack, air, o2)`, `co_airfree(co, o2)`. Names are input ids,
 other measure ids, `ctx.<context id>`, `let` names, `v`, `t`. Anything unknown is null and spreads: a measure
-whose inputs are missing simply doesn't run. Two measures may set the same feature; the first listed that can
-run wins.
+whose inputs are missing simply doesn't run, and when an earlier state's condition can't be judged (a reference
+left blank) the bare `'true'` catch-all doesn't fire — the tile shows the number with no verdict. Write the
+fallback as `'has(t)'` or similar when it needs its own condition. Two measures may set the same feature; the
+first listed that can run wins.
+
+Write one-line `{…}` maps only for short values: an unquoted comma inside them ends the value. Quote any text
+with a comma (`hint: "…"`); the build rejects the stray keys a comma leaves behind.
 
 **YAML gotcha:** quote any expression containing `: ` (a ternary) or starting with a quote or `[ { * & ! | >`,
 e.g. `target: 'ac ? 35 : 10'`. `yes`, `no`, `on`, `off` are strings here (YAML 1.2), but quote them in flow
@@ -214,9 +221,10 @@ Good signatures:
   a reading).
 - Directions from physics or published data (NIST charts, public-domain manuals), never copied from
   proprietary apps or copyrighted manuals. Text in our own words.
-- No maker names in displayed text (names, questions, how, confirm, fix). Fault codes, valve polarity and
-  settings differ by maker, so the text sends the tech to that maker's service manual or chart. Search
-  `keywords` and `phrases` may carry the names techs actually type ("sentronic tripped").
+- No maker or trade names in displayed text (names, questions, how, confirm, fix). Fault codes, valve
+  polarity and settings differ by maker, so the text sends the tech to that maker's service manual or chart,
+  and a part goes by its plain name (snap-disc thermostat, flooding valve, PTFE seat). Search `keywords` and
+  `phrases` may carry the names techs actually type ("sentronic tripped", "headmaster stuck").
 - Priors relative to the system: what a working tech sees most often is `very_common`/`common`.
 
 ## Scenarios (tests/scenarios/*.yaml)
@@ -234,6 +242,7 @@ Every module ships service-call scenarios. They're the regression suite.
     not_top: [blr.nozzle_plugged]              # must not be #1
     not_top3: [gen.no_line_power]              # must not be in the top 3
     measured: {blr.stack_temp: normal}         # what the numbers must classify as
+    unmeasured: [blr.o2]                       # the numbers must give no verdict here (a reference left blank)
     next_any: [blr.cad_ohms, blr.flame]        # one of the first three suggested checks
 ```
 Write at least one scenario per common cause and a few "opening move" scenarios (only the complaint known —

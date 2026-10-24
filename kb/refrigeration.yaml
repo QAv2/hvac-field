@@ -18,6 +18,9 @@ features:
       5–15 °F in defrost and takes 30–60 min to pull back).
     systems: [vc.walkin, vc.reachin]
     complaint: true
+    # A warm box is the cooling falling short: a cause that doesn't mention the box reads it from its gen.output
+    # sign, so the vc-core causes aren't marked down when the tech taps "box warm".
+    follows: {gen.output: {high: [none, weak], normal: [normal]}}
     chip: state
     cost: 1
     states:
@@ -103,10 +106,10 @@ features:
 
   - id: rf.defrost_term
     name: Defrost termination behavior
-    ask: How does the defrost cycle end (termination Klixon or coil temperature sensor)?
+    ask: How does the defrost cycle end (termination snap-disc or coil temperature sensor)?
     how: Watch one defrost end, or read the controller's last-defrost log (a full cycle takes 20–45 min). It should run until
       the coil reaches ~45–55 °F and the ice is gone, then end on temperature, well before the fail-safe time limit. Skip it
-      on a timer that ends defrost on time alone (no termination Klixon or probe).
+      on a timer that ends defrost on time alone (no termination snap-disc or probe).
     systems: [vc.walkin, vc.reachin]
     requires: {defrost: [electric, hot_gas]}
     cost: 4
@@ -123,7 +126,7 @@ features:
 
   - id: rf.defrost_limit
     name: Defrost safety high-limit switch
-    ask: On a cold coil, is the defrost safety high-limit thermostat (Klixon) closed?
+    ask: On a cold coil, is the defrost safety high-limit (snap-disc) thermostat closed?
     how: With the evaporator below freezing and power locked out (or metered across the limit in defrost), check
       continuity across the high-limit switch mounted near the top of the coil.
     systems: [vc.walkin, vc.reachin]
@@ -186,10 +189,11 @@ features:
   # ---------------- evaporator fan delay & box door controls ----------------
   - id: rf.fan_delay
     name: Evaporator fan-delay control
-    ask: With the evaporator coil cold, is the fan-delay thermostat (Klixon) or controller relay energizing the fans?
+    ask: With the evaporator coil cold, is the fan-delay snap-disc thermostat or controller relay energizing the fans?
     how: After defrost ends and the compressor chills the coil below ~25 °F, the fan-delay side of the termination/fan
       thermostat (or controller F terminal) must close to bring the fans back on.
     systems: [vc.walkin, vc.reachin]
+    requires: {defrost: [electric, hot_gas]}
     cost: 3
     needs: meter
     states:
@@ -421,8 +425,8 @@ features:
 
   # ---------------- head pressure control (cold ambient & water/glycol) ----------------
   - id: rf.headmaster_state
-    name: Head-pressure flooding valve (Headmaster)
-    ask: How is the 3-way head-pressure flooding valve (Headmaster / LAC type) operating?
+    name: Head-pressure flooding valve
+    ask: How is the 3-way head-pressure flooding valve operating?
     how: Touch the line between the valve and the receiver (the R port) and compare it with the condenser-outlet line. In warm
       air they should match — warm liquid, never near discharge temperature. In cold air with the valve working, the line to the
       receiver turns hot (discharge gas is being bypassed) while the condenser backs up with liquid and head pressure holds at
@@ -806,7 +810,7 @@ inputs:
   - {id: rf.box_f, name: Box / cabinet air temp, unit: °F, systems: [vc.walkin, vc.reachin], probe: air,
      hint: Thermometer inside the box away from the evaporator throw}
   - {id: rf.setpoint_f, name: Box temperature setpoint, unit: °F, systems: [vc.walkin, vc.reachin],
-     hint: Controller setpoint (e.g. 36 °F cooler, -10 °F freezer)}
+     hint: "Controller setpoint (e.g. 36 °F cooler, -10 °F freezer)"}
   - {id: rf.probe_display_f, name: Controller display reading, unit: °F, systems: [vc.walkin, vc.reachin],
      hint: Temperature shown on the digital box controller}
   - {id: rf.def_amps, name: Defrost heater current, unit: A, systems: [vc.walkin, vc.reachin], probe: clamp,
@@ -969,6 +973,7 @@ causes:
       rf.defrost_init: initiating
       rf.defrost_term: late_never
       vc.evap_frost: partial|heavy
+      rf.ice_pattern: uniform_fin?
       rf.box_temp: high
       gen.output: weak
     confirm: With the unit in defrost, line voltage is present at the heater feed and through the safety limit, but
@@ -1019,11 +1024,11 @@ causes:
       rf.ice_pattern: uniform_fin?
       rf.box_temp: high
       gen.output: weak
-    confirm: The unit enters defrost and the heaters work, but the termination Klixon or coil probe kicks it back into
+    confirm: The unit enters defrost and the heaters work, but the termination snap-disc or coil probe kicks it back into
       cooling after a few minutes while the coil is still below 32 °F and packed with ice.
     fix: |
-      On a cold iced coil (below 25 °F), the termination side of a mechanical Klixon (4-wire or 3-wire) should be open
-      between its common and termination terminals (read the wiring diagram for the labels) until ~48–55 °F; if it reads closed cold, replace the Klixon. On an electronic controller, check
+      On a cold iced coil (below 25 °F), the termination side of a mechanical snap-disc termination thermostat (4-wire or 3-wire) should be open
+      between its common and termination terminals (read the wiring diagram for the labels) until ~48–55 °F; if it reads closed cold, replace it. On an electronic controller, check
       the coil probe resistance against its temperature chart and move the probe to the last place ice melts (usually
       top center of the coil away from a heater rod).
     refs: [practice]
@@ -1045,14 +1050,14 @@ causes:
       is bone-dry and hot, filling the box with steam (it freezes as hoarfrost on the ceiling, fan guards and door frame) and driving box
       temperature up.
     fix: |
-      Warm the termination Klixon or coil sensor above 60 °F and check whether it closes to energize the timer release
-      solenoid (terminal X) or tells the controller the coil is warm. Replace a failed Klixon or drifted thermistor,
+      Warm the termination snap-disc or coil sensor above 60 °F and check whether it closes to energize the timer release
+      solenoid (terminal X) or tells the controller the coil is warm. Replace a failed snap-disc or drifted thermistor,
       verify it is clipped tightly to the coil tube, and set the fail-safe to a sensible backup — a little over
       the longest normal defrost (roughly 30–45 min electric, 15–25 min hot gas).
     refs: [practice]
 
   - id: rf.defrost_klixon_open
-    name: Defrost safety high-limit thermostat (Klixon) failed open on a cold coil
+    name: Defrost safety high-limit (snap-disc) failed open on a cold coil
     systems: [vc.walkin, vc.reachin]
     requires: {defrost: electric}
     prior: occasional
@@ -1064,6 +1069,7 @@ causes:
       rf.defrost_init: initiating
       rf.defrost_term: late_never!
       vc.evap_frost: heavy
+      rf.ice_pattern: uniform_fin?
       rf.box_temp: high
       gen.output: weak
     confirm: Line voltage reaches the evaporator in defrost and the heater elements ohm out good, but the series safety
@@ -1123,7 +1129,7 @@ causes:
       stays hot on an IR thermometer or pipe probe (well over 150 °F) and suction pressure stays elevated.
     fix: |
       Confirm the solenoid coil is not getting stray voltage during cooling. Pump the section down or recover, open the
-      valve and clean or replace the scored Teflon seat and plunger kit (or replace the valve and add a strainer ahead
+      valve and clean or replace the scored PTFE seat and plunger kit (or replace the valve and add a strainer ahead
       of it).
     safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
@@ -1151,8 +1157,9 @@ causes:
 
   # ======================= walk-in & reach-in: evaporator fan & door controls =======================
   - id: rf.fan_delay_stuck
-    name: Evaporator fan-delay thermostat (Klixon) or controller relay stuck open (fans stay off after defrost)
+    name: Evaporator fan-delay thermostat (snap-disc) or controller relay stuck open (fans stay off after defrost)
     systems: [vc.walkin, vc.reachin]
+    requires: {defrost: [electric, hot_gas]}   # off-cycle coolers run the fans through the off cycle
     prior: common
     keywords: [fan delay bad, evaporator fans not coming on, klixon fan switch open, fans off coil iced]
     signs:
@@ -1166,9 +1173,9 @@ causes:
     confirm: The compressor is running and the evaporator coil is well below 20 °F, but the fan-delay switch (or
       controller fan relay) stays open so no voltage reaches the fan motors.
     fix: |
-      With the coil cold (below 15–20 °F), meter across the fan-delay contacts (F to 4 on a 3-wire Klixon, or the fan
+      With the coil cold (below 15–20 °F), meter across the fan-delay contacts (F to 4 on a 3-wire snap-disc control, or the fan
       relay on an electronic controller). If line voltage enters the switch and doesn't come out on a freezing coil,
-      replace the termination/fan-delay Klixon (or controller) and verify its sensing face is clipped tight to the
+      replace the termination/fan-delay thermostat (or the controller) and verify its sensing face is clipped tight to the
       suction header.
     refs: [practice]
 
@@ -1331,7 +1338,7 @@ causes:
       creeps up with the king valve shut, the compressor's valves or discharge check are leaking, not the solenoid.
       Pumping down with the solenoid closed leaves liquid trapped between the king valve and the solenoid, and that can burst
       the line when it warms or when you braze beside it. With the section pumped down and the remainder recovered (no
-      venting), clean or replace the solenoid valve (debris or solder scale under the Teflon seat is the usual culprit),
+      venting), clean or replace the solenoid valve (debris or solder scale under the PTFE seat is the usual culprit),
       replace the upstream strainer/drier, and verify suction pressure stays flat after pump-down.
     safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
@@ -1465,7 +1472,7 @@ causes:
 
   # ======================= cold-ambient, water-cooled head pressure & oil safety =======================
   - id: rf.headmaster_bypass_stuck
-    name: Head-pressure flooding valve (Headmaster) stuck in bypass (sending hot gas to receiver in warm ambient)
+    name: Head-pressure flooding valve stuck in bypass (sending hot gas to receiver in warm ambient)
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {hpc: flooding}
     prior: occasional
@@ -1485,8 +1492,8 @@ causes:
       symptoms, so don't condemn the valve until the charge is right. Then compare the line from the valve to the receiver with
       the condenser outlet line — hot against warm means the valve is bypassing. Tap the body once; if it stays stuck (debris, eroded
       seat), pump down or recover first (no venting) and replace it with the same pressure setting from the nameplate or catalog
-      (typically 180–240 psig on R-404A; a Headmaster is not field-adjustable). A valve that lost its dome charge does the
-      opposite: it stays open to the condenser and never floods in cold air (see rf.headmaster_no_bypass).
+      (typically 180–240 psig on R-404A; a dome-charged valve is not field-adjustable). A valve that lost its dome charge does the
+      opposite: it stays open to the condenser and never floods in cold air (its own cause: flooding valve not bypassing in cold air).
     safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
@@ -1523,7 +1530,7 @@ causes:
     refs: [practice]
 
   - id: rf.headmaster_no_bypass
-    name: Head-pressure flooding valve (Headmaster) not bypassing in cold air — dome charge lost or valve stuck toward the condenser
+    name: Head-pressure flooding valve not bypassing in cold air — dome charge lost or valve stuck toward the condenser
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {hpc: flooding}
     prior: occasional
@@ -1542,7 +1549,7 @@ causes:
     fix: |
       A valve that lost its dome charge (or stuck toward the condenser) passes everything through the cold condenser and never
       holds head pressure. Verify the charge is right first, then pump down or recover (no venting) and replace the valve with the
-      same pressure setting from the nameplate or catalog (a Headmaster is not field-adjustable and its dome cannot be recharged
+      same pressure setting from the nameplate or catalog (a dome-charged valve is not field-adjustable and its dome cannot be recharged
       in the field).
     safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
@@ -2063,7 +2070,7 @@ causes:
       Bring the room and water into the maker's operating range (typically about 45–100 °F air and 45–90 °F water): move the machine to a
       heated space and don't feed it straight off an outdoor or snow-melt line (run the supply through the warm room first). Then
       confirm the TXV bulb is tight and the valve isn't stuck open (either keeps the plate cold in harvest) and, if the board allows,
-      lengthen the harvest timer one step. Remote-condenser machines also need their low-ambient (headmaster) kit.
+      lengthen the harvest timer one step. Remote-condenser machines also need their low-ambient (flooding valve) kit.
     refs: [practice]
 
   - id: rf.ice_harvest_sensor_bad
@@ -2099,6 +2106,7 @@ causes:
       rf.defrost_init: initiating
       rf.defrost_term: late_never
       vc.evap_frost: heavy
+      rf.ice_pattern: uniform_fin?
       rf.box_temp: high
       gen.output: weak
     confirm: The compressor and fans run, but the heater branch breaker or fuse is open (or trips the moment defrost starts); with the heater
@@ -2118,6 +2126,7 @@ causes:
     keywords: [cooler coil icing, air defrost not clearing, produce cooler iced coil, setpoint too low cooler, short off cycle]
     signs:
       vc.evap_frost: heavy!
+      rf.ice_pattern: uniform_fin?
       rf.box_temp: low|normal
       gen.runs_constantly: 'yes'
       vc.evap_fan: running
@@ -2142,6 +2151,7 @@ causes:
       rf.defrost_term: late_never
       rf.defrost_init: initiating
       vc.evap_frost: partial|heavy
+      rf.ice_pattern: uniform_fin?
       vc.low_ambient: yes?
       rf.box_temp: high
       gen.output: weak

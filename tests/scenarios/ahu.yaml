@@ -748,3 +748,20 @@
   expect:
     measured: {ahu.hrv_eff: low}
     next_any: [ahu.hrv_core, ahu.hrv_wheel, ahu.hrv_defrost, ahu.hrv_bypass, gen.output, ahu.fan]
+
+# A blank reference gives no verdict (AHU review item 10): weak glycol must not read "adequate" because the coldest-air
+# field was skipped.
+- name: Glycol test at 10 % EG with the coldest-air field left blank — no verdict until the coldest air is entered
+  system: ahu
+  ctx: {heat_coil: eg}
+  inputs: {ahu.glycol_pct_meas: 10}
+  expect:
+    unmeasured: [ahu.glycol]
+
+- name: The same 10 % EG facing −40 °F air at McMurdo reads weak
+  system: ahu
+  ctx: {heat_coil: eg}
+  inputs: {ahu.glycol_pct_meas: 10, ahu.oat_min_f: -40}
+  expect:
+    measured: {ahu.glycol: weak}
+
