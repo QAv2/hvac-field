@@ -155,6 +155,40 @@ context:
       - {id: cool, label: Energized in cooling (O), p: 0.8, words: [o type, o valve, energized in cooling]}
       - {id: heat, label: Energized in heating (B), p: 0.2, words: [b type, b valve, energized in heating]}
 
+  # ---------- controls (controls.yaml gates on these) ----------
+  - id: controls
+    ask: What tells the equipment to run?
+    hint: A room thermostat (a mechanical one has a dial and a heat anticipator; a digital one has a screen and
+      runs on batteries or a C wire), a building automation (DDC) controller, or only the unit's own control
+      (a box controller or a set-point dial on the unit).
+    systems: ['*']
+    options:
+      - id: stat_mech
+        label: Mechanical thermostat (dial, bimetal or mercury)
+        p: 0.15
+        words: [mechanical thermostat, mercury thermostat, round thermostat, bimetal thermostat, anticipator]
+      - id: stat_digital
+        label: Digital thermostat (batteries or C wire)
+        p: 0.45
+        words: [digital thermostat, programmable thermostat, smart thermostat, wifi thermostat, wi-fi thermostat,
+          thermostat blank, thermostat screen, c wire]
+      - id: bas
+        label: Building automation / DDC controller
+        p: 0.25
+        words: [bas, bms, ems, ddc, building automation, front end, controls contractor, bas says, bas shows]
+      - id: unit
+        label: The unit's own controller only
+        p: 0.15
+        words: [box controller, unit controller, set point dial]
+    defaults: {ahu: bas, vc.walkin: unit, vc.reachin: unit, vc.ice: unit}
+  - id: rev_valve
+    ask: Is it a heat pump (with a reversing valve) or cooling only?
+    hint: A heat pump has a 4-way reversing valve in the outdoor unit and an O or B wire at the thermostat.
+    systems: [vc.ac]
+    options:
+      - {id: 'yes', label: 'Heat pump (reversing valve)', p: 0.4, words: [heat pump, reversing valve, o wire, b wire]}
+      - {id: 'no', label: Cooling only, p: 0.6, words: [cooling only, straight cool, ac only]}
+
   # ---------- refrigeration ----------
   - id: refrigerant
     kind: refrigerant
