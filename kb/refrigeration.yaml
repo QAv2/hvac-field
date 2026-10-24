@@ -14,7 +14,8 @@ features:
     name: Box / cabinet temperature
     ask: How is the walk-in or reach-in temperature compared with its setpoint?
     how: Read an independent thermometer inside the box away from the evaporator discharge, not just the door
-      dial or controller display.
+      dial or controller display, and not within an hour of a defrost or a long door-open (a freezer's air climbs
+      5–15 °F in defrost and takes 30–60 min to pull back).
     systems: [vc.walkin, vc.reachin]
     complaint: true
     chip: state
@@ -35,7 +36,8 @@ features:
     ask: Where and what kind of frost or ice do you see on the evaporator and in the box?
     how: Solid frost packed evenly through the fins points to missed defrost; clear solid ice rising from the pan
       into the coil and fan blades comes from a frozen drain; fluffy snow and hoarfrost on the ceiling, door frame,
-      and fan guards comes from warm moist air leaking into the box.
+      and fan guards comes from warm moist air leaking into the box, or from steam when a defrost runs far too long.
+      Ice left in one zone only (bottom rows, one stripe) belongs under "frost on part of the coil", not here.
     systems: [vc.walkin, vc.reachin]
     cost: 1
     states:
@@ -84,7 +86,8 @@ features:
     name: Defrost heater amp draw
     ask: With the unit in defrost, what do the electric defrost heaters draw on a clamp meter?
     how: Clamp the heater feed wire at the condensing unit or evaporator terminal block during defrost and compare
-      with nameplate heater watts ÷ volts.
+      with nameplate heater watts ÷ nameplate volts, scaled to the voltage you really have (heater amps follow voltage; a
+      240 V heater on a 208 V supply draws about 87 % of nameplate with every element good).
     systems: [vc.walkin, vc.reachin]
     requires: {defrost: electric}
     cost: 2
@@ -101,20 +104,22 @@ features:
   - id: rf.defrost_term
     name: Defrost termination behavior
     ask: How does the defrost cycle end (termination Klixon or coil temperature sensor)?
-    how: Watch or log a defrost cycle. It should run until the coil reaches ~45–55 °F and all ice is gone, then
-      terminate before the fail-safe time limit.
+    how: Watch one defrost end, or read the controller's last-defrost log (a full cycle takes 20–45 min). It should run until
+      the coil reaches ~45–55 °F and the ice is gone, then end on temperature, well before the fail-safe time limit. Skip it
+      on a timer that ends defrost on time alone (no termination Klixon or probe).
     systems: [vc.walkin, vc.reachin]
-    cost: 2
+    requires: {defrost: [electric, hot_gas]}
+    cost: 4
     states:
-      normal: Terminates cleanly when the coil is clear (~45–55 °F)
-      early: Terminates after a few minutes while ice is still on the coil
-      late_never: Never terminates on temperature — runs to max time fail-safe, steaming the box
+      normal: Ends on temperature when the coil is clear (~45–55 °F)
+      early: Ends after a few minutes while ice is still on the coil
+      late_never: Never ends on temperature — runs to the fail-safe time limit (coil still iced = not enough heat reached it; coil hot, dry and the box steaming = sensor failed)
     normal: normal
     phrases:
-      early: [short defrost, terminates too early, comes out of defrost too soon, defrost klixon stuck closed,
+      early: [short defrost, terminates too early, comes out of defrost too soon, termination thermostat closed on a cold coil,
         coil sensor reading warm]
       late_never: [defrost never ends, stays in defrost too long, steaming the box, cooking the box in defrost,
-        terminates on time not temperature]
+        terminates on time not temperature, defrost ran the full time, coil still iced after defrost]
 
   - id: rf.defrost_limit
     name: Defrost safety high-limit switch
@@ -136,7 +141,8 @@ features:
     name: Hot-gas defrost solenoid valve
     ask: How is the hot-gas defrost solenoid valve behaving?
     how: In cooling, the hot-gas line after the solenoid should be cool. In defrost, the coil should energize and
-      the pipe immediately downstream should turn piping hot.
+      the pipe immediately downstream should jump to well over 150 °F — read it with an IR thermometer or a clamp-on
+      pipe probe; don't grab hot-gas piping.
     systems: [vc.walkin, vc.reachin]
     requires: {defrost: hot_gas}
     cost: 2
@@ -184,7 +190,7 @@ features:
     how: After defrost ends and the compressor chills the coil below ~25 °F, the fan-delay side of the termination/fan
       thermostat (or controller F terminal) must close to bring the fans back on.
     systems: [vc.walkin, vc.reachin]
-    cost: 2
+    cost: 3
     needs: meter
     states:
       closed_ok: Closes normally once the coil is cold
@@ -287,7 +293,7 @@ features:
     name: Box thermostat / controller probe accuracy
     ask: Does the controller display or thermostat bulb agree with a calibrated thermometer at the probe?
     how: Strap a trusted digital thermometer tip right next to the box air probe (or stir both in an ice-water bath
-      at 32 °F) and compare readings.
+      at 32 °F) and compare readings. Enter that reference reading (taken AT the probe), not a box reading from elsewhere.
     systems: [vc.walkin, vc.reachin]
     cost: 2
     needs: thermometer
@@ -303,7 +309,7 @@ features:
     ask: How does the liquid-line solenoid valve behave on call and during off-cycle pump-down?
     how: When the box satisfies, the LLSV should close and the compressor should pump the low side down once and
       stay off. On a call for cooling, the coil gets voltage and the valve clicks open.
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     cost: 2
     needs: meter
     states:
@@ -319,9 +325,12 @@ features:
     name: Low-pressure control (LPC) settings
     ask: Are the low-pressure switch cut-in and cut-out settings matched to the refrigerant and box temperature?
     how: |
-      Compare the LPC scale (and actual gauge trip points) against the refrigerant PT chart: cut-in must sit below
-      the coldest box temperature's saturation pressure, with enough differential that it doesn't rapid-cycle.
-    systems: [vc.walkin, vc.reachin]
+      Read the cut-in and cut-out off gauges against the refrigerant PT chart, not the dial scale. Cut-in (compressor
+      starts) must sit below the saturation pressure at the box air temperature where the thermostat calls, so the
+      compressor always restarts when the solenoid opens, and above the highest pressure the pumped-down coil creeps to
+      with the solenoid shut. Cut-out (pump-down ends) belongs a few psig above zero, never into vacuum. Keep at least
+      10–15 psi of differential so it doesn't rapid-cycle.
+    systems: [vc.walkin]
     cost: 2
     needs: gauges
     states:
@@ -351,7 +360,7 @@ features:
     ask: What do you see in the compressor crankcase oil sight glass?
     how: Check oil level after 10 minutes of running and watch the glass right at start-up for violent foaming.
     systems: [vc.walkin, vc.reachin, vc.ice]
-    cost: 1
+    cost: 2
     states:
       normal: Clear oil steady at 1/4 to 3/4 glass
       foaming_low: Violent foaming / frothing oil in the sight glass (liquid refrigerant in crankcase)
@@ -362,11 +371,11 @@ features:
       low_empty: [no oil in sight glass, low compressor oil, empty oil glass, oil logged in evaporator]
 
   - id: rf.oil_safety
-    name: Oil-pressure safety control (OPS / Sentronic)
+    name: Oil-pressure safety control (OPS)
     ask: Has the semi-hermetic compressor tripped on its oil-pressure safety control?
-    how: Check the red reset button on the mechanical Penn P45/P28 oil failure control or the red lockout LED on an
-      electronic Sentronic module.
-    systems: [vc.walkin, vc.reachin]
+    how: Check the reset button on a mechanical oil failure control, or the lockout light on an electronic oil-pressure
+      module.
+    systems: [vc.walkin]
     chip: state
     cost: 1
     states:
@@ -380,8 +389,9 @@ features:
     name: Evaporator pressure regulator (EPR / ORIT)
     ask: If an EPR valve is installed in the suction line, how do pressures read upstream vs downstream of it?
     how: Compare evaporator outlet pressure (upstream of the EPR) with compressor suction pressure (downstream) against
-      the box temperature target.
-    systems: [vc.walkin, vc.reachin]
+      the box temperature target. Enter the compressor-side (downstream) gauge as suction pressure; a stuck-closed EPR
+      makes that reading low while the coil side runs high.
+    systems: [vc.walkin]
     cost: 3
     needs: gauges
     states:
@@ -397,8 +407,9 @@ features:
     name: Crankcase pressure regulator (CPR / CROT)
     ask: If a CPR valve is installed at the compressor suction inlet, is it throttling when the box is already cool?
     how: Measure suction pressure before and after the CPR valve once the box is down near temperature; a big pressure
-      drop in normal running means the CPR is set too low or stuck throttling.
-    systems: [vc.walkin, vc.reachin]
+      drop in normal running means the CPR is set too low or stuck throttling. Enter the compressor-side (downstream)
+      gauge as suction pressure.
+    systems: [vc.walkin]
     cost: 3
     needs: gauges
     states:
@@ -411,19 +422,23 @@ features:
   # ---------------- head pressure control (cold ambient & water/glycol) ----------------
   - id: rf.headmaster_state
     name: Head-pressure flooding valve (Headmaster)
-    ask: How is the 3-way head-pressure flooding valve (Headmaster / ORI-ORD) operating?
-    how: In warm weather the bypass leg (D to R) should be cool and all flow should go through the condenser. In cold
-      weather (−40 °F) it modulates to back liquid up in the condenser while the receiver still holds a liquid seal.
+    ask: How is the 3-way head-pressure flooding valve (Headmaster / LAC type) operating?
+    how: Touch the line between the valve and the receiver (the R port) and compare it with the condenser-outlet line. In warm
+      air they should match — warm liquid, never near discharge temperature. In cold air with the valve working, the line to the
+      receiver turns hot (discharge gas is being bypassed) while the condenser backs up with liquid and head pressure holds at
+      the valve's setting. A two-valve ORI/ORD set is checked differently (ORI in the condenser outlet, ORD in the bypass line).
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {hpc: flooding}
     cost: 2
     states:
       normal: Holds steady head pressure with a clear liquid sight glass
-      stuck_bypass: Stuck in bypass in warm ambient (hot gas goes straight to receiver; high head, warm liquid)
-      starving_cold: Condenser flooded in cold weather with the receiver empty (insufficient winter charge or valve stuck to condenser)
+      stuck_bypass: Stuck in bypass in warm air (line to the receiver near discharge temperature; high head, warm liquid, flashing glass)
+      no_bypass_cold: In cold air the valve never bypasses — the line to the receiver stays cold and head pressure is low (dome charge lost, or valve stuck toward the condenser)
+      starving_cold: In cold air the valve does bypass (line to the receiver is hot) and the condenser is flooded, but the receiver runs dry — winter charge short
     normal: normal
     phrases:
       stuck_bypass: [headmaster stuck in bypass, flooding valve stuck open to receiver, hot gas bypassing condenser in summer]
+      no_bypass_cold: [headmaster not bypassing, dome charge lost, flooding valve dead, receiver line cold in winter, low head in winter with cold receiver line]
       starving_cold: [low head in winter with headmaster, not enough winter charge, receiver empty in cold weather,
         headmaster starving in cold]
 
@@ -432,17 +447,20 @@ features:
     ask: Is the condenser fan-cycling switch or VFD cycling the fan properly with head pressure?
     how: |
       Compare high-side pressure with the fan switch cut-in/cut-out settings: in cold air the fan should shut off or
-      slow down when head drops; above cut-in the switch must close and run the fan.
+      slow down when head drops (a fan that is off in cold air is normal while head sits at cut-out); above cut-in the
+      switch must close and run the fan.
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {hpc: [fan_cycling, vfd]}
     cost: 2
-    needs: meter
+    needs: gauges
     states:
       ok: Switches or modulates fan to hold head pressure in band
-      failed_stuck: Switch stuck open (fan stays off at high head) or stuck closed (fan runs nonstop in freezing air)
+      stuck_open: Control stuck open or no output — fan stays off while head pressure is above cut-in
+      stuck_closed: Control stuck closed or at full speed — fan runs nonstop in cold air and head pressure collapses
     normal: ok
     phrases:
-      failed_stuck: [fan cycling switch bad, fan pressure switch stuck, condenser fan running in winter, fan switch wont close]
+      stuck_open: [fan cycling switch open, fan wont start at high head, fan pressure switch stuck open, condenser fan off high head]
+      stuck_closed: [fan cycling switch bad, fan pressure switch stuck closed, condenser fan running in winter, fan switch wont open]
 
   - id: rf.wrv_state
     name: Water-regulating valve (WRV) & strainer
@@ -463,14 +481,18 @@ features:
 
   - id: rf.water_flow
     name: Condenser water / glycol flow
-    ask: How is the cooling water or glycol flow and temperature rise across the condenser?
+    ask: How is flow through the water-cooled condenser — how does the leaving water compare with the condensing temperature?
+    how: A water-regulating valve holds head pressure by throttling flow, so the leaving water settles a few degrees under the
+      condensing temperature (about 100–115 °F; one ice maker's manual sets the valve for a 104–115 °F drain) whatever the supply
+      temperature, and a 40–60 °F rise on cold water is normal. Low flow shows as leaving water within ~5 °F of the condensing
+      temperature with head pressure high. On a pump-fed glycol loop the flow is fixed and a 10–15 °F rise is normal.
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {condenser: water}
     cost: 1
     states:
-      normal: Steady flow when running (~10–15 °F temperature rise)
-      low_hot: Little or no flow; outlet pipe piping hot (or glycol loop pump off)
-      continuous_cold: Water flows cold and nonstop even with the compressor off
+      normal: Flow adequate — leaving water at least ~5 °F under condensing temperature, and the valve shuts off with the compressor
+      low_hot: Little or no flow — leaving water within ~5 °F of condensing temperature (or the loop pump is off)
+      continuous_cold: Water runs cold and nonstop with the compressor off, or barely warms while running (valve stuck open)
     normal: normal
     phrases:
       low_hot: [condenser water hot, no glycol flow, low water flow to condenser, water shut off to condenser]
@@ -481,7 +503,8 @@ features:
     ask: What is the temperature gap between condensing saturation and the leaving water/glycol (`vc.cond_sat_t - rf.water_out_f`)?
     how: Compute condensing saturation temperature from high-side pressure and subtract the water/glycol outlet
       temperature. A clean coaxial or shell-and-tube condenser runs under 15–18 °F; a big gap with normal water flow
-      means scaled or fouled tubes.
+      means scaled or fouled tubes — but an overcharge or air in the system gives the same gap, so check subcooling and
+      standing pressure before you descale.
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {condenser: water}
     cost: 3
@@ -629,29 +652,34 @@ features:
   - id: rf.ice_water_temp
     name: Incoming supply water temperature
     ask: What is the temperature of the supply water feeding the ice machine?
-    how: Run the supply line or check the water entering the sump with a thermometer; above 70 °F (for example from a
-      mixing valve backfeed or a pipe run over the dish pit) slashes ice capacity.
+    how: Run the supply line or check the water entering the sump with a thermometer. Over about 80 °F (a mixing-valve backfeed,
+      a pipe run over the dish pit) lengthens every freeze; under about 45 °F (a line off an outdoor or snow-melt source) can leave
+      the harvest too cold to release the slab.
     systems: [vc.ice]
     cost: 1
     needs: thermometer
     states:
-      normal: Normal cold water (70 °F or below)
-      hot: Warm or hot supply water (over 70 °F)
+      cold: Very cold supply water (under about 45 °F)
+      normal: Normal (about 45–80 °F)
+      hot: Warm or hot supply water (over about 80 °F)
     normal: normal
     phrases:
+      cold: [cold water to ice machine, ice machine water very cold, outdoor water line to ice machine, snow melt water ice machine]
       hot: [hot water feeding ice machine, warm incoming water, high water temp, hot water cross connection]
 
   - id: rf.ice_cycle_time
     name: Ice freeze cycle time
-    ask: How long is the freeze cycle taking from start of freeze to harvest?
-    how: Time a full freeze cycle with a watch or read the controller's cycle log; most cube machines freeze a batch in
-      10–22 minutes depending on ambient and water temperatures.
+    ask: How long is the freeze cycle taking from start of freeze to harvest, compared with the maker's figure?
+    how: Time one full freeze with a watch or read the controller's cycle log, then compare it with the cycle-time table in the
+      service manual at today's room and water temperature. Cube makers differ a lot — one crescent cuber's service manual shows
+      20 min at 70 °F air / 50 °F water, 25 min at 90/70 and 29 min at 100/90 and calls 20–40 min normal, while other makes run
+      8–20 min — so judge it against the table for that model.
     systems: [vc.ice]
-    cost: 2
+    cost: 3
     states:
-      normal: Normal freeze cycle (~10–22 min)
-      long: Extended freeze cycle (over 25 min)
-      short: Short cycle (under 7 min)
+      normal: Within about 25 % of the maker's figure for these conditions
+      long: More than about 25 % over the maker's figure (over ~35 min if you have no table)
+      short: Under about 60 % of the maker's figure (only judged against a table)
     normal: normal
     phrases:
       long: [long freeze cycle, slow ice production, takes forever to freeze, 40 minute freeze cycle]
@@ -678,9 +706,9 @@ features:
     ask: Does the ice machine initiate harvest when the bridge forms, and does the ice sheet release?
     how: |
       Watch the end of the freeze cycle: the thickness probe (or float/timer) should trigger harvest, and the sheet
-      should slide off within 1.5–3 minutes.
+      should slide off within the maker's harvest time (about 1–4 minutes depending on make and conditions).
     systems: [vc.ice]
-    cost: 2
+    cost: 3
     states:
       normal: Enters harvest on time and drops the ice sheet cleanly
       stuck_in_freeze: Never initiates harvest — stays in freeze while the ice slab grows thicker
@@ -694,8 +722,8 @@ features:
     name: Ice machine hot-gas harvest valve
     ask: How does the hot-gas harvest solenoid valve behave in freeze and in harvest?
     how: |
-      Feel the tubing downstream of the harvest valve: it must stay cool during freeze and turn piping hot within
-      seconds of entering harvest.
+      Check the tubing just past the harvest valve with an IR thermometer or clamp-on pipe probe (hot-gas lines run well
+      over 150 °F — don't grab them): it must stay cool during freeze and jump to hot within seconds of entering harvest.
     systems: [vc.ice]
     cost: 2
     needs: meter
@@ -722,6 +750,22 @@ features:
     phrases:
       failed: [harvest assist bad, harvest air pump dead, pusher solenoid stuck, harvest probe stuck]
 
+  - id: rf.ice_thermistor
+    name: Harvest-termination thermistor (evaporator temperature sensor)
+    ask: Is the thermistor that watches the evaporator warm up in harvest seated tight and reading right for the tube temperature?
+    how: Power off. Check it is clipped (and insulated) where the maker puts it on the suction tube or evaporator outlet, then read its
+      resistance at the board plug and compare with the maker's temperature table. Open, shorted or far-off readings usually also
+      throw an alarm code.
+    systems: [vc.ice]
+    cost: 2
+    needs: meter
+    states:
+      ok: Seated tight and reads right for the tube temperature
+      off: Loose or out of position, or open, shorted or off against the chart
+    normal: ok
+    phrases:
+      off: [thermistor bad, harvest thermistor, thermistor loose, sensor out of position, harvest backup timer, evaporator sensor]
+
   - id: rf.ice_bin_ctrl
     name: Ice bin thermostat / curtain switch / eye
     ask: Is the bin control (curtain switch, optical eye, or bin thermostat bulb) reading the bin status accurately?
@@ -736,6 +780,27 @@ features:
     phrases:
       faulted: [bin switch stuck, thinks bin is full, bin thermostat bad, curtain switch open, bin eye dirty,
         overfilling bin]
+
+  - id: rf.ice_alarm
+    name: Control-board alarm or safety-limit code
+    ask: Is the ice machine's control board showing an alarm, safety-limit light or beep code?
+    how: Read the LED pattern, beeps or front-panel code and look it up in the service manual. Most boards latch a freeze-time,
+      harvest-time, low-water or high-temperature safety, and that code is the cheapest way to split the fault list in half.
+    systems: [vc.ice]
+    chip: state
+    cost: 1
+    states:
+      none: No alarm or safety code
+      freeze_safety: Freeze-time safety (the freeze ran past its limit)
+      harvest_safety: Harvest-time safety (harvest ran to its backup timer)
+      water_safety: Low-water or fill safety
+      high_temp: High-temperature or high-pressure safety
+    normal: none
+    phrases:
+      freeze_safety: [freeze timer safety, freeze time alarm, safety limit 1, three beeps, freeze timeout]
+      harvest_safety: [harvest timer safety, harvest backup timer, harvest time alarm, safety limit 2, two beeps, harvest timeout]
+      water_safety: [low water safety, fill safety, no water alarm, long fill, water supply alarm]
+      high_temp: [high temperature safety, high pressure alarm, high temp alarm, one beep, condenser hot alarm]
 
 inputs:
   - {id: rf.box_f, name: Box / cabinet air temp, unit: °F, systems: [vc.walkin, vc.reachin], probe: air,
@@ -757,26 +822,45 @@ inputs:
   - {id: rf.ice_water_in_f, name: Ice machine supply water temp, unit: °F, systems: [vc.ice], probe: pipe,
      hint: Cold water line feeding the ice maker}
 
+  - id: rf.probe_ref_f
+    name: Reference thermometer at the controller probe
+    unit: °F
+    systems: [vc.walkin, vc.reachin]
+    probe: air
+    hint: Trusted thermometer strapped right beside the box probe (or both probes in an ice-water bath)
+  - id: rf.def_rated_volts
+    name: Heater nameplate voltage
+    unit: V
+    systems: [vc.walkin, vc.reachin]
+    choices: [115, 208, 230, 240, 460]
+  - id: rf.freeze_spec_min
+    name: Freeze time per the maker's chart
+    unit: min
+    systems: [vc.ice]
+    hint: Cycle-time table in the service manual, read at today's room and water temperature
+
 measures:
   - id: rf.box_dev
     name: Box temperature vs setpoint
     unit: °F
     systems: [vc.walkin, vc.reachin]
     let:
-      sp: "rf.setpoint_f ?? ((ctx.app ?? 'mt') == 'lt' ? -5 : 36)"
+      known: has(rf.setpoint_f)
+      lt: "(ctx.app ?? 'mt') == 'lt'"
+      sp: "rf.setpoint_f ?? (lt ? -10 : 36)"
     value: rf.box_f - sp
     target: '0'
     sets: rf.box_temp
     states:
-      - [high, v > 4]
-      - [low, v < -4]
+      - [high, 'known ? v > 4 : (lt ? rf.box_f > 10 : rf.box_f > 41)']
+      - [low, 'known ? v < -4 : (lt ? rf.box_f < -30 : rf.box_f < 31)']
       - [normal, 'true']
 
   - id: rf.probe_error
     name: Controller probe error
     unit: °F
     systems: [vc.walkin, vc.reachin]
-    value: abs(rf.probe_display_f - rf.box_f)
+    value: abs(rf.probe_display_f - rf.probe_ref_f)
     target: '0'
     sets: rf.probe_cal
     states:
@@ -788,12 +872,15 @@ measures:
     unit: '%'
     systems: [vc.walkin, vc.reachin]
     requires: {defrost: electric}
-    value: rf.def_amps / rf.def_rated_amps * 100
+    let:
+      known: has(gen.volts) && has(rf.def_rated_volts)
+      scale: 'known ? gen.volts / rf.def_rated_volts : 1'
+    value: rf.def_amps / (rf.def_rated_amps * scale) * 100
     target: '100'
     sets: rf.defrost_heater_amps
     states:
       - [zero, v < 10]
-      - [low, v < 85]
+      - [low, 'v < (known ? 85 : 78)']
       - [normal, 'true']
 
   - id: rf.water_cond_approach
@@ -814,11 +901,11 @@ measures:
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {condenser: water}
     value: rf.water_out_f - rf.water_in_f
-    target: '12'
+    target: 'has(vc.cond_sat_t) ? vc.cond_sat_t - 8 - rf.water_in_f : 12'
     sets: rf.water_flow
     states:
-      - [low_hot, v > 22]
-      - [continuous_cold, v < 3]
+      - [low_hot, 'has(vc.cond_sat_t) ? v > 22 && (vc.cond_sat_t - rf.water_out_f) < 5 : rf.water_out_f > 120']
+      - [continuous_cold, 'v < 8 && has(vc.cond_sat_t) && vc.cond_sat_t > rf.water_in_f + 8']
       - [normal, 'true']
 
   - id: rf.ice_freeze_dev
@@ -826,11 +913,11 @@ measures:
     unit: min
     systems: [vc.ice]
     value: rf.freeze_min
-    target: '16'
+    target: 'rf.freeze_spec_min ?? 22'
     sets: rf.ice_cycle_time
     states:
-      - [long, v > 25]
-      - [short, v < 7]
+      - [long, 'v > (rf.freeze_spec_min ?? 28) * 1.25']
+      - [short, 'has(rf.freeze_spec_min) && v < rf.freeze_spec_min * 0.6']
       - [normal, 'true']
 
   - id: rf.ice_water_temp_m
@@ -841,7 +928,8 @@ measures:
     target: '55'
     sets: rf.ice_water_temp
     states:
-      - [hot, v > 70]
+      - [cold, v < 45]
+      - [hot, v > 80]
       - [normal, 'true']
 
 causes:
@@ -864,7 +952,8 @@ causes:
       Rotate the timer into defrost by hand to verify the heaters and termination work once triggered. Replace a timer
       whose synchronous motor has stopped or whose contacts are pitted, reinstall missing brass trippers (typically
       3–4 per day for freezers), or enable the defrost schedule in the electronic controller. Thaw the coil completely
-      before returning the box to service.
+      before returning the box to service. If a forced defrost does nothing at all (no relay click, the compressor keeps
+      running), the timer's or controller's output relay is dead — replace the timer or controller.
     refs: [practice]
 
   - id: rf.defrost_heater_open
@@ -878,17 +967,20 @@ causes:
       rf.defrost_power: present!
       rf.defrost_limit: closed
       rf.defrost_init: initiating
-      vc.evap_frost: heavy!
-      rf.ice_pattern: uniform_fin
+      rf.defrost_term: late_never
+      vc.evap_frost: partial|heavy
       rf.box_temp: high
       gen.output: weak
     confirm: With the unit in defrost, line voltage is present at the heater feed and through the safety limit, but
-      clamp-meter current is zero (or half of nameplate if one of two parallel elements is open).
+      clamp-meter current is zero (or well under nameplate when only one of several elements is open), and the defrost
+      ends on its time limit with ice still on the coil.
     fix: |
-      Lock out power, melt the ice off the coil with warm water, and ohm each defrost heater element individually
-      (normal resistance is V² ÷ W, typically 15–60 Ω). Replace the open heater rod, make sure it is clipped down in
-      its slots so it cannot bow out or scorch wiring, and verify full rated amp draw in defrost.
-    safety: Lock out power before unplugging or pulling heater rods; hot elements can blister hands and steam-burn eyes.
+      Lock out and tag every source (the evaporator heaters, fans and drain heater are usually on their own breaker, not the
+      condensing unit's) and prove the terminal block dead. Melt the ice off the coil with warm water or a fans-only manual
+      defrost, then ohm each element (V² ÷ W: about 53 Ω for 1,000 W at 230 V, 106 Ω for 500 W — compare with the nameplate)
+      and megger each element to its sheath: an element that reads open or to ground is the one to replace. Make sure the new
+      rod is clipped down in its slots so it cannot bow out or scorch wiring, and verify full rated amp draw in defrost.
+    safety: "Lock out power before unplugging or pulling heater rods; hot elements can blister hands and steam-burn eyes. Inside a walk-in: prop the door, check that the inside release works before you rely on the door, never let it latch behind you, and tell someone you are in the box. Thawing leaves ice and water on the floor."
     refs: [practice]
 
   - id: rf.defrost_contactor_failed
@@ -901,6 +993,7 @@ causes:
       rf.defrost_power: missing!
       rf.defrost_heater_amps: zero!
       rf.defrost_init: initiating!
+      rf.defrost_term: late_never!
       vc.evap_frost: heavy
       rf.ice_pattern: uniform_fin?
       rf.box_temp: high
@@ -916,6 +1009,7 @@ causes:
   - id: rf.defrost_term_early
     name: Defrost termination thermostat or coil sensor failed closed (terminates defrost too early with ice left on coil)
     systems: [vc.walkin, vc.reachin]
+    requires: {defrost: [electric, hot_gas]}
     prior: common
     keywords: [short defrost, defrost klixon bad, coil sensor drifted, terminates before ice melts, ice left after defrost]
     signs:
@@ -929,7 +1023,7 @@ causes:
       cooling after a few minutes while the coil is still below 32 °F and packed with ice.
     fix: |
       On a cold iced coil (below 25 °F), the termination side of a mechanical Klixon (4-wire or 3-wire) should be open
-      between X and 4 until ~48–55 °F; if it reads closed cold, replace the Klixon. On an electronic controller, check
+      between its common and termination terminals (read the wiring diagram for the labels) until ~48–55 °F; if it reads closed cold, replace the Klixon. On an electronic controller, check
       the coil probe resistance against its temperature chart and move the probe to the last place ice melts (usually
       top center of the coil away from a heater rod).
     refs: [practice]
@@ -937,6 +1031,7 @@ causes:
   - id: rf.defrost_term_stuck
     name: Defrost termination thermostat or sensor failed open (never terminates on temperature, overheating the box)
     systems: [vc.walkin, vc.reachin]
+    requires: {defrost: [electric, hot_gas]}
     prior: occasional
     keywords: [stays in defrost too long, steaming walk in, defrost wont terminate, termination switch stuck open]
     signs:
@@ -944,13 +1039,16 @@ causes:
       rf.box_temp: high!
       rf.defrost_init: initiating
       vc.evap_frost: none
+      rf.ice_pattern: snow_door?
       gen.output: weak
     confirm: Every defrost cycle runs all the way to the timer's mechanical fail-safe (45–60 min) even after the coil
-      is bone-dry and hot, filling the box with steam and driving box temperature up.
+      is bone-dry and hot, filling the box with steam (it freezes as hoarfrost on the ceiling, fan guards and door frame) and driving box
+      temperature up.
     fix: |
       Warm the termination Klixon or coil sensor above 60 °F and check whether it closes to energize the timer release
       solenoid (terminal X) or tells the controller the coil is warm. Replace a failed Klixon or drifted thermistor,
-      verify it is clipped tightly to the coil tube, and set the fail-safe time to a sensible backup (30–45 min).
+      verify it is clipped tightly to the coil tube, and set the fail-safe to a sensible backup — a little over
+      the longest normal defrost (roughly 30–45 min electric, 15–25 min hot gas).
     refs: [practice]
 
   - id: rf.defrost_klixon_open
@@ -964,13 +1062,16 @@ causes:
       rf.defrost_power: present
       rf.defrost_heater_amps: zero!
       rf.defrost_init: initiating
+      rf.defrost_term: late_never!
       vc.evap_frost: heavy
       rf.box_temp: high
       gen.output: weak
     confirm: Line voltage reaches the evaporator in defrost and the heater elements ohm out good, but the series safety
       high-limit switch at the top of the coil reads open even with the coil frozen solid.
     fix: |
-      Replace the open defrost safety high-limit switch with the exact temperature and amp rating. Never jumper or
+      Confirm it is open on a COLD coil: a limit that opened hot did its job, so find what let the coil overheat (a stuck
+      termination, fans running or heaters left on) before replacing it. Replace a limit that is open when cold with the exact
+      temperature and amp rating. Never jumper or
       bypass a defrost safety limit permanently — if a termination switch sticks later, an unguarded heater can melt
       the drain pan or start a fire.
     safety: Never leave a defrost high-limit switch jumpered; it is the fire safety for electric defrost heaters.
@@ -985,16 +1086,19 @@ causes:
     signs:
       rf.hot_gas_valve: stuck_closed!
       rf.defrost_init: initiating
+      rf.defrost_term: late_never!
       vc.evap_frost: heavy!
       rf.ice_pattern: uniform_fin
       rf.box_temp: high
       gen.output: weak
-    confirm: In defrost, the hot-gas line downstream of the defrost solenoid stays cold while the compressor discharge
-      ahead of it is hot.
+    confirm: In defrost, the hot-gas line downstream of the defrost solenoid stays cold (IR thermometer or pipe probe) while the
+      compressor discharge ahead of it is hot, and the defrost ends on its time limit with the coil still iced.
     fix: |
       Meter voltage at the hot-gas solenoid coil during defrost and check coil resistance. If the coil is energized and
-      the valve won't open (tap or test with a solenoid magnet), replace the coil or rebuild/replace the valve body.
-      Also check that sufficient head pressure exists to push hot gas into the evaporator.
+      the valve won't open (tap it, or lift the plunger with a test magnet), replace the coil. If the body is stuck, pump
+      down or recover first (no venting), then rebuild or replace the valve and the drier. Also check that sufficient head
+      pressure exists to push hot gas into the evaporator.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.hot_gas_solenoid_leaking
@@ -1011,12 +1115,17 @@ causes:
       vc.evap_sat: high
       vc.superheat: high?
       vc.discharge_temp: high?
+    when:
+      - if: {metering: [txv, eev]}
+        signs:
+          vc.superheat: {normal: 0.45, high: 0.5, low: 0.05}
     confirm: During normal cooling (solenoid coil de-energized), the hot-gas defrost pipe downstream of the solenoid
-      remains hot to the touch and suction pressure stays elevated.
+      stays hot on an IR thermometer or pipe probe (well over 150 °F) and suction pressure stays elevated.
     fix: |
       Confirm the solenoid coil is not getting stray voltage during cooling. Pump the section down or recover, open the
       valve and clean or replace the scored Teflon seat and plunger kit (or replace the valve and add a strainer ahead
       of it).
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.drain_heater_failed
@@ -1037,6 +1146,7 @@ causes:
       Thaw the pan and drain line completely with warm water or steam (never chip near coil tubes with an ice pick).
       Check the drain line pitch and trap outside the box, replace the open drain-line heat tape or pan heater, wrap it
       with foil tape and insulation all the way out of the freezer wall, and verify amp draw.
+    safety: "Lock out the drain-heater and evaporator circuits before you thaw (water and steam near heater terminals). Inside a walk-in: prop the door, check that the inside release works before you rely on the door, never let it latch behind you, and tell someone you are in the box. Thawing leaves ice on the floor."
     refs: [practice]
 
   # ======================= walk-in & reach-in: evaporator fan & door controls =======================
@@ -1046,6 +1156,7 @@ causes:
     prior: common
     keywords: [fan delay bad, evaporator fans not coming on, klixon fan switch open, fans off coil iced]
     signs:
+      rf.oil_sight: foaming_low?
       rf.fan_delay: stuck_open!
       vc.evap_fan: off!
       vc.evap_frost: heavy
@@ -1067,6 +1178,7 @@ causes:
     prior: occasional
     keywords: [fan blade hitting ice, fan stuck in ice, bent fan blade, fan scraping shroud, noisy evaporator fan]
     signs:
+      rf.oil_sight: foaming_low?
       rf.fan_blade_clear: hitting_ice!
       vc.evap_fan: off|weak
       rf.ice_pattern: pan_backup?
@@ -1078,7 +1190,7 @@ causes:
       Lock out power immediately so the stalled fan motor doesn't burn out. Melt away all ice around the shroud and
       pan, check the motor mounts and set-screw hub, replace any cracked or bent fan blade (a bent blade vibrates and
       kills motor bearings), and fix the drain or infiltration issue that put ice in the fan ring.
-    safety: Lock out power before reaching near evaporator fan blades; a thermally tripped fan motor can restart without warning.
+    safety: "Lock out power before reaching near evaporator fan blades; a thermally tripped fan motor can restart without warning. Inside a walk-in: prop the door, check that the inside release works before you rely on the door, never let it latch behind you, and tell someone you are in the box."
     refs: [practice]
 
   - id: rf.door_switch_stuck
@@ -1136,6 +1248,7 @@ causes:
       First check whether a mullion "energy-saver / humidity" rocker switch was flipped off. If voltage is present at
       the heater leads in the junction box or hinge pillar and the heater wire reads open (infinite ohms), pull the
       snap-in trim plate and replace the perimeter anti-sweat heater wire.
+    safety: "A door frozen to its frame may also have an iced or stiff inside release: test the release from inside with the door held open before you go in. Inside a walk-in: prop the door, check that the inside release works before you rely on the door, never let it latch behind you, and tell someone you are in the box."
     refs: [practice]
 
   - id: rf.air_infiltration_heavy
@@ -1156,6 +1269,7 @@ causes:
       Seal all pipe and conduit penetrations with vapor-tight foam and silicone on the warm side (warm air carries the
       moisture), free up and check the heater on the pressure-relief port, hang full-overlap low-temp strip curtains,
       and brush/defrost the snow load off the evaporator.
+    safety: "Inside a walk-in: prop the door, check that the inside release works before you rely on the door, never let it latch behind you, and tell someone you are in the box. Brushing snow off a coil: lock out the fans first."
     refs: [practice]
 
   - id: rf.product_airflow_blocked
@@ -1199,10 +1313,11 @@ causes:
 
   - id: rf.llsv_leaking
     name: Liquid-line pump-down solenoid valve leaking through (compressor short-cycling during the off cycle)
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     prior: common
     keywords: [pump down short cycling, solenoid leaking through, compressor kicks on in off cycle, weeping llsv]
     signs:
+      rf.oil_sight: foaming_low?
       rf.llsv_state: leaking_through!
       gen.short_cycle: yes!
       gen.call: not_calling?
@@ -1211,14 +1326,19 @@ causes:
     confirm: With the box satisfied and the liquid-line solenoid de-energized, suction pressure slowly creeps back up
       to the LPC cut-in point and the compressor pumps down for 10–30 seconds every few minutes.
     fix: |
-      Pump the low side down using the receiver king valve, open or replace the liquid-line solenoid valve (debris or
-      solder scale under the Teflon seat is the usual culprit), clean or replace the upstream strainer/drier, and
-      verify suction pressure stays flat after pump-down.
+      First tell it from a leaking compressor valve: front-seat the receiver king valve with the solenoid HELD OPEN (manual
+      lift stem, or a temporary jumper on the coil) and pump the liquid line and coil down to 2–5 psig. If suction still
+      creeps up with the king valve shut, the compressor's valves or discharge check are leaking, not the solenoid.
+      Pumping down with the solenoid closed leaves liquid trapped between the king valve and the solenoid, and that can burst
+      the line when it warms or when you braze beside it. With the section pumped down and the remainder recovered (no
+      venting), clean or replace the solenoid valve (debris or solder scale under the Teflon seat is the usual culprit),
+      replace the upstream strainer/drier, and verify suction pressure stays flat after pump-down.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.llsv_stuck_closed
     name: Liquid-line solenoid valve failed closed or open coil (pumps down and stays off on low pressure)
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     prior: common
     keywords: [solenoid coil burned out, liquid solenoid wont open, pumped down and off, stuck closed solenoid]
     signs:
@@ -1235,11 +1355,12 @@ causes:
       Meter voltage across the liquid-line solenoid coil leads with the thermostat calling: if voltage is present and
       the valve doesn't click (or a permanent test magnet opens it immediately), replace the open coil. If a magnet
       won't open it either, the stem is mechanically jammed — pump down and rebuild or replace the valve.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.lpc_misadjusted
     name: Low-pressure control (LPC) cut-in/cut-out set wrong or differential too tight
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     prior: occasional
     keywords: [low pressure switch set wrong, lpc short cycling, cut out too high, differential too small]
     signs:
@@ -1251,10 +1372,12 @@ causes:
     confirm: Gauges show the low-pressure control cutting the compressor out while box temperature is still above
       setpoint, or cutting back in almost immediately because the differential wheel is set too narrow.
     fix: |
-      Set the LPC using your gauges, not just the stamped scale (scales drift): for a pump-down system, set cut-in
-      slightly below the saturation pressure of the warmest allowable box air and cut-out near 2–5 psig (above 0 psig
-      so the low side never pulls air in). For non-pump-down off-cycle defrost coolers, set cut-in at ~36–38 °F coil
-      saturation so the coil thaws every cycle.
+      Set the LPC using your gauges, not just the stamped scale (scales drift). Pump-down system: set cut-in just below the
+      saturation pressure at the box temperature where the thermostat CALLS (R-404A: about 82 psig for a 38 °F cooler call,
+      28 psig for a -5 °F freezer call) so the compressor always restarts when the solenoid opens, but above the pressure the
+      pumped-down coil creeps to in the off cycle; set cut-out a few psig above zero (never into vacuum). Referencing the
+      warmest allowable box temperature instead leaves the compressor off after the thermostat has called and the box floats
+      warm. Non-pump-down off-cycle defrost cooler: set cut-in at ~36–38 °F coil saturation so the coil thaws every cycle.
     refs: [practice]
 
   - id: rf.crankcase_heater_failed
@@ -1264,8 +1387,8 @@ causes:
     keywords: [crankcase heater open, refrigerant migration, oil foaming on start, compressor slugging, cold crankcase]
     signs:
       rf.crankcase_heater: cold_failed!
-      rf.oil_sight: foaming_low!
-      vc.comp_noise: knock!
+      rf.oil_sight: foaming_low
+      vc.comp_noise: knock?
       vc.low_ambient: yes?
       rf.oil_safety: tripped?
     confirm: In a cool mechanical space or outdoors, the compressor crankcase is cold during the off cycle; on start-up
@@ -1273,12 +1396,15 @@ causes:
     fix: |
       Meter voltage and resistance across the belly-band or insertion crankcase heater. Replace an open heater, make
       sure it is wired to stay energized whenever the compressor is off (or continuously), and consider adding
-      automatic pump-down if the unit doesn't already have a liquid-line solenoid.
+      automatic pump-down if the unit doesn't already have a liquid-line solenoid. After the new heater is in, leave it
+      energized with the compressor locked out for at least 12 hours (longer in a very cold space) until the shell is warm
+      to the touch, then start with gauges on and watch the sight glass — never start a cold, foamy compressor just to see
+      if it runs.
     refs: [practice]
 
   - id: rf.epr_stuck_closed
     name: Evaporator pressure regulator (EPR / ORIT) stuck closed or set too high (holds coil too warm)
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     prior: uncommon
     keywords: [epr stuck closed, epr set too high, orit valve misadjusted, warm box low suction after epr]
     signs:
@@ -1292,13 +1418,14 @@ causes:
     fix: |
       Put a gauge on the EPR's inlet Schrader port and turn the adjustment screw counterclockwise to lower the
       evaporator pressure setting toward the design coil saturation temperature (~10–12 °F below box setpoint). If the
-      inlet pressure won't drop as you back the spring off, the pilot port or main piston is stuck — clean or replace
-      the EPR.
+      inlet pressure won't drop as you back the spring off, the pilot port or main piston is stuck — pump down or recover first (no venting),
+      then clean or replace the EPR.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.epr_stuck_open
     name: Evaporator pressure regulator (EPR) stuck wide open or set too low on a cooler (freezes coil and product)
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     prior: uncommon
     keywords: [epr stuck open, epr set too low, produce cooler freezing, coil icing with epr]
     signs:
@@ -1312,11 +1439,12 @@ causes:
       Turn the EPR adjustment clockwise while watching the inlet gauge to raise minimum evaporator pressure (e.g., to a
       24–28 °F coil saturation for a produce cooler). If pressure upstream still tracks low suction, debris is holding
       the EPR piston open — pump down and clean or replace the valve.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.cpr_misadjusted
     name: Crankcase pressure regulator (CPR / CROT) set too low or stuck throttling (starves compressor suction)
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     prior: uncommon
     keywords: [cpr set too low, cpr stuck throttling, crankcase pressure regulator, slow pulldown after defrost]
     signs:
@@ -1331,7 +1459,8 @@ causes:
     fix: |
       Compare compressor amp draw with nameplate RLA and adjust the CPR clockwise in small steps until it stops
       throttling during normal pull-down while still capping suction pressure below the compressor's maximum operating
-      suction pressure (MOP) right after defrost. Replace a binding CPR cartridge.
+      suction pressure (MOP) right after defrost. Pump down or recover first (no venting), then replace a binding CPR cartridge.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   # ======================= cold-ambient, water-cooled head pressure & oil safety =======================
@@ -1348,16 +1477,21 @@ causes:
       vc.sight_glass: bubbles!
       vc.discharge_temp: high?
       gen.output: weak
-    confirm: With condenser entering air warm (above 65 °F), the bypass leg (D to R) into the receiver is piping hot
-       while the condenser liquid return leg is cool, driving head pressure up and flashing the sight glass.
+    confirm: With condenser entering air warm (above ~65 °F), the line between the valve and the receiver is near discharge
+      temperature while the condenser outlet line is only a little above ambient, driving head pressure up and flashing the
+      sight glass.
     fix: |
-      Tap the valve body lightly; if the dome has lost its nitrogen charge or the internal seat is eroded so discharge
-      gas dumps straight into the receiver in warm weather, recover/pump down and replace the 3-way head-pressure
-      control valve with the matching pressure setting (e.g. 150 or 180 psig for R-404A).
+      Check the charge first: an overfilled receiver or a leftover winter flood charge floods the condenser and fakes the same
+      symptoms, so don't condemn the valve until the charge is right. Then compare the line from the valve to the receiver with
+      the condenser outlet line — hot against warm means the valve is bypassing. Tap the body once; if it stays stuck (debris, eroded
+      seat), pump down or recover first (no venting) and replace it with the same pressure setting from the nameplate or catalog
+      (typically 180–240 psig on R-404A; a Headmaster is not field-adjustable). A valve that lost its dome charge does the
+      opposite: it stays open to the condenser and never floods in cold air (see rf.headmaster_no_bypass).
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.headmaster_starving_cold
-    name: Insufficient winter flooding charge or Headmaster stuck to condenser in extreme cold (−40 °F)
+    name: Winter flooding charge short — the valve is bypassing but the receiver runs dry in cold air (−40 °F)
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {hpc: flooding}
     prior: common
@@ -1372,35 +1506,91 @@ causes:
       vc.superheat: high
       vc.evap_sat: low
       gen.output: weak
-    confirm: Running in cold outdoor air (below 40 °F down to −40 °F), the Headmaster backs liquid into the condenser
-      to hold pressure, but the receiver runs dry — sight glass foams continuously and head pressure still collapses.
+    confirm: Running in cold outdoor air (below 40 °F down to −40 °F), the line from the valve to the receiver is hot (the valve is
+      bypassing discharge gas) and the condenser is flooded, but the receiver runs dry — the sight glass foams continuously and
+      head pressure still collapses.
     fix: |
-      Verify the Headmaster dome isn't ruptured (a dead dome sends all flow through the cold condenser without
-      bypassing). If the valve is modulating properly, the system lacks the extra winter charge required to fill the
-      condenser coils at −40 °F while keeping a liquid seal in the receiver (ensure the receiver is sized for the full
-      winter charge in summer!). Weigh in refrigerant until the sight glass clears at stabilized cold-weather head
-      pressure.
+      1. Rule out a leak before adding anything: oil at joints, receiver level against last season's, a leak search. A system
+         that has lost charge needs the leak found and repaired first (EPA 608 recordkeeping and leak-repair rules apply by
+         charge size).
+      2. If the valve is bypassing and the unit is simply short of its winter flood charge, add the maker's winter-charge allowance
+         in small steps by weight until the glass clears at steady cold-weather head pressure. Record every pound added (date, lb,
+         refrigerant) and label the unit.
+      3. Check that the receiver holds the whole charge at no more than about 80 % full when the condenser empties in warm air; if
+         it can't, take the extra charge back out in spring or the unit runs high head all summer. Insulate the receiver and liquid
+         line — a -40 °F receiver condenses the bypass gas and drags receiver pressure down.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
+    refs: [practice]
+
+  - id: rf.headmaster_no_bypass
+    name: Head-pressure flooding valve (Headmaster) not bypassing in cold air — dome charge lost or valve stuck toward the condenser
+    systems: [vc.walkin, vc.reachin, vc.ice]
+    requires: {hpc: flooding}
+    prior: occasional
+    keywords: [headmaster dome lost, flooding valve not bypassing, low head in winter cold receiver line, headmaster dead, no flooding in cold]
+    signs:
+      rf.headmaster_state: no_bypass_cold!
+      vc.low_ambient: yes!
+      vc.cond_sat: low!
+      vc.sight_glass: bubbles
+      vc.subcool: low
+      vc.superheat: high
+      vc.evap_sat: low
+      gen.output: weak
+    confirm: Cold outdoor air, low head pressure, and the line between the valve and the receiver stays cold, so nothing is being
+      bypassed and the condenser never floods. A short charge fools the valve the same way, so check the charge too.
+    fix: |
+      A valve that lost its dome charge (or stuck toward the condenser) passes everything through the cold condenser and never
+      holds head pressure. Verify the charge is right first, then pump down or recover (no venting) and replace the valve with the
+      same pressure setting from the nameplate or catalog (a Headmaster is not field-adjustable and its dome cannot be recharged
+      in the field).
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.fan_cycling_switch_stuck
-    name: Condenser fan-cycling switch or VFD head-pressure control failed (stuck open or stuck closed)
+    name: Condenser fan control stuck on — fan-cycling switch closed or VFD at full speed (head pressure collapses in cold air)
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {hpc: [fan_cycling, vfd]}
     prior: occasional
-    keywords: [fan cycling switch stuck, condenser fan running at -40, head pressure fan control failed, fan pressure switch]
+    keywords: [fan cycling switch stuck, condenser fan running at -40, head pressure fan control failed, fan pressure switch stuck closed]
     signs:
-      rf.fan_cycle_ctrl: failed_stuck!
-      vc.cond_sat: low|high
-      vc.cond_fan: running|off
+      rf.fan_cycle_ctrl: stuck_closed!
+      vc.low_ambient: yes?
+      vc.cond_sat: low!
+      vc.cond_fan: running
+      vc.superheat: high?
+      vc.evap_sat: low?
       gen.output: weak
-      vc.hps_trip: yes?
-    confirm: High-side gauge is well below the fan cut-out (in cold weather) yet the condenser fan runs full speed, OR
-      head pressure is well above cut-in while the fan switch contacts remain open.
+    confirm: In cold air the high-side gauge sits well below the fan cut-out, yet the condenser fan runs full speed (the switch
+      contacts stay closed, or the VFD stays at 100 %).
     fix: |
-      Meter across the fan-cycling pressure control (or check the VFD pressure transducer / ambient stat) while watching
-      the high-side gauge. Adjust cut-in and cut-out to hold condensing temperature near ~90–105 °F, or replace a
-      pitted/stuck pressure switch. In extreme cold (−40 °F), add a wind baffle or flooding control if fan cycling
-      alone still over-condenses from wind chill.
+      With the high-side gauge on, check that the contacts open below cut-out (or the VFD drops to its minimum). Replace a pitted
+      or stuck pressure switch, or fix the VFD's transducer, setpoint or minimum-speed setting. Fan cycling alone seldom holds
+      head far below about 0 °F: at -40 °F add a flooding valve with its winter charge, or at least a wind baffle, if head still
+      collapses.
+    safety: A cycling condenser fan can start without warning — lock out before reaching near the blade.
+    refs: [practice]
+
+  - id: rf.fan_cycling_switch_open
+    name: Condenser fan control stuck off — fan-cycling switch open or VFD with no output (fan will not start at high head)
+    systems: [vc.walkin, vc.reachin, vc.ice]
+    requires: {hpc: [fan_cycling, vfd]}
+    prior: occasional
+    keywords: [fan cycling switch open, condenser fan wont start high head, fan pressure switch stuck open, vfd no output condenser]
+    signs:
+      rf.fan_cycle_ctrl: stuck_open!
+      vc.cond_sat: high!
+      vc.cond_fan: off!
+      vc.hps_trip: yes?
+      vc.discharge_temp: high
+      vc.comp_amps: high?
+      gen.output: weak|none
+    confirm: Head pressure is well above the cut-in setting and the fan stays off; meter across the switch — full line voltage across
+      it with head above cut-in means it is open (or the VFD shows no output).
+    fix: |
+      Shut the compressor off before it trips on high pressure again. Check the switch setting and contacts, the VFD's
+      transducer and output, and the fan relay and wiring; replace the failed switch or drive. Never leave a jumper in place.
+    safety: A cycling condenser fan can start without warning — lock out before reaching near the blade.
     refs: [practice]
 
   - id: rf.water_reg_valve_closed
@@ -1411,18 +1601,22 @@ causes:
     keywords: [water regulating valve stuck closed, plugged water strainer, high head water cooled, no condenser water flow]
     signs:
       rf.wrv_state: stuck_closed!
+      rf.ice_alarm: high_temp?
       rf.water_flow: low_hot!
       vc.cond_sat: high!
       vc.hps_trip: yes?
       vc.discharge_temp: high
       vc.comp_amps: high?
       gen.output: weak|none
-    confirm: Head pressure is sky-high and the water leaving the condenser is a scalding trickle (or zero); opening the
-      water-regulating valve seat manually with a screwdriver restores flow and drops head pressure immediately.
+    confirm: Head pressure is sky-high and the water leaving the condenser is a scalding trickle (or zero); lifting the
+      water-regulating valve stem by hand restores flow and drops head pressure immediately (the leaving water can be
+      scalding; never jumper out the high-pressure switch to keep running).
     fix: |
       Shut the water supply valve and pull and clean the Y-strainer screen ahead of the water-regulating valve first
       (rust and pipe scale plug it constantly). Then check the WRV adjustment and capillary bellows: if the bellows has
-      lost its charge or the disc is seized, rebuild or replace the water-regulating valve.
+      lost its charge or the disc is seized, rebuild or replace the water-regulating valve (its sensing line taps the high side, so pump down or recover
+      before you disconnect it).
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.water_reg_valve_open
@@ -1446,32 +1640,54 @@ causes:
     refs: [practice]
 
   - id: rf.water_condenser_fouled
-    name: Water- or glycol-cooled condenser tubes scaled/fouled (high approach) or building loop flow lost
+    name: Water- or glycol-cooled condenser tubes scaled or fouled (high approach with normal flow)
     systems: [vc.walkin, vc.reachin, vc.ice]
     requires: {condenser: water}
     prior: occasional
-    keywords: [scaled water cooled condenser, high condenser approach, fouled coaxial condenser, glycol loop flow lost]
+    keywords: [scaled water cooled condenser, high condenser approach, fouled coaxial condenser, mineral scale condenser]
     signs:
       rf.cond_approach: high!
       vc.cond_sat: high!
-      rf.water_flow: normal|low_hot
+      rf.water_flow: normal
       rf.wrv_state: normal?
       vc.hps_trip: yes?
       vc.discharge_temp: high
       gen.output: weak
-    confirm: Even with the water-regulating valve wide open and water flowing through the condenser, the approach
-      (`vc.cond_sat_t - rf.water_out_f`) exceeds 18–20 °F because mineral scale coats the tube walls (or the building
-      glycol loop pump/strainer is starved).
+    confirm: Water is flowing normally (the leaving water sits well below condensing temperature and the water-regulating valve is
+      not starved), yet condensing temperature is more than 18–20 °F above the leaving water because mineral scale coats the tube walls.
     fix: |
-      If `rf.water_out_f - rf.water_in_f` is huge (> 22 °F), restore flow first (check loop valves, balancing valves,
-      air in the glycol loop, and strainer). If water flow is normal and leaving water is cool while head pressure is
-      high (high approach), circulate a food-grade descaling acid solution through the water side of the condenser and
-      flush thoroughly.
+      First rule out the other causes of high head on the same water: high subcooling and a standing pressure above the PT chart point
+      to overcharge or air in the system, not scale (the approach alone can't tell them apart). If flow is normal and the approach is
+      high, circulate a descaling solution rated for the tube metal and approved by the condenser maker through the water side, then flush
+      and neutralize thoroughly.
+    refs: [practice]
+
+  - id: rf.water_loop_flow_lost
+    name: Condenser water or glycol flow lost (loop pump off or air-locked, closed isolating valve, plugged strainer, supply shut off)
+    systems: [vc.walkin, vc.reachin, vc.ice]
+    requires: {condenser: water}
+    prior: occasional
+    keywords: [glycol pump off, loop flow lost, condenser water valve closed, no flow through condenser, strainer plugged glycol loop]
+    signs:
+      rf.water_flow: low_hot!
+      vc.cond_sat: high!
+      rf.wrv_state: normal
+      vc.hps_trip: yes?
+      vc.discharge_temp: high
+      vc.comp_amps: high?
+      gen.output: weak|none
+    confirm: Head pressure is high, the leaving water or glycol is within a few degrees of condensing temperature, the water-regulating
+      valve (if there is one) is not stuck, and nothing moves through the condenser.
+    fix: |
+      Shut the compressor off before the high-pressure switch trips again, then walk the water side from the condenser back: loop
+      pump running and turning the right way, isolating and balancing valves open, strainer clean, air purged, loop pressure and
+      expansion tank right, any 3-way or diverting valve in the right position; on a once-through supply, the shutoff valve and
+      supply pressure. Restore flow before you condemn the condenser or the valve.
     refs: [practice]
 
   - id: rf.oil_safety_lockout
     name: Semi-hermetic oil-pressure safety lockout (low oil, oil logged in evaporator, floodback dilution, or bad oil pump)
-    systems: [vc.walkin, vc.reachin]
+    systems: [vc.walkin]
     prior: occasional
     keywords: [oil safety tripped, sentronic lockout, penn oil switch tripped, low oil pressure, compressor off on oil]
     signs:
@@ -1480,8 +1696,8 @@ causes:
       vc.comp: off!
       rf.box_temp: high
       gen.output: none!
-    confirm: The semi-hermetic compressor is off on its manual-reset oil failure control (Penn P45/P28 button out or
-      Sentronic red LED); when reset, net oil pressure (oil pump pressure minus crankcase suction pressure) stays below
+    confirm: The semi-hermetic compressor is off on its manual-reset oil failure control (reset button out on a mechanical
+      control, lockout light on an electronic one); when reset, net oil pressure (oil pump pressure minus crankcase suction pressure) stays below
       9–12 psid for 90–120 seconds.
     fix: |
       Never repeatedly reset an oil safety without gauges on the crankcase and oil pump port!
@@ -1492,6 +1708,7 @@ causes:
          iced coil, or failed crankcase heater).
       3. If the crankcase is full of clean oil and net oil pressure is still zero: the oil pump or pickup screen is
          failed.
+    safety: "Never jumper out an oil-pressure safety to keep a compressor running. If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   # ======================= reach-in & prep-table specifics =======================
@@ -1540,6 +1757,7 @@ causes:
     prior: very_common
     keywords: [no water to ice machine, clogged water filter, water turned off, low water pressure ice maker]
     signs:
+      rf.ice_alarm: water_safety?
       rf.ice_water_in: none_low!
       rf.ice_sump_level: empty!
       rf.ice_cube_shape: hollow_thin?
@@ -1558,6 +1776,7 @@ causes:
     prior: common
     keywords: [water inlet valve bad, fill solenoid wont open, no water entering sump, plugged inlet screen]
     signs:
+      rf.ice_alarm: water_safety?
       rf.ice_wv_state: failed_closed!
       rf.ice_sump_level: empty!
       rf.ice_water_in: good
@@ -1576,17 +1795,18 @@ causes:
     prior: occasional
     keywords: [water valve weeping, fill valve leaking during freeze, sump overflowing in freeze, slow ice]
     signs:
+      rf.ice_alarm: freeze_safety?
       rf.ice_wv_state: leaking_through!
       rf.ice_sump_level: overflowing!
       rf.ice_cycle_time: long
-      rf.ice_cube_shape: solid_slab?
+      rf.ice_cube_shape: hollow_thin?
       gen.output: weak
-    confirm: During the freeze cycle (with zero volts on the water inlet solenoid coil), fresh warm water continues
+    confirm: During the freeze cycle (with zero volts on the water inlet solenoid coil), fresh supply water continues
       running into the sump and overflowing down the standpipe drain.
     fix: |
-      Verify the water inlet solenoid is not energized during freeze, then replace the weeping water inlet valve
-      (never try to stretch the diaphragm spring — a weeping inlet valve constantly dumps warm water into the chilled
-      trough and can flood the bin if the drain clogs).
+      Verify the water inlet solenoid is not energized during freeze (stray voltage on the coil or a stuck relay holds it
+      open), then clean the seat or replace the weeping water inlet valve. A valve that leaks through the whole freeze keeps
+      feeding supply-temperature water into the chilled sump and can flood the bin if the drain clogs.
     refs: [practice]
 
   - id: rf.ice_float_probe_fouled
@@ -1595,6 +1815,7 @@ causes:
     prior: common
     keywords: [float switch stuck, water level probe scaled, dirty water sensor, false water level]
     signs:
+      rf.ice_alarm: water_safety?
       rf.ice_level_sensor: fouled_stuck!
       rf.ice_sump_level: empty|overflowing
       rf.ice_cube_shape: hollow_thin?
@@ -1605,6 +1826,7 @@ causes:
       Pull the float assembly or conductivity probe housing, soak in ice-machine-safe descaler (phosphoric/citric acid),
       wipe the stainless pins bright, and rinse thoroughly. On reed-type float switches, ohm the switch while sliding
       the magnet float up and down and replace if it sticks or chatters.
+    safety: "Ice-machine cleaner and descaler are acids: gloves and eye protection, run them only in the machine's clean cycle with the bin emptied, rinse fully, and never mix them with sanitizer (hypochlorite) — the mix gives off chlorine gas."
     refs: [practice]
 
   - id: rf.ice_water_pump_failed
@@ -1613,6 +1835,7 @@ causes:
     prior: common
     keywords: [water pump bad, circulation pump dead, no water over evaporator, clogged distribution tube]
     signs:
+      rf.ice_alarm: freeze_safety?
       rf.ice_pump: off_weak!
       rf.ice_sump_level: full_normal
       gen.output: none|weak
@@ -1651,7 +1874,7 @@ causes:
     signs:
       rf.ice_evap_surface: scaled_rough!
       rf.ice_cycle_time: long
-      rf.ice_cube_shape: cloudy_stuck!
+      rf.ice_cube_shape: cloudy_stuck
       rf.ice_harvest_init: initiates_no_drop?
       gen.output: weak
     confirm: Chalky white mineral scale coats the evaporator cells and bridge area (acting as an insulator in freeze
@@ -1661,6 +1884,7 @@ causes:
       wire brushes on nickel-plated evaporators!), scrub stubborn corners with a nylon pad, then sanitize. If the
       nickel plating is blistering or peeling off the grid so ice locks into the bare metal, the evaporator must be
       replaced.
+    safety: "Ice-machine cleaner and descaler are acids: gloves and eye protection, run them only in the machine's clean cycle with the bin emptied, rinse fully, and never mix them with sanitizer (hypochlorite) — the mix gives off chlorine gas."
     refs: [practice]
 
   - id: rf.ice_warm_water
@@ -1670,12 +1894,12 @@ causes:
     keywords: [hot water to ice machine, warm supply water, slow ice production, long freeze time]
     signs:
       rf.ice_water_temp: hot!
-      rf.ice_cycle_time: long!
+      rf.ice_cycle_time: long?
       rf.ice_cube_shape: normal
       gen.output: weak
       gen.runs_constantly: 'yes'
     confirm: Everything on the refrigeration and water side checks out normal, but the water entering the machine
-      measures above 70–75 °F (often from a failed mop-sink mixing valve check valve or a line routed over a ceiling
+      measures above about 80 °F (often from a failed mop-sink mixing valve check valve or a line routed over a ceiling
       heater).
     fix: |
       Trace the cold water supply pipe: repair any leaking hot/cold mixing valve check valve in the galley that is
@@ -1690,6 +1914,7 @@ causes:
     prior: common
     keywords: [freeze up, solid block of ice, ice thickness probe dirty, wont go into harvest, bridge too thick]
     signs:
+      rf.ice_alarm: freeze_safety?
       rf.ice_harvest_init: stuck_in_freeze!
       rf.ice_cube_shape: solid_slab!
       rf.ice_cycle_time: long
@@ -1697,11 +1922,12 @@ causes:
     confirm: A full bridge forms and keeps growing into a solid block of ice over the evaporator without the controller
       ever switching from freeze to harvest.
     fix: |
-      Melt the ice slab off with warm water (never pry on the evaporator grid!).
-      - On conductivity thickness probes (Manitowoc style): clean mineral film off the metal probe tip and ground frame
-        with nickel-safe cleaner, check that the probe sits ~1/8–3/16 in. off the grid face, and test by holding your
-        wet finger from the probe tip to the evaporator frame (it should trigger harvest within 6–10 seconds).
-      - On Curtain/Acoustic/Float harvest systems (Hoshizaki/Scotsman): clean and test the float switch or sonic probe.
+      Switch the machine off and melt the slab off with warm water (never pry on the evaporator grid!).
+      - On conductivity thickness probes: clean the mineral film off the probe tip and its ground with
+        nickel-safe cleaner, check the gap to the grid (about 1/8 in. is the factory setting), and run the maker's probe test
+        (jumper or water-contact method) — it should start harvest after the maker's sensing delay (roughly 7–10 seconds).
+      - On float-switch machines (where the lower float ends the freeze): clean the float stem and test the
+        switch with the machine's output test; on other makes use the maker's thickness-sensor test.
     refs: [practice]
 
   - id: rf.ice_hgv_stuck_closed
@@ -1710,6 +1936,7 @@ causes:
     prior: common
     keywords: [harvest valve stuck closed, hot gas valve bad on ice machine, wont drop ice in harvest, harvest coil open]
     signs:
+      rf.ice_alarm: harvest_safety?
       rf.ice_hgv: stuck_closed!
       rf.ice_harvest_init: initiates_no_drop!
       rf.ice_cube_shape: solid_slab
@@ -1720,6 +1947,7 @@ causes:
       During harvest, meter line voltage at the hot-gas solenoid coil: if voltage is present and the valve stays cold,
       check coil continuity and test with a solenoid magnet. Replace an open coil, or recover/pump down and replace a
       mechanically stuck hot-gas harvest valve.
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.ice_hgv_leaking
@@ -1728,18 +1956,24 @@ causes:
     prior: occasional
     keywords: [hot gas valve leaking in freeze, harvest valve weeping, slow freeze hot suction, melting corner of ice]
     signs:
+      rf.ice_alarm: freeze_safety?
       rf.ice_hgv: leaking_in_freeze!
       rf.ice_cycle_time: long!
       rf.ice_cube_shape: hollow_thin
       vc.evap_sat: high
       vc.superheat: high?
       gen.output: weak
+    when:
+      - if: {metering: [txv, eev]}
+        signs:
+          vc.superheat: {normal: 0.45, high: 0.5, low: 0.05}
     confirm: Five minutes into the freeze cycle (harvest coil de-energized), the discharge bypass tube downstream of
-      the hot-gas harvest valve remains hot to the touch and one corner of the evaporator refuses to freeze properly.
+      the hot-gas harvest valve stays hot on an IR thermometer or pipe probe and one corner of the evaporator refuses to freeze properly.
     fix: |
       Confirm no stray voltage is on the harvest solenoid coil during freeze. Recover the refrigerant charge, replace
       the leaking hot-gas harvest valve and liquid-line filter-drier, evacuate to 500 microns, and weigh in the exact
       nameplate charge (ice machines are critically charged!).
+    safety: "If the nameplate refrigerant is R-290, R-600a (A3) or an A2L blend: no flame, grinder or arcing probe near an open or leaking circuit, ventilate first, recover with flammable-rated equipment, purge with dry nitrogen before and while brazing, and charge only the nameplate weight."
     refs: [practice]
 
   - id: rf.ice_harvest_assist_failed
@@ -1748,6 +1982,7 @@ causes:
     prior: occasional
     keywords: [harvest assist bad, harvest air pump failed, pusher rod stuck, slab hangs in harvest]
     signs:
+      rf.ice_alarm: harvest_safety?
       rf.ice_harvest_assist: failed!
       rf.ice_harvest_init: initiates_no_drop!
       rf.ice_hgv: ok
@@ -1780,4 +2015,199 @@ causes:
       - Capillary bin thermostat: make sure the bulb isn't touching the cold evaporator frame (which tricks it into
         shutting off early), and verify it opens when packed in ice and closes when warmed in your hand; replace if
         dead.
+    refs: [practice]
+
+  # ======================= added after blind review (2026-10-24) =======================
+  - id: rf.no_hpc_cold
+    name: Outdoor condenser has no head-pressure control and is running in cold air (starved TXV, low suction, iced coil)
+    systems: [vc.walkin, vc.reachin, vc.ice]
+    requires: {hpc: none, condenser: air}
+    prior: common
+    keywords: [no low ambient kit, no head pressure control, winter low head, outdoor condensing unit no flooding valve, trips on low pressure in winter]
+    signs:
+      vc.low_ambient: yes!
+      vc.cond_sat: low!
+      vc.evap_sat: low
+      vc.superheat: high
+      vc.sight_glass: bubbles?
+      vc.evap_frost: partial|heavy
+      vc.lps_trip: yes?
+      gen.output: weak
+    confirm: Head pressure follows the outdoor air — condensing temperature only 10–20 °F over ambient and far below ~85 °F (about 180
+      psig on R-404A) — and the unit has no flooding valve, fan-cycling switch or variable-speed fan. The liquid line flashes and the
+      TXV starves until the weather warms.
+    fix: |
+      Don't treat it as low charge: adding refrigerant to a head problem that follows the weather overcharges the unit the first warm
+      day. Fit low-ambient head-pressure control sized for the coldest air: a flooding valve with the maker's winter charge and a
+      receiver that holds the whole charge (fan cycling alone seldom holds head much below 0 °F), an insulated receiver
+      and liquid line, a crankcase heater and a wind baffle.
+    refs: [practice]
+
+  - id: rf.ice_cold_water_harvest
+    name: Supply water or room air too cold for hot-gas harvest (evaporator warms slowly, slab hangs or harvest runs long)
+    systems: [vc.ice]
+    prior: occasional
+    keywords: [cold water ice machine, ice machine in cold room, ice wont drop in winter, long harvest, harvest slow, ice machine unheated space]
+    signs:
+      rf.ice_alarm: harvest_safety?
+      rf.ice_water_temp: cold?
+      vc.low_ambient: yes?
+      rf.ice_harvest_init: initiates_no_drop
+      rf.ice_hgv: ok
+      rf.ice_cube_shape: solid_slab|cloudy_stuck
+      rf.ice_evap_surface: clean
+      gen.output: weak
+    confirm: The harvest valve opens and its outlet pipe gets hot, the evaporator is clean, yet the plate warms far slower than the maker's
+      harvest time. Supply water is under ~45 °F or the room under ~50 °F, and the slab drops normally once either is warmed.
+    fix: |
+      Bring the room and water into the maker's operating range (typically about 45–100 °F air and 45–90 °F water): move the machine to a
+      heated space and don't feed it straight off an outdoor or snow-melt line (run the supply through the warm room first). Then
+      confirm the TXV bulb is tight and the valve isn't stuck open (either keeps the plate cold in harvest) and, if the board allows,
+      lengthen the harvest timer one step. Remote-condenser machines also need their low-ambient (headmaster) kit.
+    refs: [practice]
+
+  - id: rf.ice_harvest_sensor_bad
+    name: Harvest-termination thermistor loose, out of position, drifted, open or shorted (harvest ends too soon, or runs to the backup timer)
+    systems: [vc.ice]
+    prior: common
+    keywords: [thermistor, harvest thermistor, harvest backup timer, harvest too short, harvest too long, evaporator sensor, ice machine beeps]
+    signs:
+      rf.ice_thermistor: off!
+      rf.ice_alarm: harvest_safety?
+      rf.ice_harvest_init: initiates_no_drop?
+      rf.ice_hgv: ok
+      rf.ice_cube_shape: solid_slab|cloudy_stuck
+      gen.output: weak|none
+    confirm: The harvest valve opens and the evaporator warms, but the board ends harvest before the slab is free (sensor reading warm or
+      loose) or runs to its backup timer with melted, wet ice (sensor reading cold or open); the thermistor's resistance doesn't match the
+      maker's chart at the tube temperature, or the board shows a thermistor or backup-timer alarm.
+    fix: |
+      Power off. Re-seat the thermistor tight against the tube where the maker locates it, insulate it, and check its resistance against
+      the maker's chart (open or shorted = replace). Don't lengthen the harvest timer to hide a bad sensor.
+    refs: [practice]
+
+  - id: rf.defrost_heater_breaker
+    name: Defrost heater breaker or fuse tripped (shorted or grounded element, wet junction box, chafed lead)
+    systems: [vc.walkin, vc.reachin]
+    requires: {defrost: electric}
+    prior: occasional
+    keywords: [defrost heater breaker tripped, heater fuse blown, grounded heater element, defrost trips breaker]
+    signs:
+      gen.breaker: tripped|retrips
+      rf.defrost_power: missing
+      rf.defrost_heater_amps: zero!
+      rf.defrost_init: initiating
+      rf.defrost_term: late_never
+      vc.evap_frost: heavy
+      rf.box_temp: high
+      gen.output: weak
+    confirm: The compressor and fans run, but the heater branch breaker or fuse is open (or trips the moment defrost starts); with the heater
+      leads off, the breaker holds and one or more elements read a short to the sheath with a megohmmeter.
+    fix: |
+      Lock out and tag the heater circuit. Disconnect the heater leads and megger each element to its sheath (megohms is good); replace the
+      grounded element, dry out and repair a wet junction box, and replace chafed leads. Reset once with the leads reconnected; if it trips again
+      the fault is still in the wiring. Never upsize the breaker or fuse.
+    safety: A grounded heater element is a shock and fire hazard — never reset a breaker repeatedly on it.
+    refs: [practice]
+
+  - id: rf.offcycle_defrost_ineffective
+    name: Off-cycle (air) defrost can't clear the coil — box held under ~34 °F, fans stopping in the off cycle, or compressor restarting too soon
+    systems: [vc.walkin, vc.reachin]
+    requires: {defrost: off_cycle}
+    prior: common
+    keywords: [cooler coil icing, air defrost not clearing, produce cooler iced coil, setpoint too low cooler, short off cycle]
+    signs:
+      vc.evap_frost: heavy!
+      rf.box_temp: low|normal
+      gen.runs_constantly: 'yes'
+      vc.evap_fan: running
+      vc.evap_sat: low
+      rf.lpc_setting: wrong_tight?
+    confirm: A medium-temp cooler with no heaters or hot gas ices up while the box sits near or under 34 °F, because the compressor barely rests and the
+      coil never warms above freezing between cycles.
+    fix: |
+      Raise the setpoint (or fix the probe or thermostat that holds the box too cold) so the coil can reach 35–40 °F in the off cycle; make
+      sure the evaporator fans keep running with the compressor off (air defrost needs them); check the LPC cut-in so the compressor stays
+      off until the coil is above freezing, or add a timed off-cycle. If the box has to run below 34 °F it needs electric or hot-gas defrost.
+    refs: [practice]
+
+  - id: rf.hot_gas_defrost_weak
+    name: Hot-gas defrost too weak or slow — low head in cold air, hot-gas regulator or check valve sticking, or short charge
+    systems: [vc.walkin, vc.reachin]
+    requires: {defrost: hot_gas}
+    prior: occasional
+    keywords: [hot gas defrost slow, hot gas defrost cold weather, coil still iced after hot gas defrost, defrost times out, hot gas defrost takes too long]
+    signs:
+      rf.hot_gas_valve: normal!
+      rf.defrost_term: late_never
+      rf.defrost_init: initiating
+      vc.evap_frost: partial|heavy
+      vc.low_ambient: yes?
+      rf.box_temp: high
+      gen.output: weak
+    confirm: The hot-gas valve opens and its outlet line gets hot, yet the coil warms slowly or stalls and the defrost ends on its time limit
+      with ice left; head pressure collapses when defrost starts in cold air.
+    fix: |
+      Check that head pressure holds during defrost (the low-ambient control must stay in service), that the hot-gas pressure regulator or
+      defrost bypass is set per the maker, that the check valves around the TXV and in the pan loop aren't stuck, that the liquid-return
+      path isn't blocked, and that the charge is enough for a defrost (hot-gas defrost uses charge). Don't just lengthen the fail-safe time.
+    refs: [practice]
+
+  - id: rf.controller_params_wrong
+    name: Electronic controller settings wrong or reset (setpoint, defrost interval, length or termination, fan delay, drip time)
+    systems: [vc.walkin, vc.reachin]
+    prior: common
+    keywords: [controller reset after power outage, defrost parameters wrong, controller settings changed, keypad unlocked, parameters back to default]
+    signs:
+      gen.after_outage: yes?
+      gen.recent_work: yes?
+      rf.probe_cal: accurate
+      rf.defrost_init: not_initiating?
+      rf.defrost_term: early|late_never
+      vc.evap_frost: partial|heavy
+      rf.box_temp: high|low
+    confirm: A parameter read-out disagrees with the maker's sheet or a saved copy (interval, duration, termination temperature, fan delay,
+      drip time, setpoint or differential, defrost type), often after a power event or someone using the keypad, while the probe checks out.
+    fix: |
+      Read every parameter against the maker's table or a saved copy, restore the site values, lock the keypad and save a copy. If a forced
+      defrost does nothing at all, the output relay or controller is bad instead.
+    refs: [practice]
+
+  - id: rf.box_overcooling
+    name: Box running too cold — setpoint or differential set low, thermostat or relay stuck on, or product in the evaporator's cold air stream
+    systems: [vc.walkin, vc.reachin]
+    prior: common
+    keywords: [freezing lettuce, cooler too cold, produce freezing, box below setpoint, product freezing, cooler freezing food]
+    signs:
+      rf.box_temp: low!
+      gen.output: normal
+      rf.probe_cal: accurate
+      gen.runs_constantly: yes?
+    confirm: The box sits more than 4 °F under setpoint with the probe reading true; the controller output never opens (welded relay or
+      contactor, stuck thermostat) or the setpoint or differential is low, or cartons sit in the evaporator discharge.
+    fix: |
+      Check the setpoint and differential, then meter the controller output and relay or contactor to see whether it opens at cut-out (on a
+      pump-down system, also that the liquid-line solenoid closes). Move product at least 18 in. from the evaporator discharge and off the coil
+      face. If the box still can't hold above 33 °F with the control satisfied, add or reset an EPR or fan cycling.
+    refs: [practice]
+
+  - id: rf.drain_line_ice_plug
+    name: Drain line freezes with the heater working — no trap or trap outside the freezer, poor slope, cold gap, or air drawn up the line
+    systems: [vc.walkin, vc.reachin]
+    prior: occasional
+    keywords: [frozen drain working heater, drain freezes again, no trap on freezer drain, drain line pitch, ice in drain trap]
+    signs:
+      rf.drain_line: frozen!
+      rf.drain_heater: warm_ok
+      rf.ice_pattern: pan_backup!
+      vc.evap_frost: heavy
+      rf.box_temp: high?
+      gen.output: weak?
+    confirm: The heat tape is warm and draws current, but the line still freezes solid in one spot (a run with no heat, a dip that holds water,
+      a gap where the tape isn't touching the pipe, or a missing or cold trap letting cold air up the line).
+    fix: |
+      Thaw the line, then fix the cause: continuous pitch (at least 1/4 in. per foot) with no dips, heat tape in contact the whole way to the
+      floor drain, a trap outside the box in the warm space (never inside), the air break sealed, and the pan heater element seated. Don't
+      just re-thaw it every week.
+    safety: Lock out the drain-heater circuit before the thaw, and see the walk-in entry precautions (prop the door, test the inside release).
     refs: [practice]
