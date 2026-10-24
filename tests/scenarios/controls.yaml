@@ -1,0 +1,363 @@
+# Controls & low-voltage circuits (kb/controls.yaml). One or more calls per cause, plus opening moves where only
+# the complaint or one reading is known.
+
+# ---------------- 24 VAC circuit ----------------
+- name: A/C dead at the thermostat, no 24 V, the board fuse blows again and the short clears with the outdoor cable lifted
+  system: vc.ac
+  findings: {gen.output: none, gen.power: present, gen.control_v: missing, ctl.lv_fuse: reblows, ctl.short_where: cable}
+  expect: {top: ctl.short_cable, not_top3: [gen.no_line_power]}
+
+- name: Boiler with a blown 3 A fuse and a nicked thermostat cable
+  system: fuel.boiler
+  findings: {gen.output: none, blr.start: nothing, ctl.lv_fuse: blown, ctl.short_where: cable}
+  expect: {top: ctl.short_cable}
+
+- name: Fuse blows the moment the cooling call comes on — the contactor coil reads near 0 Ω
+  system: vc.ac
+  findings: {gen.output: none, ctl.lv_fuse: reblows, ctl.short_where: coil}
+  expect: {top: ctl.short_coil}
+
+- name: Zone relay coil shorted — new 3 A fuse blows on the heat call
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: 'off', ctl.lv_fuse: reblows, ctl.coil_ohms: shorted}
+  expect: {top: ctl.short_coil}
+
+- name: Boiler control dead — line voltage on the transformer primary, nothing on the secondary, fuse intact
+  system: fuel.boiler
+  findings: {gen.power: present, gen.control_v: missing, ctl.xfmr: no_secondary, ctl.lv_fuse: intact}
+  expect: {top: ctl.xfmr_open, not_top: [ctl.short_cable]}
+
+- name: Contactor chatters and the A/C drops out — 24 V sags to 19 V on the call, tap is right
+  system: vc.ac
+  findings: {ctl.contactor_noise: chatter, gen.intermittent: 'yes', ctl.rc_volts: low, ctl.xfmr_tap: matches}
+  expect: {top: ctl.xfmr_overloaded}
+
+- name: New condensing unit on a 208 V service, 24 V reads 31 V — transformer left on the 240 V tap
+  system: vc.ac
+  findings: {gen.recent_work: 'yes', ctl.rc_volts: high, ctl.xfmr_tap: wrong}
+  expect: {top: ctl.xfmr_tap}
+
+- name: Dual-fuel heat pump, fuses blowing since the furnace was added — 48 V between the two R terminals
+  system: vc.hp
+  findings: {gen.recent_work: 'yes', ctl.lv_fuse: blown, ctl.phasing: out_of_phase}
+  expect: {top: ctl.xfmr_phasing}
+
+- name: Oil furnace dead after a filter change — power at the unit, none on the transformer, door switch open
+  system: fuel.furnace
+  findings: {gen.output: none, gen.dead: 'yes', gen.power: present, ctl.xfmr: no_primary, ctl.door_sw: open}
+  expect: {top: ctl.door_switch}
+
+- name: Air handler dead with the blower door off — no 24 V
+  system: vc.hp
+  findings: {gen.output: none, gen.dead: 'yes', gen.control_v: missing, ctl.door_sw: open}
+  expect: {top: ctl.door_switch}
+
+- name: Contactor chatters, transformer reads 26 V but the coil gets 19 V — corroded splice outdoors
+  system: vc.ac
+  findings: {ctl.contactor_noise: chatter, gen.intermittent: 'yes', ctl.rc_volts: normal, ctl.vdrop: drop}
+  expect: {top: ctl.lv_connection}
+
+- name: Float switch found wire-nutted out after a service call
+  system: vc.ac
+  findings: {gen.recent_work: 'yes', ctl.jumper_found: found}
+  expect: {top: ctl.jumper_left}
+
+# ---------------- safety switches ----------------
+- name: Walk-in off on the high-pressure switch with a clean condenser — switch still open with the head normal
+  system: vc.walkin
+  findings: {gen.output: none, vc.comp: 'off', vc.hps_trip: 'yes', vc.cond_dirty: 'no', ctl.switch_cont: open}
+  expect: {top: ctl.hps_failed, not_top: [vc.dirty_condenser]}
+
+- name: Heat pump off on the low-pressure switch, switch reads open with the system equalized
+  system: vc.hp
+  findings: {vc.comp: 'off', vc.lps_trip: 'yes', ctl.switch_cont: open}
+  expect: {top: ctl.lps_failed, not_top: [vc.undercharge]}
+
+- name: A/C off, no water anywhere, the float switch is open with the pan dry
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', gen.water_leak: 'no', ctl.float_sw: open_dry}
+  expect: {top: ctl.float_stuck, not_top: [vc.drain_clogged]}
+
+- name: A/C off and water in the pan, the float switch tripped — a clogged drain, not the switch
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', ctl.float_sw: open_wet}
+  expect: {top: vc.drain_clogged, not_top3: [ctl.float_stuck]}
+
+- name: Boiler spill switch won't reset — draft normal, switch reads open cold
+  system: fuel.boiler
+  findings: {gen.output: none, blr.start: nothing, blr.spill_switch: tripped, blr.draft_br: normal, ctl.switch_cont: open}
+  expect: {top: ctl.rollout_failed}
+
+- name: Ducted A/C dead outside, call present, the outdoor board shows its lockout code
+  system: vc.ac
+  ctx: {hp_unit: ducted}
+  findings: {gen.output: none, vc.comp: 'off', gen.call: calling, ctl.board_status: lockout}
+  expect: {top: ctl.board_lockout}
+
+# ---------------- relays, contactors, timers ----------------
+- name: Circulator dead on a call, zone relay not pulling in, relay coil reads open
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: 'off', gen.call: calling, ctl.relay: not_pulling, ctl.coil_ohms: open}
+  expect: {top: ctl.relay_coil_open}
+
+- name: Circulator relay pulled in but 40 V across its closed contacts
+  system: hydronic
+  findings: {hyd.circ: 'off', gen.call: calling, ctl.relay: pulled_in, ctl.contact_drop: drop}
+  expect: {top: ctl.relay_pitted}
+
+- name: Furnace blower relay pulled in, contacts dropping voltage, heat comes and goes
+  system: fuel.furnace
+  findings: {gen.intermittent: 'yes', ctl.relay: pulled_in, ctl.contact_drop: drop}
+  expect: {top: ctl.relay_pitted}
+
+- name: Circulator runs all the time, no call, relay stays in with no voltage on its coil
+  system: hydronic
+  findings: {gen.runs_constantly: 'yes', hyd.circ: running, gen.call: not_calling, ctl.relay: stuck_in, ctl.coil_v_off: none}
+  expect: {top: ctl.relay_stuck}
+
+- name: A/C runs with the thermostat off — 24 V still on the contactor coil
+  system: vc.ac
+  findings: {gen.runs_constantly: 'yes', vc.comp: running, vc.contactor: welded, ctl.coil_v_off: present}
+  expect: {top: ctl.call_stuck_on, not_top: [vc.contactor_welded]}
+
+- name: A/C runs with the thermostat off — contactor in with no voltage on its coil
+  system: vc.ac
+  findings: {gen.call: not_calling, vc.comp: running, vc.contactor: welded, ctl.coil_v_off: none}
+  expect: {top: vc.contactor_welded, not_top: [ctl.call_stuck_on]}
+
+- name: Boiler runs on with the thermostat satisfied, 24 V still on the zone relay
+  system: fuel.boiler
+  findings: {gen.runs_constantly: 'yes', blr.start: normal, ctl.coil_v_off: present}
+  expect: {top: ctl.call_stuck_on}
+
+- name: Contactor buzzing loudly, cooling fine, 24 V normal
+  system: vc.ac
+  findings: {vc.comp: running, gen.output: normal, ctl.contactor_noise: buzz, ctl.rc_volts: normal}
+  expect: {top: ctl.contactor_buzz}
+
+- name: Compressor won't start on the call, then comes on by itself after four minutes
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', gen.call: calling, ctl.start_delay: delayed}
+  expect: {top: ctl.asc_normal}
+
+- name: After the outage the rooftop sat for five minutes, then started and ran normally
+  system: vc.ac
+  findings: {gen.after_outage: 'yes', ctl.start_delay: delayed}
+  expect: {top: ctl.asc_normal}
+
+- name: Compressor never starts, call present, 24 V into the delay timer and nothing out
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', gen.call: calling, vc.coil_24v: 'no', ctl.start_delay: never, ctl.timer_io: in_no_out}
+  expect: {top: ctl.asc_failed, not_top: [vc.safety_open]}
+
+# ---------------- thermostats ----------------
+- name: No heat — the thermostat was left on cool
+  system: fuel.boiler
+  findings: {gen.output: none, ctl.stat_settings: wrong}
+  expect: {top: ctl.stat_settings_wrong}
+
+- name: New digital thermostat on a heat pump, weak heat — set up as a conventional system
+  system: vc.hp
+  ctx: {controls: stat_digital}
+  findings: {gen.recent_work: 'yes', gen.output: weak, ctl.stat_config: wrong}
+  expect: {top: ctl.stat_config_wrong}
+
+- name: No cooling, thermostat set right but nothing on Y at its sub-base — R to Y at the unit starts it
+  system: vc.ac
+  findings: {gen.output: none, gen.call: not_calling, ctl.stat_settings: ok, ctl.call_path: not_sent, ctl.jumper_test: starts}
+  expect: {top: ctl.stat_failed, not_top: [gen.no_call]}
+
+- name: Zone cold — the thermostat sends 24 V on W but nothing reaches the zone panel
+  system: hydronic
+  findings: {gen.output: none, gen.call: not_calling, ctl.call_path: lost_between}
+  expect: {top: ctl.stat_wire_open}
+
+- name: Boiler won't fire — thermostat calling at its terminals, no call at T–T, runs when T–T is jumpered
+  system: fuel.boiler
+  findings: {gen.output: none, gen.call: not_calling, ctl.call_path: lost_between, blr.tt: 'no'}
+  expect: {top: ctl.stat_wire_open, not_top: [blr.interlock_open]}
+
+- name: Thermostat blank, no cooling, batteries read 0.9 V a cell
+  system: vc.ac
+  findings: {ctl.stat_display: blank, gen.output: none, ctl.batteries: low}
+  expect: {top: ctl.batteries_dead}
+
+- name: New Wi-Fi thermostat restarts every time the furnace starts — no C wire
+  system: fuel.furnace
+  findings: {ctl.stat_display: reboots, gen.intermittent: 'yes', ctl.c_wire: missing}
+  expect: {top: ctl.no_c_wire}
+
+- name: After a thermostat swap the cooling doesn't come on — Y and G landed on each other's terminals
+  system: vc.ac
+  findings: {gen.recent_work: 'yes', gen.output: none, ctl.wiring_map: wrong}
+  expect: {top: ctl.stat_miswired}
+
+- name: Mechanical thermostat short-cycles the boiler, anticipator set far below the W current
+  system: fuel.boiler
+  ctx: {controls: stat_mech}
+  findings: {gen.short_cycle: 'yes', ctl.cycle_setting: too_fast}
+  expect: {top: ctl.anticipator, not_top: [blr.control_cycling]}
+
+- name: Old mercury thermostat runs the furnace well past the dial — base off level
+  system: fuel.furnace
+  ctx: {controls: stat_mech}
+  findings: {gen.output: weak, ctl.stat_level: 'off'}
+  expect: {top: ctl.stat_off_level}
+
+# ---------------- sensors ----------------
+- name: A/C short-cycles every afternoon — the thermostat sits in the sun by a window
+  system: vc.ac
+  findings: {gen.short_cycle: 'yes', ctl.stat_spot: poor}
+  expect: {top: ctl.stat_mislocated, not_top: [vc.control_cycling]}
+
+- name: Walk-in box warm while the controller reads 36 °F — probe mounted in the evaporator discharge
+  system: vc.walkin
+  findings: {gen.output: weak, ctl.stat_spot: poor}
+  expect: {top: ctl.stat_mislocated}
+
+- name: Zone stays cold, the controller reads 6 °F high, and its 10 kΩ sensor reads 25 kΩ at 70 °F
+  system: hydronic
+  findings: {gen.output: weak, ctl.stat_vs_ref: 'off'}
+  inputs: {ctl.sensor_f: 70, ctl.sensor_kohm: 25}
+  expect:
+    top: ctl.thermistor_failed
+    measured: {ctl.sensor_ohms: 'off'}
+
+- name: Remote sensor reads OL at the controller
+  system: vc.hp
+  findings: {gen.output: weak}
+  inputs: {ctl.sensor_f: 68, ctl.sensor_kohm: 9999}
+  expect:
+    top: ctl.thermistor_failed
+    measured: {ctl.sensor_ohms: open}
+
+- name: Thermostat reads 4 °F off, but its sensor ohms right on the chart — wrong sensor type set
+  system: vc.ac
+  findings: {ctl.stat_vs_ref: 'off'}
+  inputs: {ctl.sensor_f: 77, ctl.sensor_kohm: 10.3}
+  expect:
+    top: ctl.sensor_config
+    measured: {ctl.sensor_ohms: ok}
+
+- name: 10 kΩ table at 32 °F — a shorted sensor reads 0.05 kΩ
+  system: fuel.boiler
+  inputs: {ctl.sensor_f: 32, ctl.sensor_kohm: 0.05}
+  expect: {measured: {ctl.sensor_ohms: shorted}}
+
+- name: 10 kΩ table at -20 °F — 186 kΩ is on the curve
+  system: ahu
+  inputs: {ctl.sensor_f: -20, ctl.sensor_kohm: 186}
+  expect: {measured: {ctl.sensor_ohms: ok}}
+
+- name: Sensor ohms entered with no temperature — no verdict
+  system: hydronic
+  inputs: {ctl.sensor_kohm: 12}
+  expect: {unmeasured: [ctl.sensor_ohms]}
+
+# ---------------- heat pump O/B in cooling ----------------
+- name: New thermostat, heat pump blows hot air on a cooling call — O/B set the wrong way
+  system: vc.ac
+  ctx: {rev_valve: 'yes', hp_unit: ducted}
+  findings: {ctl.cool_mode: heating, gen.recent_work: 'yes', ctl.ob_setting: reversed}
+  expect: {top: ctl.ob_reversed_cool}
+
+- name: Heat pump heats on a cooling call, O/B set right, no 24 V at the valve coil
+  system: vc.ac
+  ctx: {rev_valve: 'yes', hp_unit: ducted}
+  findings: {ctl.cool_mode: heating, ctl.ob_setting: ok, ctl.rv_coil_cool: wrong}
+  expect: {top: ctl.rv_coil_wrong_cool}
+
+# ---------------- DDC / BAS ----------------
+- name: Air handler runs all night — its start point is overridden on at the front end
+  system: ahu
+  findings: {gen.runs_constantly: 'yes', ctl.point_mode: override}
+  expect: {top: ctl.point_override}
+
+- name: Building cold every Monday morning — the BAS puts the boiler unoccupied until noon
+  system: hydronic
+  ctx: {controls: bas}
+  findings: {gen.output: none, gen.intermittent: 'yes', ctl.occupancy: unocc_when_occupied, ctl.point_mode: auto}
+  expect: {top: ctl.schedule_wrong}
+
+- name: Air handler stays occupied all night — the occupancy sensor never clears
+  system: ahu
+  findings: {ctl.occupancy: occ_when_empty, ctl.occ_sensor: faulted}
+  expect: {top: ctl.occ_sensor_bad}
+
+- name: After the outage the air handler controller came back with a default program and the clock at midnight
+  system: ahu
+  findings: {gen.after_outage: 'yes', ctl.controller: reset}
+  expect: {top: ctl.controller_reset}
+
+- name: Boiler plant controller shows offline at the front end, values hours old
+  system: hydronic
+  ctx: {controls: bas}
+  findings: {ctl.controller: offline}
+  expect: {top: ctl.comm_lost}
+
+- name: BAS says the walk-in condensing unit is on but nothing runs — no signal at the controller output
+  system: vc.walkin
+  ctx: {controls: bas}
+  findings: {gen.output: none, vc.comp: 'off', ctl.cmd_vs_fb: mismatch, ctl.output_signal: none_at_controller}
+  expect: {top: ctl.bas_output_failed}
+
+- name: BAS commands the loop pump on, signal at the controller, nothing at the pump starter
+  system: hydronic
+  ctx: {controls: bas}
+  findings: {gen.output: none, hyd.circ: 'off', ctl.cmd_vs_fb: mismatch, ctl.output_signal: lost_in_field}
+  expect: {top: ctl.field_wire_lost}
+
+- name: Steam valve commanded 100 % open, feedback 0 %, signal present at the actuator
+  system: steam
+  ctx: {controls: bas}
+  findings: {gen.output: weak, ctl.cmd_vs_fb: mismatch, ctl.output_signal: present}
+  expect: {top: ctl.actuator_failed}
+
+# ---------------- opening moves ----------------
+- name: Opening move — oil furnace with power at the unit and no 24 V
+  system: fuel.furnace
+  findings: {gen.power: present, gen.control_v: missing}
+  expect:
+    top: gen.control_power
+    next_any: [ctl.lv_fuse, ctl.door_sw, ctl.xfmr]
+
+- name: Opening move — no cooling, no call at the unit
+  system: vc.ac
+  findings: {gen.output: none, gen.call: not_calling}
+  expect:
+    top3: [gen.no_call]
+    next_any: [ctl.stat_settings, ctl.call_path, ctl.stat_display, ctl.batteries]
+
+- name: Opening move — thermostat blank
+  system: vc.ac
+  findings: {ctl.stat_display: blank}
+  expect:
+    top3: [ctl.batteries_dead]
+    next_any: [ctl.batteries, ctl.c_wire, gen.control_v]
+
+- name: Second move — blown 3 A fuse, A/C dead, compressor off
+  system: vc.ac
+  findings: {ctl.lv_fuse: blown, gen.output: none, vc.comp: 'off'}
+  expect:
+    top3: [ctl.short_cable]
+    next_any: [ctl.short_where]
+
+- name: Opening move — contactor chattering
+  system: vc.ac
+  findings: {ctl.contactor_noise: chatter}
+  expect:
+    top3: [ctl.lv_connection, ctl.xfmr_overloaded]
+    next_any: [gen.intermittent, vc.comp, gen.output]
+
+- name: Second move — contactor chattering, comes and goes, compressor running
+  system: vc.ac
+  findings: {ctl.contactor_noise: chatter, gen.intermittent: 'yes', vc.comp: running, gen.output: weak}
+  expect:
+    next_any: [ctl.rc_volts, ctl.vdrop, ctl.c_wire]
+
+- name: Opening move — BAS says on but nothing runs
+  system: hydronic
+  ctx: {controls: bas}
+  findings: {ctl.cmd_vs_fb: mismatch}
+  expect:
+    next_any: [ctl.output_signal]

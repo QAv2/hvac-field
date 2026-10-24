@@ -405,22 +405,26 @@ features:
       wrong: [thermostat configured wrong, installer settings wrong, thermostat set up wrong, wrong system type,
         thermostat set for heat pump on a furnace, thermostat set for gas on an oil furnace, stages set wrong]
 
-  - id: ctl.call_at_stat
-    name: Call output at the thermostat
-    ask: At the thermostat's own terminals, is it putting out the call (R closed to Y or W)?
-    how: Pull the thermostat off its sub-base and meter the call terminal (Y or W) to C. 24 V means the
-      thermostat is calling. No voltage, with 24 V on R, means it is not closing its output.
+  - id: ctl.call_path
+    name: Call voltage at the thermostat and at the unit
+    ask: With a call set, is 24 V on the call terminal (Y or W) at the thermostat, and does it arrive at the unit?
+    how: Meter the call terminal to C at the thermostat sub-base (24 V means the thermostat is calling), then the
+      same terminal to C at the equipment's terminal board. Use C at each end, not a ground.
     systems: [vc.ac, vc.hp, fuel, hydronic]
     states:
-      closes: Calling — 24 V on the call terminal at the thermostat
-      no_output: Not calling — R live, nothing on the call terminal
-    normal: closes
+      reaches_unit: 24 V at the thermostat and at the unit
+      lost_between: 24 V at the thermostat, none at the unit
+      not_sent: No call leaving the thermostat (R live, nothing on the call terminal)
+    normal: reaches_unit
     cost: 2
     needs: meter
     phrases:
-      no_output: [thermostat not sending a signal, no 24 volts out of the thermostat, thermostat wont close,
-        thermostat relay not clicking, no y out of the thermostat]
-      closes: [24 volts at the thermostat y terminal, thermostat sending y, thermostat putting out a call]
+      not_sent: [thermostat not sending a signal, no 24 volts out of the thermostat, thermostat wont close,
+        thermostat relay not clicking, no y out of the thermostat, no w out of the thermostat]
+      lost_between: [24 volts at the thermostat but not at the unit, call not reaching the unit, y at the thermostat
+        but nothing at the condenser, w at the thermostat not at the boiler, thermostat calling but no signal at the
+        furnace]
+      reaches_unit: [24 volts on y at the unit and the thermostat, call reaches the unit]
 
   - id: ctl.jumper_test
     name: Jumper test at the equipment
@@ -745,7 +749,8 @@ features:
     normal: agree
     cost: 2
     phrases:
-      mismatch: [bas says on but nothing runs, commanded on but not running, command on and status off, bas shows
+      mismatch: [bas says on but nothing runs, bas says on, bas says running, bas shows on, command shows on, bas says
+        open, commanded on but not running, command on and status off, bas shows
         open but the valve is shut, feedback doesnt match the command, command and feedback disagree, bas says it
         is running but it is off]
 
@@ -941,7 +946,7 @@ causes:
   - id: ctl.door_switch
     name: Blower-door safety switch open — door not seated or the switch failed
     systems: [vc.ac, vc.hp, fuel.furnace]
-    prior: common
+    prior: occasional
     keywords: [door switch, blower door switch, door interlock, door not on right]
     signs:
       ctl.door_sw: open!
@@ -1246,7 +1251,7 @@ causes:
     keywords: [thermostat set wrong, thermostat off, wrong mode, hold on, vacation mode]
     signs:
       ctl.stat_settings: wrong!
-      ctl.call_at_stat: no_output?
+      ctl.call_path: not_sent?
       gen.call: not_calling
       gen.output: none
       vc.comp: 'off'
@@ -1283,7 +1288,7 @@ causes:
     prior: occasional
     keywords: [bad thermostat, thermostat failed, thermostat not calling]
     signs:
-      ctl.call_at_stat: no_output!
+      ctl.call_path: not_sent!
       ctl.stat_settings: ok!
       ctl.jumper_test: starts
       ctl.batteries: ok
@@ -1306,7 +1311,7 @@ causes:
     prior: occasional
     keywords: [broken thermostat wire, loose thermostat wire, open wire, wire pulled off the terminal]
     signs:
-      ctl.call_at_stat: closes!
+      ctl.call_path: lost_between!
       gen.call: not_calling!
       ctl.jumper_test: starts!
       blr.tt: no!
