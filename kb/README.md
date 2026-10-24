@@ -8,6 +8,7 @@ system by following this page.
 python3 tools/build.py && node tools/check.mjs            # build + every check + every scenario
 node tools/check.mjs --module boiler-oil.yaml             # self-tests for one file's causes only
 python3 tools/check_pt.py                                 # baked PT tables vs published charts
+node tools/why.mjs --scenario "part of a scenario name"   # why each leading cause scores what it does
 python3 tools/build.py --kb-dir X/kb --scen-dir X/scenarios --out X/out   # build a copy (a lane's snapshot)
 node tools/check.mjs --kb X/out/kb.json --scenarios X/out/scenarios.json   # …and check that copy
 ```
