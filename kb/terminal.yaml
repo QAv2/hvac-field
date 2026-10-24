@@ -686,7 +686,7 @@ measures:
     states:
       - [none, v < 5]
       - [low, v < t * 0.55]
-      - [high, v > t * 1.5]
+      - [high, v > t * 1.4]
       - [normal, 'true']
 
 causes:
@@ -927,7 +927,7 @@ causes:
       gen.water_leak: yes!
       tu.leak_at: {valve: 0.45, coil: 0.3, vent: 0.2}
       hyd.pipe_frost: 'no'
-      gen.output: normal|weak
+      gen.output: normal
     confirm: Water, glycol or steam dripping from the unit's valve stem, a union, its vent, or the coil itself, not
       from a pipe elsewhere.
     fix: |
