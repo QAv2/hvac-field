@@ -8,8 +8,14 @@ system by following this page.
 python3 tools/build.py && node tools/check.mjs            # build + every check + every scenario
 node tools/check.mjs --module boiler-oil.yaml             # self-tests for one file's causes only
 python3 tools/check_pt.py                                 # baked PT tables vs published charts
+python3 tools/build.py --kb-dir X/kb --scen-dir X/scenarios --out X/out   # build a copy (a lane's snapshot)
+node tools/check.mjs --kb X/out/kb.json --scenarios X/out/scenarios.json   # …and check that copy
 ```
 A module is done when the build has **zero problems** and the checker shows **no warnings for its causes**.
+
+Shared files (`systems.yaml`, `common.yaml`, `vc-core.yaml`, `synonyms.yaml`, `docs/js`, `tools`) have one
+owner at a time. A module author edits only their module file and its scenarios; a change to a shared file is
+made on a snapshot (build it with `--kb-dir`) and copied back whole.
 
 ## How the engine thinks (read this first)
 
@@ -18,14 +24,18 @@ the tech enters multiplies each cause by how likely that finding is **if that ca
 
     P(cause | findings) ∝ prior × Π P(finding | cause)^0.9
 
-- A cause that **says nothing** about a feature uses that feature's base rates (mostly "normal"). So an
-  abnormal finding a cause can't explain counts against it. Silence is a statement: only leave a feature out
-  if the cause truly doesn't move it.
+- A cause that **says nothing** about a feature reads it at the **leak rate**: the feature's base rates with
+  every abnormal state cut to about a third, renormalized. So an abnormal finding a cause can't explain counts
+  against it. Silence is a statement: only leave a feature out if the cause truly doesn't move it.
+- **Situational** features (weather, recent work, a power outage: `situational: true`) are the exception. A
+  silent cause takes their plain base rate, so "it's −30 °F out" alone doesn't drag every cause toward the
+  freeze-ups.
 - **Next best check** = the unasked check with the most information gain about the leading causes, divided
   by its effort (`cost`). Cheap, decisive looks come first; a check that no cause in play has an opinion on is
   never suggested. So every cause needs at least one sign that sets it apart — ideally a cheap one.
-- A pseudo-cause "nothing wrong found" (all base rates) is always in the race, so all-normal readings push
-  the real faults down.
+- A pseudo-cause "nothing wrong found" is always in the race. It reads the complaint features (`complaint:
+  true`) at their base rates, so the complaint alone doesn't count against it, and every other check at the
+  leak rate, so all-normal readings push the real faults down.
 
 ## Files and ids
 
@@ -56,9 +66,24 @@ context:
 An option may carry `systems: [...]` (only offered there) and `words: [...]` (typing one of these words in
 the description answers the question — "freezer" → low temp).
 
-Existing context ids: `refrigerant`, `metering` (txv/eev/fixed/captube), `receiver` ('yes'/'no'), `app`
-(ac/mt/lt), `sh_location` (evap/comp), `condenser` (air/water), `ac_eff` (standard/high), `hpc`
-(flooding/fan_cycling/vfd/none), `defrost` (off_cycle/electric/hot_gas).
+When several options' `words` match the description, the **last** matching option in the list wins, so
+list the more specific option later ("ducted mini split" → `minisplit`, which comes after `ducted`).
+
+Existing context ids (option ids in brackets):
+- every refrigeration system (`vc`): `refrigerant`, `metering` [txv/eev/fixed/captube], `receiver`
+  ['yes'/'no'], `app` [ac/mt/lt], `sh_location` [evap/comp], `condenser` [air/water], `phases` [single/three]
+- A/C and heat pumps (`vc.ac`, `vc.hp`): `hp_unit` [ducted/inverter/minisplit], `ac_eff` [standard/high];
+  heat pumps only: `rv_energized` [cool/heat] (which mode energizes the reversing-valve coil)
+- commercial refrigeration: `hpc` [flooding/fan_cycling/vfd/none] (walk-ins, reach-ins, ice machines),
+  `defrost` [off_cycle/electric/hot_gas] (walk-ins, reach-ins)
+- oil-fired (`fuel`): `fuel_type` [no2/kero], `oil_piping` [one_pipe/two_pipe/two_stage], `flame_sensor`
+  [cad/stack]; boilers only: `boiler_kind` [hw/steam]
+- `hydronic`: `fluid` [water/glycol/pg/eg]
+- `ahu`: `fan_drive` [belt/direct], `vfd` ['yes'/'no'], `oa_type` [mixed/all_oa/hrv], `economizer`
+  ['yes'/'no'], `heat_coil` [water/eg/pg/steam/electric/none], `cool_coil` [chw/dx/none]
+
+Shared questions live in `systems.yaml`, a module's own questions in its module file. `hp_unit` and
+`rv_energized` sit in `systems.yaml` because vc-core gates on `hp_unit` too.
 
 ## Features — the things a tech can observe or measure
 
@@ -66,6 +91,7 @@ Existing context ids: `refrigerant`, `metering` (txv/eev/fixed/captube), `receiv
 - id: blr.cad_ohms
   name: CAD cell resistance             # short; chips read "name: state label"
   ask: What does the CAD cell read with the flame on?   # the next-check card's question
+  ask_for: {fuel.furnace: '…'}          # optional: the question worded for one system (or group)
   how: Primary control off its sub-base... # optional: how to check, one or two sentences
   caution: Reset once only…           # optional: a hazard in making the check, shown in red on the check card
   systems: [fuel]
@@ -180,6 +206,9 @@ Good signatures:
   a reading).
 - Directions from physics or published data (NIST charts, public-domain manuals), never copied from
   proprietary apps or copyrighted manuals. Text in our own words.
+- No maker names in displayed text (names, questions, how, confirm, fix). Fault codes, valve polarity and
+  settings differ by maker, so the text sends the tech to that maker's service manual or chart. Search
+  `keywords` and `phrases` may carry the names techs actually type ("sentronic tripped").
 - Priors relative to the system: what a working tech sees most often is `very_common`/`common`.
 
 ## Scenarios (tests/scenarios/*.yaml)
@@ -194,6 +223,7 @@ Every module ships service-call scenarios. They're the regression suite.
   expect:
     top: blr.cad_cell_dirty                    # must be #1
     top3: [blr.cad_cell_dirty]                 # must be in the top 3
+    not_top: [blr.nozzle_plugged]              # must not be #1
     measured: {blr.stack_temp: normal}         # what the numbers must classify as
     next_any: [blr.cad_ohms, blr.flame]        # one of the first three suggested checks
 ```

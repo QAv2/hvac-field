@@ -167,7 +167,7 @@ if (text) {
   const n = ` ${norm(text)} `;
   for (const c of kb.contextFor(sys)) {
     for (const o of c.options || []) {
-      if ((o.words || []).some((w) => n.includes(` ${norm(w)} `))) ctx[c.id] = String(o.id);
+      if (!(c.id in ctxIn) && (o.words || []).some((w) => n.includes(` ${norm(w)} `))) ctx[c.id] = String(o.id);
     }
   }
 }
