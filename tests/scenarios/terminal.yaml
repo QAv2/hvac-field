@@ -1,0 +1,720 @@
+# Scenario suite for terminal heating units (kb/terminal.yaml).
+# Every tu.* cause is the expected answer of at least one scenario, the common ones of two. Each scenario
+# enters what a tech would have found by then — the complaint, a few cheap looks, and the check that
+# settles it — not the cause's whole signature. Opening moves check that the first suggestions are
+# cheap and sensible; the measure scenarios run the three tu.* calculations from raw readings.
+
+# ==================== OPENING MOVES ====================
+- name: Unit heater blowing cold (opening move)
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {tu.fan: running, gen.output: none}
+  # with the fan-delay switch working, a fan that runs says the supply ahead of the valve is hot, so the
+  # valve and the coil lead; the cheap looks at the valve and the pipe come first
+  expect:
+    not_top: [_ok]
+    next_any: [tu.supply_pipe, tu.coil_dt, hyd.air_bleed, hyd.zone_valve]
+
+- name: Fan coil not heating, type of heat unknown (opening move)
+  system: terminal
+  ctx: {tu_type: fcu2}
+  findings: {gen.output: none}
+  expect:
+    next_any: [tu.fan, tu.supply_pipe, gen.call]
+
+- name: Unit heater coil hot but no fan (opening move)
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {tu.fan: 'off', gen.output: weak, tu.supply_pipe: hot}
+  expect:
+    next_any: [tu.fan_volts, tu.fan_interlock, tu.freezestat, tu.fan_spin]
+    not_top3: [tu.no_source]
+
+- name: Electric baseboard cold (opening move)
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: none}
+  expect:
+    next_any: [gen.breaker, gen.power, tu.lv_tstat, gen.call, tu.heat_amps]
+
+- name: Steam unit heater cold, steam main hot (opening move)
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {gen.output: none, tu.supply_pipe: hot}
+  expect:
+    next_any: [hyd.trap_check, tu.coil_pattern, hyd.rad_valve, hyd.zone_valve, tu.coil_dt]
+    not_top3: [tu.no_source]
+
+- name: Baseboard weak in one room, hot water loop fine elsewhere (opening move)
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: water}
+  findings: {gen.output: weak, hyd.scope: one_zone}
+  expect:
+    next_any: [tu.fins, tu.coil_pattern, tu.supply_pipe, hyd.air_bleed]
+
+# ==================== SUPPLY AT THE UNIT ====================
+- name: Unit heater blowing cold, supply pipe cold, other unit heaters cold too
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {tu.fan: running, gen.output: none, tu.supply_pipe: cold, hyd.scope: whole_loop}
+  expect:
+    top: tu.no_source
+
+- name: Steam radiator cold, steam pipe to it cold, whole floor cold
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: steam}
+  findings: {gen.output: none, tu.supply_pipe: cold, hyd.scope: whole_loop}
+  expect:
+    top: tu.no_source
+
+- name: 2-pipe fan coil blowing cold in October, supply pipe sweating
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {tu.fan: running, gen.output: none, tu.supply_pipe: chilled}
+  expect:
+    top: tu.changeover
+
+- name: 2-pipe fan coils across the building cold, pipes colder than the rooms
+  system: terminal
+  ctx: {tu_type: fcu2}
+  findings: {gen.output: none, hyd.scope: whole_loop, tu.supply_pipe: chilled}
+  expect:
+    top: tu.changeover
+
+- name: 2-pipe fan coil — hot water in the pipe but unit stays in cooling, changeover sensor loose
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {gen.output: none, tu.supply_pipe: hot, tu.changeover: wrong}
+  expect:
+    top: tu.changeover_sensor
+
+- name: 4-pipe fan coil weak heat, chilled-water pipes sweating while heating
+  system: terminal
+  ctx: {tu_type: fcu4, tu_heat: water}
+  findings: {gen.output: weak, tu.fan: running, tu.supply_pipe: hot, tu.chw_side: passing}
+  expect:
+    top: tu.chw_passing
+
+# ==================== VALVES AND PIPING AT THE UNIT ====================
+- name: Unit heater cold after a shutdown for repairs, supply hot, return cold, service valve found shut
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {gen.output: none, tu.supply_pipe: hot, tu.coil_dt: wide, hyd.iso_valves: closed, gen.recent_work: 'yes'}
+  expect:
+    top: tu.service_valve
+
+- name: Baseboard loop cold in one room, balancing valve set to zero
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: water}
+  findings: {gen.output: none, hyd.scope: one_zone, tu.supply_pipe: hot, hyd.iso_valves: closed}
+  expect:
+    top: tu.service_valve
+
+- name: Steam radiator cold, valve handle turns but nothing changes
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: steam}
+  findings: {gen.output: none, tu.supply_pipe: hot, hyd.rad_valve: closed_or_throttled}
+  expect:
+    top: tu.steam_valve
+
+- name: One-pipe steam radiator banging, valve found half open
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: steam}
+  findings: {gen.output: weak, hyd.water_hammer: 'yes', hyd.rad_valve: closed_or_throttled}
+  expect:
+    top: tu.steam_valve
+
+- name: New fan coils never heated right since install — piping traced backwards
+  system: terminal
+  ctx: {tu_type: fcu4, tu_heat: water}
+  findings: {gen.output: weak, gen.recent_work: 'yes', tu.supply_pipe: hot, tu.piping: reversed}
+  expect:
+    top: tu.reversed
+
+- name: Re-piped steam unit heater floods and hammers, fed from the bottom
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {hyd.water_hammer: 'yes', gen.recent_work: 'yes', tu.piping: reversed, gen.output: weak}
+  expect:
+    top: tu.reversed
+
+- name: Radiator cold at the top, gurgling, coin vent spits air
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: water}
+  findings: {gen.output: weak, tu.coil_pattern: cold_top, hyd.loop_noise: gurgling, hyd.air_bleed: air}
+  expect:
+    top: tu.air_bound
+
+- name: Fan coil after a drain-down — supply hot, return cold, air at the bleed
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {gen.output: none, gen.recent_work: 'yes', tu.supply_pipe: hot, tu.coil_dt: wide, hyd.air_bleed: air}
+  expect:
+    top: tu.air_bound
+
+- name: Glycol unit heater weak, half the coil cold, bleeds solid glycol, valve fine
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: glycol}
+  findings: {gen.output: weak, tu.supply_pipe: hot, tu.coil_pattern: patchy, hyd.air_bleed: water, hyd.zone_valve: ok}
+  expect:
+    top: tu.coil_plugged
+
+- name: Vestibule cabinet heater coil split after a cold weekend
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: water}
+  findings: {gen.output: none, gen.water_leak: 'yes', hyd.pipe_frost: split}
+  expect:
+    top: tu.coil_frozen
+
+- name: Steam unit heater on a loading dock — bottom of coil iced
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {gen.output: weak, tu.coil_pattern: cold_low, hyd.pipe_frost: iced}
+  expect:
+    top: tu.coil_frozen
+
+- name: Fan coil dripping from the valve stem, heats fine
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {gen.water_leak: 'yes', gen.output: normal, tu.leak_at: valve}
+  expect:
+    top: tu.unit_leak
+
+- name: Baseboard weeping glycol from a corroded return bend
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: glycol}
+  findings: {gen.water_leak: 'yes', tu.leak_at: coil, hyd.pipe_frost: 'no'}
+  expect:
+    top: tu.unit_leak
+
+- name: Zone valve on a baseboard loop gets 24 V but won't open; heats with the lever latched
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: water}
+  findings: {gen.output: none, hyd.scope: one_zone, tu.supply_pipe: hot, tu.valve_signal: present, hyd.zone_valve: stays_closed}
+  expect:
+    top: tu.actuator
+
+- name: Fan coil valve actuator dead, signal present, fan runs blowing cold
+  system: terminal
+  ctx: {tu_type: fcu4, tu_heat: water}
+  findings: {tu.fan: running, gen.output: none, tu.supply_pipe: hot, hyd.zone_valve: stays_closed}
+  expect:
+    top: tu.actuator
+
+- name: Unit heater valve strokes but stem stuck, no flow even opened by hand
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {gen.output: none, tu.supply_pipe: hot, tu.coil_dt: wide, hyd.zone_valve: jammed_closed}
+  expect:
+    top: tu.valve_seized
+
+- name: Steam coil control valve seized after summer
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: steam}
+  findings: {gen.output: none, tu.supply_pipe: hot, hyd.zone_valve: jammed_closed, tu.valve_signal: present}
+  expect:
+    top: tu.valve_seized
+
+- name: Office overheats with the thermostat off, fan coil valve passes with actuator shut
+  system: terminal
+  ctx: {tu_type: fcu4, tu_heat: water}
+  findings: {hyd.scope: overheating, gen.call: not_calling, hyd.zone_valve: stuck_open}
+  expect:
+    top: tu.valve_stuck_open
+
+- name: Baseboard zone heats all the time, zone valve lever latched open
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: water}
+  findings: {hyd.scope: overheating, hyd.zone_valve: stuck_open, gen.runs_constantly: 'yes'}
+  expect:
+    top: tu.valve_stuck_open
+
+- name: Thermostat calls, no 24 V at the actuator, jumpering it brings heat
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {gen.output: none, gen.call: calling, tu.supply_pipe: hot, tu.valve_signal: missing}
+  expect:
+    top: tu.valve_signal
+
+- name: BAS shows the valve commanded closed while the zone calls
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: glycol}
+  findings: {gen.output: none, gen.call: calling, gen.control_v: present, tu.valve_signal: missing, hyd.zone_valve: stays_closed}
+  expect:
+    top: tu.valve_signal
+
+# ==================== CONTROLS ====================
+- name: Fan coil short-cycles, room stays cold, unit blowing on its own thermostat
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {gen.short_cycle: 'yes', gen.output: weak, tu.stat_spot: warm_spot}
+  expect:
+    top: tu.stat_warm_spot
+
+- name: Shop unit heater cycles every few minutes, thermostat in its discharge
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {gen.short_cycle: 'yes', tu.supply_pipe: hot, tu.stat_spot: warm_spot}
+  expect:
+    top: tu.stat_warm_spot
+
+- name: Room too hot, unit never shuts off, thermostat on an outside wall
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: water}
+  findings: {hyd.scope: overheating, gen.runs_constantly: 'yes', gen.call: calling, tu.stat_spot: cold_spot}
+  expect:
+    top: tu.stat_cold_spot
+
+- name: After new controls, turning up room A's thermostat heats room B
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {gen.recent_work: 'yes', hyd.scope: one_zone, gen.output: none, tu.cross_test: crossed}
+  expect:
+    top: tu.cross_wired
+
+# ==================== FAN INTERLOCKS AND SAFETIES ====================
+- name: Steam unit heater hot, fan never starts, pressure switch open
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {tu.fan: 'off', tu.supply_pipe: hot, tu.fan_volts: missing, tu.fan_interlock: open_hot}
+  expect:
+    top: tu.fan_delay_open
+
+- name: Hot-water unit heater — heat but no fan, strap-on aquastat open with pipe hot
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {tu.fan: 'off', gen.output: weak, tu.supply_pipe: hot, tu.fan_interlock: open_hot}
+  expect:
+    top: tu.fan_delay_open
+
+- name: Unit heater blowing cold, loop cold, aquastat found jumpered
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {tu.fan: running, gen.output: none, tu.supply_pipe: cold, tu.fan_interlock: closed_cold}
+  expect:
+    top: tu.fan_delay_closed
+    top3: [tu.no_source]
+
+- name: Cabinet heater in the entry tripped on freeze, outdoor damper stuck open
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: water}
+  findings: {tu.fan: 'off', gen.output: none, tu.freezestat: tripped}
+  expect:
+    top: tu.freezestat_tripped
+
+- name: Fan coil off every cold morning, freeze-stat found tripped
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: glycol}
+  findings: {gen.intermittent: 'yes', tu.fan: 'off', tu.freezestat: tripped, gen.call: calling}
+  expect:
+    top: tu.freezestat_tripped
+
+- name: Freeze-stat open in a 70 °F room, capillary kinked
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: water}
+  findings: {tu.fan: 'off', tu.supply_pipe: hot, tu.freezestat: open_warm}
+  expect:
+    top: tu.freezestat_failed
+
+# ==================== FAN ====================
+- name: Unit heater fan dead, voltage at the motor, spins free, cap good
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {tu.fan: 'off', tu.supply_pipe: hot, tu.fan_volts: present, tu.fan_spin: free, tu.fan_cap: ok}
+  expect:
+    top: tu.fan_motor
+
+- name: Fan coil fan dead, smells burnt, voltage at the motor
+  system: terminal
+  ctx: {tu_type: fcu4, tu_heat: water}
+  findings: {tu.fan: 'off', gen.burnt_smell: 'yes', tu.fan_volts: present, tu.fan_spin: free}
+  expect:
+    top: tu.fan_motor
+
+- name: Fan hums, starts if spun by hand, capacitor reads low
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {tu.fan: hums, tu.fan_spin: free, tu.fan_cap: bad}
+  expect:
+    top: tu.fan_cap
+
+- name: Cabinet heater fan silent with voltage on it, capacitor open
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: water}
+  findings: {tu.fan: 'off', tu.fan_volts: present, tu.fan_cap: bad}
+  expect:
+    top: tu.fan_cap
+
+- name: Fan coil fan hums and won't turn by hand
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {tu.fan: hums, tu.fan_spin: seized, tu.fan_cap: ok}
+  expect:
+    top: tu.fan_bearings
+
+- name: Unit heater fan stops and restarts on its own, motor drags by hand
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {gen.intermittent: 'yes', tu.fan: 'off', tu.fan_spin: stiff}
+  expect:
+    top: tu.fan_bearings
+
+- name: Fan coil fan dead, no voltage leaving the speed switch, safeties closed
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {tu.fan: 'off', gen.power: present, gen.call: calling, tu.fan_volts: missing, tu.freezestat: ok, tu.fan_interlock: ok}
+  expect:
+    top: tu.fan_control
+
+- name: Cabinet heater fan never comes on, board fan output dead
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: water}
+  findings: {tu.fan: 'off', tu.supply_pipe: hot, tu.fan_volts: missing, tu.fan_interlock: ok}
+  expect:
+    top: tu.fan_control
+
+- name: Unit heater motor runs but little air, blade slipping on the shaft
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {tu.fan: running, tu.airflow: weak, gen.output: weak, tu.wheel: loose}
+  expect:
+    top: tu.fan_wheel
+
+- name: Blower unit heater weak, wheel caked with lint, filter clean
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {tu.airflow: weak, tu.filter: clean, tu.wheel: dirty}
+  expect:
+    top: tu.fan_wheel
+
+- name: Fan coil weak air, stuck on low speed
+  system: terminal
+  ctx: {tu_type: fcu4, tu_heat: water}
+  findings: {gen.output: weak, tu.fan: running, tu.airflow: weak, tu.fan_speed: low}
+  expect:
+    top: tu.fan_slow
+
+# ==================== AIR SIDE ====================
+- name: Fan coil weak heat, weak air, filter loaded with lint
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  findings: {gen.output: weak, tu.fan: running, tu.airflow: weak, tu.filter: dirty}
+  expect:
+    top: tu.filter
+
+- name: Cabinet heater weak air and very hot discharge, filter blinded
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: water}
+  inputs: {tu.ent_air_f: 60, tu.lvg_air_f: 140, tu.supply_f: 180}
+  findings: {tu.airflow: weak, tu.filter: dirty}
+  expect:
+    top: tu.filter
+    measured: {tu.air_rise: high}
+
+- name: Unit heater weak air, coil face matted with dust, no filter
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  findings: {gen.output: weak, tu.airflow: weak, tu.filter: clean, tu.fins: matted}
+  expect:
+    top: tu.fins_dirty
+
+- name: Hot-water baseboard weak, fins packed with dust
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: water}
+  findings: {gen.output: weak, tu.supply_pipe: hot, tu.fins: matted}
+  expect:
+    top: tu.fins_dirty
+
+- name: Baseboard weak, couch tight against it and the damper shut
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: water}
+  findings: {gen.output: weak, hyd.scope: one_zone, tu.supply_pipe: hot, tu.fins: blocked}
+  expect:
+    top: tu.air_blocked
+
+- name: Electric baseboard heats on and off, drapes over it
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: weak, gen.intermittent: 'yes', tu.fins: blocked}
+  expect:
+    top: tu.air_blocked
+    top3: [tu.limit_tripping]
+
+- name: Hangar unit heaters run fine, floor cold, 25 °F warmer at the roof
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {gen.output: weak, tu.fan: running, tu.airflow: good, tu.supply_pipe: hot, tu.strat: large}
+  expect:
+    top: tu.stratification
+
+- name: Warehouse cold at floor level, unit heater louvers aimed flat, heat sits up high
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  inputs: {tu.ent_air_f: 58, tu.lvg_air_f: 110, tu.supply_f: 180}
+  findings: {gen.output: weak, tu.strat: large}
+  expect:
+    top: tu.stratification
+    measured: {tu.air_rise: normal}
+
+# ==================== STEAM UNITS ====================
+- name: Steam unit heater cold, bottom of coil cold, trap silent and cold
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {gen.output: none, tu.supply_pipe: hot, tu.coil_pattern: cold_low, hyd.trap_check: failed_closed}
+  expect:
+    top: tu.trap_closed
+
+- name: Steam convector cold and knocking, trap cold both sides
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: steam}
+  findings: {gen.output: weak, hyd.water_hammer: 'yes', hyd.trap_check: failed_closed}
+  expect:
+    top: tu.trap_closed
+
+- name: Steam radiator heats fine but its trap roars and the return is hot
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: steam}
+  findings: {gen.output: normal, hyd.trap_check: failed_open}
+  expect:
+    top: tu.trap_open
+
+- name: Steam unit heater trap blowing through, coil outlet as hot as the steam
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {tu.supply_pipe: hot, tu.coil_dt: none, hyd.trap_check: failed_open}
+  expect:
+    top: tu.trap_open
+
+- name: Steam radiator cold at the far end, vent never hisses
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: steam}
+  findings: {gen.output: weak, tu.coil_pattern: cold_top, hyd.steam_vent: stuck_closed}
+  expect:
+    top: tu.steam_vent
+
+- name: Steam unit heater part cold, thermostatic air vent shut, trap good
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {tu.supply_pipe: hot, tu.coil_pattern: patchy, hyd.trap_check: ok, hyd.steam_vent: stuck_closed}
+  expect:
+    top: tu.steam_vent
+
+- name: Modulated steam cabinet heater hammers when throttled, no vacuum breaker
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: steam}
+  findings: {hyd.water_hammer: 'yes', tu.coil_pattern: cold_low, hyd.trap_check: ok, tu.vac_breaker: failed}
+  expect:
+    top: tu.vac_breaker
+
+- name: Steam unit heater hammers, trap good, outlet runs level to a trap above the floor
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: steam}
+  findings: {hyd.water_hammer: 'yes', hyd.trap_check: ok, tu.vac_breaker: ok, hyd.pipe_pitch: sagged}
+  expect:
+    top: tu.steam_piping
+
+# ==================== ELECTRIC HEAT ====================
+- name: Electric unit heater blowing cold, zero amps, element open
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  findings: {tu.fan: running, gen.output: none, tu.heat_amps: zero, tu.element: open}
+  expect:
+    top: tu.element_open
+
+- name: Electric baseboard weak, draws half its amps, one element open
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: weak, tu.heat_amps: low, tu.element: open}
+  expect:
+    top: tu.element_open
+
+- name: Electric wall heater heats on and off, limit opens every few minutes, weak air
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: electric}
+  findings: {gen.intermittent: 'yes', tu.limit: cycling, tu.airflow: weak}
+  expect:
+    top3: [tu.limit_tripping]
+
+- name: Electric unit heater cycling on its limit, full amps when on, elements good
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  findings: {gen.output: weak, tu.limit: cycling, tu.heat_amps: normal, tu.element: ok}
+  expect:
+    top: tu.limit_tripping
+
+- name: Electric baseboard dead cold, thermal cutoff reads open, elements good
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: none, gen.power: present, tu.element: ok, tu.limit: open_cool}
+  expect:
+    top: tu.limit_open
+
+- name: Electric unit heater fan runs, no heat, manual-reset limit out
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  findings: {tu.fan: running, gen.output: none, tu.heat_amps: zero, tu.limit: open_cool}
+  expect:
+    top: tu.limit_open
+
+- name: Electric unit heater called, contactor never pulls in
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  findings: {gen.output: none, gen.call: calling, tu.heat_amps: zero, tu.contactor: fails}
+  expect:
+    top: tu.contactor
+
+- name: Electric cabinet heater, contactor pulls in but one pole dead
+  system: terminal
+  ctx: {tu_type: cabinet, tu_heat: electric}
+  findings: {gen.output: none, tu.element: ok, tu.limit: closed, tu.contactor: fails}
+  expect:
+    top: tu.contactor
+
+- name: Electric heater won't shut off, contactor stays closed with no call
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  findings: {hyd.scope: overheating, gen.runs_constantly: 'yes', gen.call: not_calling, tu.contactor: welded}
+  expect:
+    top: tu.contactor_welded
+
+- name: Electric baseboard dead, power at the wall stat, nothing out of it at max
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: none, gen.power: present, tu.lv_tstat: open}
+  expect:
+    top: tu.lv_tstat_open
+
+- name: Electric baseboard cold, zero amps, elements read good
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: none, gen.breaker: ok, tu.heat_amps: zero, tu.element: ok}
+  expect:
+    top3: [tu.lv_tstat_open, tu.limit_open]
+    next_any: [tu.lv_tstat, tu.limit, gen.call, gen.power]
+
+- name: Electric baseboard heats at every setting, room roasting
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {hyd.scope: overheating, gen.runs_constantly: 'yes', tu.lv_tstat: stuck_closed}
+  expect:
+    top: tu.lv_tstat_closed
+
+- name: New 240 V baseboards on a 208 V building supply never keep up
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: weak, gen.runs_constantly: 'yes', tu.rated_v: heater_higher}
+  expect:
+    top: tu.wrong_voltage
+
+- name: Electric unit heater weak, amps low, elements read good, nameplate 480 V on 277 V
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  findings: {gen.output: weak, tu.heat_amps: low, tu.element: ok, tu.rated_v: heater_higher}
+  expect:
+    top: tu.wrong_voltage
+
+- name: Electric baseboard dead, breaker off
+  system: terminal
+  ctx: {tu_type: baseboard, tu_heat: electric}
+  findings: {gen.output: none, gen.breaker: tripped, gen.power: missing}
+  expect:
+    top: gen.no_line_power
+
+- name: Electric unit heater keeps tripping its breaker, element reads to ground
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  findings: {gen.breaker: retrips, tu.element: grounded}
+  expect:
+    top: gen.short_to_ground
+
+# ==================== RADIANT ====================
+- name: Radiant floor weak after new carpet and pad, supply hot
+  system: terminal
+  ctx: {tu_type: radiant, tu_heat: water}
+  findings: {gen.output: weak, tu.supply_pipe: hot, tu.floor_cover: covered}
+  expect:
+    top: tu.radiant_cover
+
+- name: Radiant floor lukewarm, mixing control asking for 85 °F on a −20 °F day
+  system: terminal
+  ctx: {tu_type: radiant, tu_heat: water}
+  findings: {gen.output: weak, tu.supply_pipe: lukewarm, hyd.reset_setpoint: too_low}
+  expect:
+    top: tu.radiant_supply_low
+
+- name: Radiant manifold actuator dead on one loop, signal present
+  system: terminal
+  ctx: {tu_type: radiant, tu_heat: water}
+  findings: {gen.output: none, hyd.scope: one_zone, tu.supply_pipe: hot, tu.valve_signal: present, hyd.zone_valve: stays_closed}
+  expect:
+    top: tu.actuator
+
+# ==================== NOTHING WRONG AT THE UNIT ====================
+- name: Unit heater reads normal everywhere — load or upstream, not the unit
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  inputs: {tu.ent_air_f: 60, tu.lvg_air_f: 112, tu.supply_f: 180, tu.return_f: 160}
+  findings: {gen.output: weak, tu.fan: running, tu.airflow: good, tu.filter: clean, tu.fins: clean, tu.coil_pattern: even, tu.strat: small}
+  expect:
+    top: _ok
+    measured: {tu.air_rise: normal, tu.supply_pipe: hot, tu.coil_dt: normal}
+
+# ==================== MEASURES FROM RAW READINGS ====================
+- name: Readings — unit heater supply 72 °F in a 62 °F room reads cold
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  inputs: {tu.ent_air_f: 62, tu.supply_f: 72, tu.lvg_air_f: 63}
+  findings: {gen.output: none}
+  expect:
+    measured: {tu.supply_pipe: cold, tu.air_rise: none}
+    top: tu.no_source
+
+- name: Readings — 2-pipe fan coil supply 48 °F in a 66 °F room reads chilled
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  inputs: {tu.ent_air_f: 66, tu.supply_f: 48}
+  findings: {gen.output: none}
+  expect:
+    measured: {tu.supply_pipe: chilled}
+    top: tu.changeover
+
+- name: Readings — supply 180 °F, return 95 °F across a fan coil reads a wide drop
+  system: terminal
+  ctx: {tu_type: fcu2, tu_heat: water}
+  inputs: {tu.supply_f: 180, tu.return_f: 95, tu.ent_air_f: 66, tu.lvg_air_f: 72}
+  findings: {gen.output: weak}
+  expect:
+    measured: {tu.coil_dt: wide, tu.supply_pipe: hot, tu.air_rise: low}
+    next_any: [hyd.air_bleed, hyd.zone_valve, tu.valve_signal, tu.coil_pattern, hyd.iso_valves]
+
+- name: Readings — design drop 30 °F entered, 45 °F measured stays normal
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: glycol}
+  inputs: {tu.supply_f: 170, tu.return_f: 125, tu.design_dt: 30}
+  findings: {}
+  expect:
+    measured: {tu.coil_dt: normal}
+
+- name: Readings — radiant supply 95 °F reads hot for a floor
+  system: terminal
+  ctx: {tu_type: radiant, tu_heat: water}
+  inputs: {tu.supply_f: 95, tu.ent_air_f: 64}
+  findings: {}
+  expect:
+    measured: {tu.supply_pipe: hot}
+
+- name: Readings — electric unit heater with no pipe temperature judges rise against 40 °F
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: electric}
+  inputs: {tu.ent_air_f: 55, tu.lvg_air_f: 70}
+  findings: {gen.output: weak}
+  expect:
+    measured: {tu.air_rise: low}
+
+- name: Readings — fan unit with heat source unknown and no pipe temperature gives no verdict on a 20 °F rise
+  system: terminal
+  ctx: {tu_type: cabinet}
+  inputs: {tu.ent_air_f: 60, tu.lvg_air_f: 80}
+  findings: {}
+  expect:
+    unmeasured: [tu.air_rise]

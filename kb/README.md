@@ -43,21 +43,22 @@ the tech enters multiplies each cause by how likely that finding is **if that ca
 
 One module per file. Ids are `prefix.name`, lowercase, prefix = the module's namespace:
 `gen.` (common), `vc.` (refrigeration core), `rf.` (commercial refrigeration), `hp.` (heat pump heating),
-`blr.` (oil burner and boilers), `hyd.` (hot water, glycol, steam), `ahu.` (air handling). A file may have
+`blr.` (oil burner and boilers), `hyd.` (hot water, glycol, steam), `tu.` (terminal units), `ahu.` (air handling). A file may have
 `module`, `title`, `notes`, and lists: `systems`, `context`, `features`, `inputs`, `measures`, `causes`,
 `synonyms`, `refs`.
 
 ## Systems and context (kb/systems.yaml)
 
 Selectable systems: `vc.ac`, `vc.hp`, `vc.walkin`, `vc.reachin`, `vc.ice`, `fuel.boiler`, `fuel.furnace`,
-`hydronic`, `steam`, `ahu`. Groups: `vc` (all refrigeration), `fuel` (both oil-fired systems). Tagging an item
+`hydronic`, `steam`, `terminal`, `ahu`. Groups: `vc` (all refrigeration), `fuel` (both oil-fired systems). Tagging an item
 with a group applies it to every member. `'*'` = every system.
 
 A system's `ok_note` is the advice shown when "nothing wrong found" leads, and `ok_signs` (signs, as on a
 cause; the nearest system or group that has them wins) is how such calls get reported.
 
 The shared no-run causes in `common.yaml` (no line power, no control power, no call, short to ground) name
-the thing that moves on each system — `vc.comp`, `blr.start`, `ahu.fan`, `hyd.circ` — so a unit seen running
+the thing that moves on each system — `vc.comp`, `blr.start`, `ahu.fan`, `hyd.circ`, `tu.fan` (and `tu.heat_amps`
+for electric heat) — so a unit seen running
 counts against them. A new system with its own "is it running?" feature adds it there too.
 
 Context questions are asked once per job (refrigerant, metering device, …) and gate or bend causes:
@@ -88,6 +89,7 @@ Existing context ids (option ids in brackets):
 - oil-fired (`fuel`): `fuel_type` [no2/kero], `oil_piping` [one_pipe/two_pipe/two_stage], `flame_sensor`
   [cad/stack]; boilers only: `boiler_kind` [hw/steam]
 - `hydronic`: `fluid` [water/glycol/pg/eg]
+- `terminal`: `tu_heat` [water/glycol/steam/electric], `tu_type` [unit_heater/cabinet/fcu2/fcu4/baseboard/radiant]
 - `ahu`: `fan_drive` [belt/direct], `vfd` ['yes'/'no'], `oa_type` [mixed/all_oa/hrv], `economizer`
   ['yes'/'no'], `heat_coil` [water/eg/pg/steam/electric/none], `cool_coil` [chw/dx/none]
 
