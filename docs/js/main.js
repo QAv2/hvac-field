@@ -175,7 +175,7 @@ function viewHome() {
     <div class="results">${TOOL_LIST.slice(0, 4).map((t) => `<button class="res" data-act="tool" data-id="${t.id}">${esc(t.label)}</button>`).join('')}
       <button class="res" data-act="tools"><span>All calculators</span><span class="k">›</span></button></div>
     ${recent ? `<h2>Recent jobs</h2><div class="results">${recent}</div>` : ''}
-    <p class="muted" style="margin-top:28px"><a href="#/about">About, sources and offline use</a></p>`;
+    <p class="muted" style="margin-top:28px"><a class="block" href="#/about">About, sources and offline use</a></p>`;
   helper('Pick the equipment — or describe the problem in the box.');
   if (view.q.text) homeSearch();
 }
@@ -445,7 +445,7 @@ function refPicker() {
   const cur = job.ctx.refrigerant;
   const loc = job.ctx.sh_location;
   return `<div class="qrow"><div class="ql">Refrigerant</div><div class="opts">
-    <select class="opt" data-ctxsel="refrigerant" style="min-width:160px"><option value="">Pick one…</option>${calc.refrigerants().map((r) => `<option ${cur === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>
+    <select class="opt" data-ctxsel="refrigerant" aria-label="Refrigerant" style="min-width:160px"><option value="">Pick one…</option>${calc.refrigerants().map((r) => `<option ${cur === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>
     <span class="seg"><button class="${loc === 'evap' ? 'on' : ''}" data-act="ctx" data-k="sh_location" data-v="evap">Suction temp at evaporator</button><button class="${loc === 'comp' ? 'on' : ''}" data-act="ctx" data-k="sh_location" data-v="comp">at condensing unit</button></span>
   </div></div>`;
 }

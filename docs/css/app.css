@@ -2,7 +2,7 @@
    Dark by default (mechanical rooms); a light theme for snow glare and sun. */
 :root {
   --bg: #0d1215; --panel: #161f24; --panel2: #1d2930; --line: #2b3b44; --chip: #22323a;
-  --text: #eaf1f4; --dim: #a3b4bc; --faint: #6f838c;
+  --text: #eaf1f4; --dim: #a3b4bc; --faint: #8a9ca4;
   --accent: #ffb52e; --accent-ink: #1a1200;
   --ok: #3ccf91; --low: #5aa9ff; --high: #ff6b57; --warn: #ffd04d;
   --radius: 14px; --tap: 56px;
@@ -12,16 +12,16 @@
 }
 :root[data-theme="light"] {
   --bg: #f3f0e8; --panel: #ffffff; --panel2: #ece7dc; --line: #d6cebd; --chip: #e7e1d4;
-  --text: #182024; --dim: #46545b; --faint: #75828a;
-  --accent: #b86b00; --accent-ink: #ffffff;
+  --text: #182024; --dim: #46545b; --faint: #5a666d;
+  --accent: #8c5100; --accent-ink: #ffffff;
   --ok: #11764b; --low: #1b5fc4; --high: #be2f1c; --warn: #8a6400;
   color-scheme: light;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --bg: #f3f0e8; --panel: #ffffff; --panel2: #ece7dc; --line: #d6cebd; --chip: #e7e1d4;
-    --text: #182024; --dim: #46545b; --faint: #75828a;
-    --accent: #b86b00; --accent-ink: #ffffff;
+    --text: #182024; --dim: #46545b; --faint: #5a666d;
+    --accent: #8c5100; --accent-ink: #ffffff;
     --ok: #11764b; --low: #1b5fc4; --high: #be2f1c; --warn: #8a6400;
     color-scheme: light;
   }
@@ -37,6 +37,8 @@ body {
 button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 a { color: var(--accent); }
+/* a link on its own line is a tap target: at least 44 px tall */
+a.block { display: inline-flex; align-items: center; min-height: 44px; }
 .num, .v { font-variant-numeric: tabular-nums; }
 
 /* ---------- top bar ---------- */
@@ -45,10 +47,11 @@ a { color: var(--accent); }
   padding: calc(8px + env(safe-area-inset-top)) 12px 8px; background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
-.brand { font-weight: 800; letter-spacing: 0.02em; font-size: 18px; background: none; border: 0; padding: 6px 4px; }
+.brand { font-weight: 800; letter-spacing: 0.02em; font-size: 18px; background: none; border: 0; padding: 6px 4px; min-height: 44px; }
 .brand b { color: var(--accent); }
 .top .sys { flex: 1; min-width: 0; text-align: center; font-weight: 600; color: var(--dim); white-space: nowrap;
-  overflow: hidden; text-overflow: ellipsis; background: none; border: 0; padding: 6px; }
+  overflow: hidden; text-overflow: ellipsis; background: none; border: 0; padding: 6px; min-height: 44px; }
+.top .sys:empty { visibility: hidden; }
 .icon-btn { width: 44px; height: 44px; border-radius: 12px; border: 1px solid var(--line); background: var(--panel);
   display: grid; place-items: center; font-size: 20px; }
 
@@ -92,7 +95,7 @@ p.lead { color: var(--dim); margin: 0 0 12px; }
 /* ---------- chips ---------- */
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; }
 .chip {
-  display: inline-flex; align-items: center; gap: 6px; min-height: 40px; padding: 6px 12px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 12px; border-radius: 999px;
   border: 1px solid var(--line); background: var(--chip); font-size: 15px; font-weight: 600; text-align: left;
 }
 .chip.tent { border-style: dashed; opacity: 0.85; }
@@ -117,7 +120,7 @@ p.lead { color: var(--dim); margin: 0 0 12px; }
 .why { margin: 12px 0 0; font-size: 14px; color: var(--dim); }
 .why li { margin: 3px 0; }
 .alts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 12px; }
-.alts .chip { font-weight: 500; font-size: 14px; min-height: 36px; }
+.alts .chip { font-weight: 500; font-size: 14px; min-height: 44px; }
 
 /* ---------- causes ---------- */
 .causes { display: grid; gap: 8px; }
@@ -174,6 +177,7 @@ p.lead { color: var(--dim); margin: 0 0 12px; }
 }
 .opt.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 .opt.dk { color: var(--faint); border-style: dashed; }
+.opt.dk.on { color: var(--accent-ink); }
 
 /* ---------- cause detail / prose ---------- */
 .prose { font-size: 17px; }

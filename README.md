@@ -45,13 +45,15 @@ python3 tools/build.py && node tools/check.mjs     # compile KB + standalone HTM
 node tools/coverage.mjs                            # verify per-system and per-module scenario coverage
 node tools/fuzz.mjs                                # odd input: search text, readings, calculators, engine
 node tools/offline_check.mjs                       # headless Chromium: precache, offline launch, updates, file://
+npm install && node tools/a11y_check.mjs           # axe-core, 44 px tap targets, no sideways scroll at 360 px, both themes
 node tools/dx.mjs --help                           # terminal CLI diagnostics & physics calculators
 python3 tools/check_pt.py                          # PT tables vs published manufacturer charts
 node tools/physics_check.mjs                       # 44 calculator outputs vs independent published values
 .venv/bin/python -I tools/bake_pt.py               # re-bake PT (needs CoolProp) and glycol tables
 ```
 `build.py` compiles `docs/data/kb.json`, emits the self-contained single-file `docs/field-dx-standalone.html`, and stamps `docs/sw.js` with a content hash so phones pick up a new version on next launch.
-The browser checks need Playwright with Chromium (`npm i -g playwright && npx playwright install chromium`).
+The browser checks need Playwright with Chromium (`npm i -g playwright && npx playwright install chromium`);
+`npm install` adds axe-core, the only dev dependency (the app itself has none).
 `offline_check.mjs` serves `docs/` locally, loads the app online, goes offline and diagnoses; ships a new build and
 checks the cache is replaced byte for byte; breaks an update halfway and checks the old version still works; and
 opens the standalone file from `file://` with the network blocked.

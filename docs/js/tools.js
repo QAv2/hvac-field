@@ -89,7 +89,7 @@ export function renderTool(id, { ctx = {}, refrigerants = [] } = {}) {
       body = '<p>Unknown calculator.</p>';
   }
   return `<h1>${esc(t?.label || 'Calculator')}</h1>${body}<div id="toolout" class="out"></div>
-    <div style="margin-top:16px"><a href="#/tools">‹ All calculators</a></div>`;
+    <div style="margin-top:16px"><a class="block" href="#/tools">‹ All calculators</a></div>`;
 }
 
 export function updateTool(id) {
