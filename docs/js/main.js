@@ -536,6 +536,8 @@ function viewAbout() {
       <p>Open this page in Safari once while you have internet, tap Share → Add to Home Screen. After that it opens and works offline.</p>
       <h2>How sure is it?</h2>
       <p>The percentages are the app's best guess from what's been entered, not a guarantee. The equipment's own documentation (charging charts, wiring diagrams, manufacturer specs) always wins. Confirm a cause with its own test before replacing parts.</p>
+      <h2>Voice (being built)</h2>
+      <p>Hands-free use is in testing. <a href="voice/lab.html">Run the voice test</a> — it downloads a 47 MB offline voice pack the first time.</p>
       <h2>Knowledge base</h2>
       <p>${meta.counts ? `${meta.counts.causes} causes · ${meta.counts.features} checks · ${meta.counts.measures} calculations` : ''}${meta.built ? ` · built ${esc(meta.built)}` : ''}</p>
       <ul class="ev">${refs}</ul>

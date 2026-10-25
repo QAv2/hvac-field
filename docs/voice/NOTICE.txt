@@ -1,0 +1,9 @@
+Field Dx voice pack — third-party components
+
+vosk.js — vosk-browser 0.0.8 (https://github.com/ccoreilly/vosk-browser), a WebAssembly build of Vosk.
+  Apache License 2.0. Bundles the Vosk API and Kaldi (Apache License 2.0).
+
+vosk-model-small-en-us-0.15.tar.gz — Vosk small US English model, Copyright 2020 Alpha Cephei Inc.
+  Apache License 2.0 (https://alphacephei.com/vosk/models). Repacked from the published .zip as .tar.gz, unchanged.
+
+Apache License 2.0: https://www.apache.org/licenses/LICENSE-2.0

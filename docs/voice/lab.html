@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Field Dx voice test</title>
+<meta name="theme-color" content="#0d1215">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="stylesheet" href="../css/app.css">
+<style>
+  .step { margin: 14px 0; border-radius: 18px; border: 1px solid var(--line); background: var(--panel); padding: 14px 16px; }
+  .step.on { border: 2px solid var(--accent); }
+  .step h3 { margin: 0 0 6px; font-size: 18px; }
+  .step .num { color: var(--accent); margin-right: 6px; }
+  .say { font-size: 22px; font-weight: 800; margin: 8px 0; }
+  .out { font-family: var(--mono); font-size: 15px; margin-top: 8px; white-space: pre-wrap; color: var(--dim); min-height: 1.4em; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .hold { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; touch-action: none; min-height: 88px; font-size: 20px; }
+  .hold.down { background: var(--high); color: #fff; }
+  .meter { height: 14px; border-radius: 7px; background: var(--panel2); overflow: hidden; margin-top: 10px; }
+  .meter i { display: block; height: 100%; width: 0; background: var(--ok); transition: width 60ms linear; }
+  .ok { color: var(--ok); font-weight: 800; } .bad { color: var(--high); font-weight: 800; }
+  table.res { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  table.res td { border-top: 1px solid var(--line); padding: 6px 4px; vertical-align: top; }
+  #summary { font-family: var(--mono); font-size: 13px; white-space: pre-wrap; background: var(--panel2); border-radius: 12px; padding: 10px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Voice test</h1>
+  <p class="lead">Five steps, about ten minutes. Run it three times: in Safari, from the Home Screen icon, and from the
+    Home Screen icon in airplane mode. Results from every run collect at the bottom.</p>
+  <div class="step"><div id="where" class="out"></div></div>
+
+  <div class="step" id="s1">
+    <h3><span class="num">1</span>Microphone</h3>
+    <p class="muted">Tap, allow the microphone, then talk. The bar should move.</p>
+    <button class="cta" id="mic">Start the microphone</button>
+    <div class="meter"><i id="level"></i></div>
+    <div class="out" id="micout"></div>
+  </div>
+
+  <div class="step" id="s2">
+    <h3><span class="num">2</span>The phone's own voice</h3>
+    <p class="muted">Tap and listen. Then say whether you heard it.</p>
+    <button class="cta" id="speak">Speak a check</button>
+    <div class="row"><button class="cta ghost" id="heard">I heard it</button><button class="cta ghost" id="silent">Nothing</button></div>
+    <div class="out" id="ttsout"></div>
+  </div>
+
+  <div class="step" id="s3">
+    <h3><span class="num">3</span>Offline recognizer</h3>
+    <p class="muted">Loads the voice pack (about 47 MB the first time, then from the phone). Then hold the big button,
+      say the words, let go.</p>
+    <button class="cta" id="load">Load the voice pack</button>
+    <div class="out" id="loadout"></div>
+    <div id="prompt" hidden>
+      <div class="muted" id="pcount"></div>
+      <div class="say" id="psay"></div>
+      <div class="muted" id="phint"></div>
+      <button class="cta hold" id="hold">Hold to talk</button>
+      <div class="row"><button class="cta ghost" id="again">Try again</button><button class="cta ghost" id="next">Next</button></div>
+      <div class="out" id="pout"></div>
+    </div>
+    <table class="res" id="ptable"></table>
+  </div>
+
+  <div class="step" id="s4">
+    <h3><span class="num">4</span>Hands-free callout</h3>
+    <p class="muted">Tap once, put the phone down, and just say <b>"field check"</b>. Talk normally first if you like —
+      it should only answer to the callout.</p>
+    <button class="cta" id="callgo" disabled>Start listening (20 seconds)</button>
+    <div class="out" id="callout"></div>
+  </div>
+
+  <div class="step" id="s5">
+    <h3><span class="num">5</span>Apple's recognizer (optional)</h3>
+    <p class="muted">Tap and say "the walk-in freezer is warm". Shows whether Apple's built-in recognizer works here.</p>
+    <button class="cta ghost" id="ws">Try Apple's recognizer</button>
+    <div class="out" id="wsout"></div>
+  </div>
+
+  <h2>Results</h2>
+  <div id="summary"></div>
+  <div class="row"><button class="cta" id="copy">Copy results</button><button class="cta ghost" id="clear">Clear</button></div>
+  <p class="muted" style="margin-top:16px">Back to <a href="../">Field Dx</a>. Voice pack: Vosk (Apache-2.0, Alpha Cephei)
+    and vosk-browser (Apache-2.0).</p>
+</main>
+
+<script src="vosk.js"></script>
+<script type="module">
+import { spokenReading, matchAnswer, COMMANDS } from '../js/spoken.js';
+import { readValue } from '../js/calcs.js';
+
+const $ = (id) => document.getElementById(id);
+try { const t = JSON.parse(localStorage.getItem('fdx.theme') || '"auto"'); if (t !== 'auto') document.documentElement.dataset.theme = t; } catch { /* default theme */ }
+
+// ---------- the run being recorded ----------
+const KEY = 'fdx.voicelab';
+const standalone = navigator.standalone === true || matchMedia('(display-mode: standalone)').matches;
+const run = {
+  when: new Date().toISOString(), where: standalone ? 'home screen' : 'browser tab', online: navigator.onLine,
+  ua: navigator.userAgent, reload: Number(sessionStorage.getItem('fdx.voicelab.reload') || 0), prompts: [],
+};
+const runs = (() => { try { return JSON.parse(localStorage.getItem(KEY) || '[]'); } catch { return []; } })();
+function save() {
+  try { localStorage.setItem(KEY, JSON.stringify([...runs, run])); } catch { /* private mode */ }
+  summary();
+}
+$('where').textContent = `Running in: ${run.where} · ${run.online ? 'online' : 'OFFLINE'}\n${navigator.userAgent.replace(/^Mozilla\/5.0 /, '')}`;
+
+function line(r) {
+  const p = r.prompts || [];
+  const okN = p.filter((x) => x.ok).length;
+  const lat = p.filter((x) => x.ms != null).map((x) => x.ms);
+  const med = lat.length ? lat.sort((a, b) => a - b)[lat.length >> 1] : null;
+  return [
+    `${r.when.slice(5, 16).replace('T', ' ')} ${r.where}${r.online ? '' : ' OFFLINE'}${r.reload ? ' after-reload' : ''}`,
+    `  mic ${r.mic ?? '–'}${r.rate ? ` ${r.rate} Hz` : ''} · voice ${r.tts ?? '–'}${r.voices != null ? ` (${r.voices} voices, ${r.localVoices} on-device)` : ''}`,
+    `  pack ${r.pack ?? '–'}${r.packMs ? ` ${(r.packMs / 1000).toFixed(1)} s` : ''}${r.persist != null ? ` · keep-storage ${r.persist}` : ''}${r.usedMB ? ` · ${r.usedMB} MB stored` : ''}`,
+    `  answers ${p.length ? `${okN}/${p.length}` : '–'}${med != null ? ` · median ${med} ms after letting go` : ''}`,
+    `  callout ${r.callout ?? '–'} · apple ${r.webspeech ?? '–'}`,
+  ].join('\n');
+}
+function summary() { $('summary').textContent = [...runs, run].map(line).join('\n\n') || 'Nothing yet.'; }
+summary();
+
+// ---------- 1. microphone ----------
+let ctx = null, stream = null, sink = null;
+$('mic').onclick = async () => {
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+    ctx = new (window.AudioContext || window.webkitAudioContext)();
+    await ctx.resume();
+    const src = ctx.createMediaStreamSource(stream);
+    const proc = ctx.createScriptProcessor(4096, 1, 1);
+    let peak = 0;
+    proc.onaudioprocess = (e) => {
+      const d = e.inputBuffer.getChannelData(0);
+      let m = 0; for (let i = 0; i < d.length; i += 8) m = Math.max(m, Math.abs(d[i]));
+      peak = Math.max(peak * 0.85, m);
+      $('level').style.width = `${Math.min(100, peak * 300)}%`;
+      if (m > 0.05 && run.mic !== 'ok') { run.mic = 'ok'; $('micout').innerHTML = '<span class="ok">Hearing you.</span>'; save(); }
+      if (sink) sink(e.inputBuffer);
+    };
+    src.connect(proc); proc.connect(ctx.destination);
+    run.rate = ctx.sampleRate; run.mic = run.mic || 'open';
+    $('micout').textContent = `Microphone open at ${ctx.sampleRate} Hz. Talk — the bar should move.`;
+    $('mic').disabled = true;
+    save();
+  } catch (err) {
+    run.mic = `failed: ${err.name}`;
+    $('micout').innerHTML = `<span class="bad">No microphone: ${err.name}</span> ${err.message || ''}`;
+    save();
+  }
+};
+
+// ---------- 2. the phone's own voice ----------
+function voices() {
+  const v = speechSynthesis.getVoices().filter((x) => x.lang?.startsWith('en'));
+  run.voices = v.length; run.localVoices = v.filter((x) => x.localService).length;
+}
+$('speak').onclick = () => {
+  if (!('speechSynthesis' in window)) { run.tts = 'missing'; $('ttsout').textContent = 'No speech output in this browser.'; save(); return; }
+  voices();
+  const u = new SpeechSynthesisUtterance('Next check. Is the condenser fan running? Say one for running, two for not running.');
+  u.rate = 0.95;
+  u.onerror = (e) => { run.tts = `error: ${e.error}`; $('ttsout').textContent = `Speech error: ${e.error}`; save(); };
+  speechSynthesis.cancel();
+  speechSynthesis.speak(u);
+  $('ttsout').textContent = `Speaking… (${run.voices} English voices, ${run.localVoices} on the phone)`;
+};
+$('heard').onclick = () => { run.tts = 'heard'; $('ttsout').innerHTML = '<span class="ok">Heard.</span>'; save(); };
+$('silent').onclick = () => { run.tts = 'silent'; $('ttsout').innerHTML = '<span class="bad">Silent.</span> Check the ring/silent switch and volume, then try once more.'; save(); };
+
+// ---------- 3. offline recognizer ----------
+const FAN = [
+  { id: 'running', keys: ['running', 'turning'] },
+  { id: 'off', keys: ['not running', 'off', 'silent'] },
+  { id: 'slip', keys: ['wheel not turning', 'belt'] },
+  { id: 'trips', keys: ['trips', 'hums'] },
+];
+const ORD = ['one', 'two', 'three', 'four', 'first', 'second', 'third', 'fourth', 'number', 'option'];
+const NUMS = ('zero oh one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen '
+  + 'eighteen nineteen twenty thirty forty fifty sixty seventy eighty ninety hundred thousand point minus negative below and a half '
+  + 'pounds psi degrees fahrenheit celsius inches of water mercury amps volts hertz ohms micro farads percent feet minutes').split(' ');
+const GRAMMAR = {
+  answer: [...ORD, ...FAN.flatMap((o) => o.keys), "it's off", 'it hums', ...Object.values(COMMANDS).flat().map((p) => p.replace("cant", "can't").replace('whats', "what's")), '[unk]'],
+  number: [...NUMS, '[unk]'],
+  call: ['field check', '[unk]'],
+};
+const PROMPTS = [
+  { say: 'two', hint: 'Answer by number.', g: 'answer', want: { kind: 'answer', id: 'off' } },
+  { say: 'not running', hint: 'Answer by its words.', g: 'answer', want: { kind: 'answer', id: 'off' } },
+  { say: "what's leading", hint: 'A command.', g: 'answer', want: { kind: 'command', id: 'leading' } },
+  { say: 'sixty-two pounds', hint: 'A reading.', g: 'number', want: { v: 62, unit: 'psig' } },
+  { say: 'one twenty-five', hint: 'A reading, the way you\'d say it off a gauge.', g: 'number', want: { v: 125, unit: 'psig' } },
+  { say: 'ten below', hint: 'A temperature.', g: 'number', want: { v: -10, unit: '°F' } },
+  { say: 'the walk-in freezer is warm and the coil is iced', hint: 'Free speech — no list of words. Judge it yourself.', g: null, want: null },
+];
+let model = null, pi = 0;
+
+$('load').onclick = async () => {
+  $('load').disabled = true;
+  const t0 = performance.now();
+  try { run.persist = navigator.storage?.persist ? String(await navigator.storage.persist()) : 'n/a'; } catch { run.persist = 'error'; }
+  $('loadout').textContent = 'Loading… the first time downloads about 41 MB; after that it comes from the phone.';
+  try {
+    // an absolute URL: the recognizer keeps the unpacked model in the phone's storage under this name
+    model = await Vosk.createModel(new URL('vosk-model-small-en-us-0.15.tar.gz', location.href).href, -1);
+    run.packMs = Math.round(performance.now() - t0);
+    run.pack = 'ok';
+    try { const e = await navigator.storage.estimate(); run.usedMB = Math.round(e.usage / 1e6); } catch { /* no estimate */ }
+    $('loadout').innerHTML = `<span class="ok">Voice pack ready</span> in ${(run.packMs / 1000).toFixed(1)} s${run.usedMB ? ` · ${run.usedMB} MB stored` : ''}.`;
+    $('prompt').hidden = false; $('callgo').disabled = false;
+    showPrompt();
+  } catch (err) {
+    run.pack = `failed: ${err?.message || err}`;
+    $('loadout').innerHTML = `<span class="bad">Voice pack failed:</span> ${err?.message || err}`;
+    $('load').disabled = false;
+  }
+  save();
+};
+
+function showPrompt() {
+  const p = PROMPTS[pi];
+  if (!p) { $('psay').textContent = 'Done — all answers recorded.'; $('phint').textContent = ''; $('hold').disabled = true; return; }
+  $('pcount').textContent = `${pi + 1} of ${PROMPTS.length}`;
+  $('psay').textContent = `Say: "${p.say}"`;
+  $('phint').textContent = p.hint;
+  $('pout').textContent = '';
+}
+
+function judge(p, text) {
+  const heard = text.replace(/\[unk\]/g, '').trim();
+  if (!p.want) return null;
+  if (p.want.kind) { const m = matchAnswer(heard, FAN); return m.kind === p.want.kind && m.id === p.want.id; }
+  const t = spokenReading(heard);
+  const v = t == null ? null : readValue(t, p.want.unit).v;
+  return v != null && Math.abs(v - p.want.v) < 0.01;
+}
+
+// one recognition: feed the mic while held, ask for the final result on release.
+// The worker answers each chunk with one event and the final request with one result, so we know when it's done.
+function listen(grammar, onResult) {
+  const rec = grammar ? new model.KaldiRecognizer(ctx.sampleRate, JSON.stringify(grammar)) : new model.KaldiRecognizer(ctx.sampleRate);
+  const st = { rec, sent: 0, seen: 0, texts: [], maxLag: 0, finalAt: null, closed: false };
+  const tick = () => {
+    st.seen++;
+    st.maxLag = Math.max(st.maxLag, st.sent - st.seen);
+    if (st.finalAt != null && st.seen === st.sent + 1) { st.closed = true; rec.remove(); onResult(st); }
+  };
+  rec.on('result', (m) => { st.texts.push(m.result.text); if (onResult.eager && m.result.text) onResult.eager(m.result.text, st); tick(); });
+  rec.on('partialresult', (m) => { if (onResult.partial) onResult.partial(m.result.partial); tick(); });
+  st.feed = (buf) => { if (st.finalAt == null) { rec.acceptWaveform(buf); st.sent++; } };
+  st.stop = () => { if (st.finalAt != null) return; st.finalAt = performance.now(); rec.retrieveFinalResult(); };
+  return st;
+}
+
+let cur = null;
+const hold = $('hold');
+hold.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  if (!model || !ctx || hold.disabled) { $('pout').textContent = ctx ? 'Load the voice pack first.' : 'Start the microphone (step 1) first.'; return; }
+  hold.classList.add('down'); hold.textContent = 'Listening… let go when done';
+  const p = PROMPTS[pi];
+  const done = (st) => {
+    const text = st.texts.filter(Boolean).join(' ').replace(/\[unk\]/g, '').trim();
+    const ms = Math.round(performance.now() - st.finalAt);
+    const ok = judge(p, text);
+    const chunkMs = 4096 / ctx.sampleRate * 1000;
+    $('pout').innerHTML = `Heard: <b>${text || '(nothing)'}</b> ${ok == null ? '' : ok ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'}\n`
+      + `answered ${ms} ms after you let go · fell behind by up to ${Math.round(st.maxLag * chunkMs)} ms`;
+    run.prompts = run.prompts.filter((x) => x.say !== p.say).concat({ say: p.say, heard: text, ok, ms, lagMs: Math.round(st.maxLag * chunkMs) });
+    table(); save();
+  };
+  done.partial = (t) => { if (t) $('pout').textContent = `… ${t}`; };
+  cur = listen(p.g ? GRAMMAR[p.g] : null, done);
+  sink = (buf) => cur?.feed(buf);
+});
+const release = () => {
+  if (!cur) return;
+  hold.classList.remove('down'); hold.textContent = 'Hold to talk';
+  sink = null; cur.stop(); cur = null;
+};
+hold.addEventListener('pointerup', release);
+hold.addEventListener('pointercancel', release);
+hold.addEventListener('pointerleave', release);
+hold.addEventListener('contextmenu', (e) => e.preventDefault());
+$('again').onclick = () => { $('pout').textContent = ''; };
+$('next').onclick = () => { pi++; showPrompt(); };
+
+function table() {
+  $('ptable').innerHTML = run.prompts.map((x) => `<tr><td>${x.say}</td><td>${x.heard || '—'}</td><td>${x.ok == null ? '' : x.ok ? '<span class="ok">✓</span>' : '<span class="bad">✗</span>'}</td><td>${x.ms} ms</td></tr>`).join('');
+}
+
+// ---------- 4. hands-free callout ----------
+$('callgo').onclick = () => {
+  if (!ctx) { $('callout').textContent = 'Start the microphone (step 1) first.'; return; }
+  $('callgo').disabled = true;
+  let falseWakes = 0, got = false;
+  const t0 = performance.now();
+  const onFinal = () => {};
+  onFinal.eager = (text) => {
+    if (got) return;
+    if (/\bfield check\b/.test(text)) {
+      got = true;
+      run.callout = `heard after ${((performance.now() - t0) / 1000).toFixed(1)} s, ${falseWakes} false`;
+      $('callout').innerHTML = `<span class="ok">Callout heard.</span> ${run.callout}`;
+      finish();
+    } else if (text.replace(/\[unk\]/g, '').trim()) falseWakes++;
+  };
+  const st = listen(GRAMMAR.call, onFinal);
+  sink = (buf) => st.feed(buf);
+  $('callout').textContent = 'Listening for "field check"…';
+  const timer = setTimeout(() => { if (!got) { run.callout = `not heard in 20 s, ${falseWakes} false`; $('callout').innerHTML = `<span class="bad">Not heard.</span>`; finish(); } }, 20000);
+  function finish() { clearTimeout(timer); sink = null; st.stop(); $('callgo').disabled = false; save(); }
+};
+
+// ---------- 5. Apple's recognizer ----------
+$('ws').onclick = () => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { run.webspeech = 'missing'; $('wsout').textContent = 'Not available here.'; save(); return; }
+  const r = new SR();
+  r.lang = 'en-US'; r.continuous = false; r.interimResults = false;
+  r.onresult = (e) => { const t = e.results[0][0].transcript; run.webspeech = `heard "${t}"`; $('wsout').innerHTML = `<span class="ok">Heard:</span> ${t}`; save(); };
+  r.onerror = (e) => { run.webspeech = `error ${e.error}`; $('wsout').innerHTML = `<span class="bad">Error:</span> ${e.error}`; save(); };
+  r.onend = () => { if (!run.webspeech) { run.webspeech = 'no result'; save(); } };
+  try { r.start(); $('wsout').textContent = 'Listening…'; } catch (err) { run.webspeech = `failed ${err.name}`; $('wsout').textContent = err.message; save(); }
+};
+
+// ---------- results ----------
+$('copy').onclick = async () => {
+  const text = [...runs, run].map(line).join('\n\n') + '\n\n' + JSON.stringify([...runs, run]);
+  try { await navigator.clipboard.writeText(text); $('copy').textContent = 'Copied'; } catch { $('copy').textContent = 'Copy failed — screenshot instead'; }
+};
+$('clear').onclick = () => { try { localStorage.removeItem(KEY); } catch { /* nothing saved */ } runs.length = 0; summary(); };
+window.addEventListener('pagehide', save);
+</script>
+</body>
+</html>

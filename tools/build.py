@@ -324,8 +324,10 @@ def scenarios():
 def stamp(docs=None):
     """Write the offline cache list and a content hash into docs/sw.js."""
     docs = docs or ROOT / "docs"
+    # docs/voice/ is the optional voice pack (~47 MB): fetched only when voice is turned on, kept in its own cache
     files = sorted(p for p in docs.rglob("*")
-                   if p.is_file() and p.name not in ("sw.js", "field-dx-standalone.html") and not p.name.startswith("."))
+                   if p.is_file() and p.name not in ("sw.js", "field-dx-standalone.html") and not p.name.startswith(".")
+                   and p.relative_to(docs).parts[0] != "voice")
     h = hashlib.sha256()
     for p in files:
         h.update(p.relative_to(docs).as_posix().encode())
