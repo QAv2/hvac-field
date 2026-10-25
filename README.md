@@ -12,7 +12,7 @@ Everything runs on the device — built for McMurdo, where the connection can't 
 worker caches everything; after that it works with no connection, and it updates itself the next time it is
 opened online.
 
-## Coverage (372 causes · 345 checks · 71 calculations · 599 scenarios · 11 systems)
+## Coverage (415 causes · 386 checks · 73 calculations · 676 scenarios · 11 systems)
 - **Vapor-compression core (`kb/vc-core.yaml` + `kb/common.yaml`, 43 causes)** — charge, metering (TXV/EEV/piston/cap tube), airflow, non-condensables, restrictions, single/three-phase electrical, compressor mechanical.
 - **Commercial refrigeration & ice (`kb/refrigeration.yaml`, 58 causes)** — walk-ins, reach-ins, prep tables, cube/flake ice machines, defrost systems, EPR/CPR, cold-ambient (−40 °F) head-pressure control, water/glycol condensers.
 - **Heat pumps & mini-splits (`kb/heatpump.yaml`, 41 causes)** — 4-way reversing valves, defrost boards/sensors, auxiliary strip heat, inverter drives/IPMs, EEV stepper coils, multi-zone port cross-wiring.
@@ -20,6 +20,7 @@ opened online.
 - **Hydronic, glycol & steam (`kb/hydronic.yaml`, 60 causes)** — circulators, air elimination, expansion tanks, zone valves, mixing valves, propylene/ethylene glycol loops, heat exchangers, steam traps, Hartmann loops.
 - **Terminal heating units (`kb/terminal.yaml`, 47 causes)** — hot-water, glycol and steam unit heaters, cabinet unit heaters, 2- and 4-pipe fan coils, baseboard/convectors/radiators, radiant panels, electric unit and baseboard heaters: valves and actuators, air-bound and plugged coils, fan motors and interlocks, freeze-stats, unit steam traps and vacuum breakers, elements, limits, contactors and line-voltage thermostats.
 - **Air handling & ventilation (`kb/ahu.yaml`, 65 causes)** — belt/sheave/VFD fans, static pressure & duct faults, economizers (NIST APAR rules), hydronic/steam coils, freeze stats, HRV/ERV cores.
+- **Controls & low-voltage circuits (`kb/controls.yaml`, 43 causes, every system)** — 24 VAC circuit (fuse, shorts, transformer, tap, phasing, door switch), safety switches that fail open, relays, contactors and delay timers, thermostats and their sensors (10 kΩ NTC table), heat-pump O/B in cooling, DDC/BAS points (override, schedule, occupancy, controller reset and comm loss, output and actuator faults).
 
 ## How it works
 - `docs/js/engine.js` — single-fault Bayesian ranking over the causes for the chosen system, and the next
@@ -61,10 +62,10 @@ opens the standalone file from `file://` with the network blocked.
 
 ## Sources and rights
 Fault directions follow NIST SP 1087 and TN 1648 and the NIST APAR rules (NISTIR 6964) — US Government works —
-plus public-domain Army manuals (TM 5-642, TM 5-650) and general practice, written in our own words. Refrigerant
-properties from CoolProp (MIT). Terminal-unit faults also draw on the DOE steam trap tip sheet (US Government
-work). Charging targets from the California Energy Commission ACM manual (Tables RD-2, RD-3). Glycol freeze points
-from the Dow DOWTHERM SR-1 and DOWFROST HD product tables. Nothing is copied from proprietary diagnostic apps.
-Research notes are in `research/`.
+plus public-domain Army manuals (TM 5-642, TM 5-650), UFC 3-410-02 for DDC/BAS points, and general practice,
+written in our own words. Refrigerant properties from CoolProp (MIT). Terminal-unit faults also draw on the DOE
+steam trap tip sheet (US Government work). Charging targets from the California Energy Commission ACM manual
+(Tables RD-2, RD-3). Glycol freeze points from the Dow DOWTHERM SR-1 and DOWFROST HD product tables. Nothing is
+copied from proprietary diagnostic apps. Research notes are in `research/`.
 
 The probe link (UEi wireless probes over Bluetooth) is a separate track: `tools/ble_scan.py`, `tools/ble_capture.py`.

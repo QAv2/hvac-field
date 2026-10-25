@@ -1,0 +1,1714 @@
+module: controls
+title: Controls & low-voltage circuits — 24 V circuit, safeties, relays and timers, thermostats and sensors, DDC/BAS points
+notes: |
+  The equipment is often fine and the signal telling it to run is not. This module covers the control side
+  across every system: the 24 VAC circuit (transformer, fuse, shorts, phasing, door switch), safety switches
+  that fail open on their own, relays, contactors and timers, thermostats and their sensors, and DDC/BAS points.
+
+  Conventions this module relies on (read before editing a cause):
+  - The shared no-run causes in common.yaml (gen.control_power, gen.no_call) stay the umbrella answers. The
+    causes here split them by the check that tells them apart: the fuse, the transformer primary and
+    secondary, the isolation test, the call at the thermostat itself, the jumper test at the unit. A cause
+    here keeps the umbrella's signs on the shared features, so the umbrella still leads until a ctl.* check
+    is made.
+  - Where another module already has the check, this module uses it instead of adding a twin: vc.contactor,
+    vc.coil_24v, vc.hps_trip, vc.lps_trip, blr.tt, blr.spill_switch, hp.* for the reversing valve in heating,
+    rf.probe_cal, ahu.sensor_check, ahu.fan_status. The heat-pump O/B checks here (ctl.ob_setting,
+    ctl.cool_mode, ctl.rv_coil_cool) are the cooling-side twins of hp.stat_ob_config, hp.mode_actual and
+    hp.rv_coil_24v, which live on vc.hp only. They never meet on the same system.
+  - Contactor-pole voltage drop on refrigeration and the starter on air handlers are already in vc.contactor and
+    ahu.starter. The relay checks here (ctl.relay, ctl.coil_ohms, ctl.contact_drop) run on oil-fired and
+    hydronic systems only, where nothing else covers them.
+  - Air handlers keep their own BAS checks (ahu.fan_status, ahu.damper_test, ahu.valve_test). The BAS command
+    and output-signal checks here run on the other systems. The override, schedule and controller checks run
+    everywhere a BAS can be (requires controls: bas).
+  - The 10 kΩ thermistor table is a Beta-model curve (R25 = 10 kΩ, β = 3950 K), 10 °F steps, read by linear
+    interpolation (within about 2 % of the curve). Curves differ by maker and type, so the pass band is ±15 %
+    and the text sends the tech to the sensor maker's chart for a close call.
+  - Every check that uses a jumper or a live measurement carries a `caution` line: the hazard, and when it is
+    safe.
+
+features:
+  # ---------------- 24 VAC circuit ----------------
+  - id: ctl.lv_fuse
+    name: Low-voltage fuse
+    ask: Is the low-voltage fuse (the 3 or 5 A fuse on the board or in the transformer secondary) intact?
+    how: Look at the blade fuse on the control board, or the inline fuse in the transformer secondary. With power
+      on, 24 V measured across the fuse means it is open. A fuse that holds until a call comes on, then blows,
+      points at the circuit that call energizes.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: ['*']
+    states:
+      intact: Intact
+      blown: Blown
+      reblows: A new fuse blows again (often as soon as a call comes on)
+    normal: intact
+    cost: 1
+    phrases:
+      blown: [blown 3 amp fuse, 3 amp fuse blown, 3a fuse blown, blown 5 amp fuse, board fuse blown, low voltage fuse
+        blown, blade fuse blown, fuse on the board blown, control board fuse blown, blown fuse on board]
+      reblows: [keeps blowing 3 amp fuse, fuse blows when thermostat calls, new fuse blew right away, fuse blows on a
+        call, blows the board fuse, 3 amp fuse keeps blowing, fuse pops when cooling starts]
+      intact: [fuse good, board fuse ok]
+
+  - id: ctl.xfmr
+    name: Control transformer
+    ask: Does the control transformer have line voltage on its primary and 24–28 V on its secondary?
+    how: Meter the two primary leads (120, 208/240 or 277 V), then the secondary at the transformer (R to C),
+      before the fuse. An unloaded secondary reads about 24–28 V.
+    caution: The primary is line voltage. Use a CAT III meter with insulated probes and keep hands off the
+      terminals; it is safe to touch only after lockout and a dead test.
+    systems: ['*']
+    states:
+      ok: Line voltage in, 24–28 V out
+      no_secondary: Line voltage in, no 24 V out
+      no_primary: No line voltage reaching the primary
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      no_secondary: [transformer bad, transformer dead, transformer open, transformer burnt, bad transformer,
+        transformer fried, no 24 volts out of the transformer, transformer has power in but nothing out]
+      no_primary: [no power to the transformer, no voltage on the transformer primary, transformer primary dead]
+      ok: [transformer good, transformer ok]
+
+  - id: ctl.rc_volts
+    name: 24 V level with the call on
+    ask: With the call on and the loads pulled in, what does R to C read at the transformer?
+    how: Meter R to C at the transformer or board while the contactor or relays are pulled in. Healthy is about
+      22–28 V. A reading that sags several volts when the call comes on means the transformer is near its limit.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: ['*']
+    ask_unless: {gen.control_v: missing}
+    states:
+      normal: 22–28 V
+      low: Low — under about 21 V, or drops several volts when the call comes on
+      high: High — over about 30 V
+    normal: normal
+    cost: 2
+    needs: meter
+    phrases:
+      low: [low 24 volts, 18 volts on the secondary, 20 volts at the transformer, control voltage low, low control
+        voltage, 24 volts drops on call, voltage drops when the contactor pulls in]
+      high: [32 volts on the secondary, control voltage high, 30 volts r to c, high 24 volts]
+      normal: [24 volts good, 26 volts r to c]
+
+  - id: ctl.xfmr_tap
+    name: Transformer primary tap
+    ask: Is the transformer's primary connected on the tap that matches the line voltage it is fed?
+    how: Many control transformers have several primary leads (120, 208, 240, 277 or 480 V), with the unused
+      ones capped. Compare the lead in use with the voltage you metered on the primary. A 240 V tap on a 208 V
+      supply runs the secondary low; a 208 V tap on 240 V runs it high.
+    caution: Lock out and dead-test before moving a tap; the leads carry line voltage.
+    systems: ['*']
+    states:
+      matches: Tap matches the supply
+      wrong: Wrong tap for the supply
+    normal: matches
+    cost: 2
+    needs: panel
+    phrases:
+      wrong: [transformer on the wrong tap, 240 tap on 208, 208 tap on 240, wrong transformer tap, transformer tap
+        wrong]
+
+  - id: ctl.phasing
+    name: Phasing between two transformers
+    ask: If two transformers feed the same control wiring, do they read in phase?
+    how: With the two C terminals tied together, meter R of one transformer to R of the other. Near 0 V means
+      in phase. About 48 V means out of phase. Common on a furnace with a heat pump, zoning panels, and boilers
+      with several zone controls.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: [vc.ac, vc.hp, fuel, hydronic, ahu]
+    states:
+      single: Only one transformer in the circuit
+      in_phase: Two transformers, in phase (near 0 V between the R terminals)
+      out_of_phase: Two transformers, out of phase (about 48 V between the R terminals)
+    normal: single
+    base: {single: 0.78, in_phase: 0.17, out_of_phase: 0.05}
+    cost: 2
+    needs: meter
+    phrases:
+      out_of_phase: [transformers out of phase, 48 volts between r terminals, phasing problem, two transformers
+        fighting, transformer phasing wrong, 48 volts r to r]
+      in_phase: [transformers in phase]
+
+  - id: ctl.short_where
+    name: Where the 24 V short is
+    ask: With power off, lift the field wires one at a time and ohm the call terminals to C — what clears the short?
+    how: Power off and fuse out. Ohm R to C and each call terminal (Y, W, G, O/B) to C with the thermostat
+      off the wall. Near 0 Ω is the short. Lift one wire at a time (thermostat cable, outdoor cable, each coil)
+      until the reading clears. A coil that reads under about 2 Ω is shorted.
+    systems: ['*']
+    ask_if: {ctl.lv_fuse: [blown, reblows]}
+    states:
+      no_short: No short found — every circuit reads normal to C
+      cable: Clears with a cable lifted (thermostat or outdoor run)
+      coil: Clears with one coil lifted — that coil reads near 0 Ω
+    normal: no_short
+    cost: 3
+    needs: meter
+    phrases:
+      cable: [shorted thermostat wire, thermostat wire shorted, nicked thermostat wire, chewed wire, stapled
+        thermostat wire, outdoor wire shorted, low voltage wire shorted to the cabinet, y wire shorted to ground]
+      coil: [shorted contactor coil, contactor coil shorted, coil reads zero ohms, shorted relay coil, coil shorted]
+
+  - id: ctl.door_sw
+    name: Blower-door safety switch
+    ask: Is the blower-door safety switch closed with the door seated?
+    how: Seat the door and check the switch plunger is pushed in. On most furnaces and air handlers the switch
+      breaks line voltage to the transformer, so the whole control goes dead with the door off.
+    caution: With the door off and the switch held in, the cabinet is live. Hold it in only to watch, with hands
+      clear of the blower and terminals.
+    systems: [vc.ac, vc.hp, fuel.furnace]
+    states:
+      closed: Closed with the door on
+      open: Open — door not seated, or the switch failed
+    normal: closed
+    cost: 1
+    phrases:
+      open: [door switch, blower door switch, door switch open, door interlock open, door switch bad, panel switch
+        not made, door not seated, furnace door switch]
+
+  - id: ctl.vdrop
+    name: 24 V lost along the control path
+    ask: With the call on, is the voltage across the coil within a volt or two of R to C at the transformer?
+    how: Meter R to C at the transformer, then across the coil it should pull in. Then step along the path (R
+      at the thermostat, Y at the unit, each splice) to find the joint that loses the volts.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: ['*']
+    states:
+      none: Within a volt or two
+      drop: 3 V or more lower at the coil
+    normal: none
+    cost: 2
+    needs: meter
+    phrases:
+      drop: [voltage drop on the thermostat wire, low voltage at the contactor coil, 18 volts at the contactor,
+        corroded wire nut, bad splice on the low voltage, loose thermostat wire, low volts at the coil]
+
+  - id: ctl.contactor_noise
+    name: Contactor or relay sound
+    ask: What does the contactor or relay sound like when it is called?
+    systems: ['*']
+    states:
+      quiet: Pulls in clean and quiet (a faint hum is normal)
+      buzz: Loud steady buzz while pulled in
+      chatter: Chatters — clicks in and out
+    normal: quiet
+    cost: 1
+    phrases:
+      buzz: [contactor buzzing, contactor humming loud, loud buzz from the contactor, relay buzzing, contactor buzz,
+        buzzing contactor]
+      chatter: [contactor chattering, contactor chatter, contactor clicking in and out, relay chattering, clicking
+        contactor, contactor rattling, contactor pulls in and drops out]
+
+  - id: ctl.jumper_found
+    name: Jumper across a safety or control
+    ask: Is there a jumper, a bypass wire or a pinned switch across any safety or control?
+    how: Look at every safety and terminal block, and in the thermostat sub-base, for a jumper wire, a wire nut
+      joining two safety leads, or a switch taped or pinned shut.
+    systems: ['*']
+    states:
+      none: None found
+      found: Found a jumper or bypass
+    normal: none
+    cost: 1
+    phrases:
+      found: [jumper on the safety, safety jumped out, safety jumpered, jumpered out, bypassed safety, jumper on the
+        pressure switch, float switch bypassed, jumper left in, limit jumped out, jumper wire found]
+
+  # ---------------- safety switches ----------------
+  - id: ctl.switch_cont
+    name: The open safety switch, tested at normal conditions
+    ask: With pressure, level or temperature in the normal range, does the open safety switch read closed?
+    how: Read the gauges, the pan or the temperature first, so you know the switch has no reason to be open.
+      Then power off, lift one lead and ohm the switch. Closed reads near 0 Ω.
+    systems: ['*']
+    states:
+      closed: Reads closed
+      open: Still open at normal conditions
+    normal: closed
+    cost: 2
+    needs: meter
+    phrases:
+      open: [pressure switch open at normal pressure, switch reads open, safety switch failed open, bad pressure
+        switch, pressure switch bad, rollout switch wont reset, switch open with normal pressure]
+
+  - id: ctl.float_sw
+    name: Condensate safety (float) switch
+    ask: Is the condensate float or safety switch open — and is there water in its pan?
+    how: Find the float switch on the drain pan, the secondary pan or the drain line. Meter across it with the
+      call on (24 V across it means open), then look at the water level.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: [vc.ac, vc.hp]
+    follows: {vc.drain: {open_wet: [clogged], closed: [clear]}}
+    states:
+      closed: Closed
+      open_wet: Open with water standing — it tripped for a reason
+      open_dry: Open with the pan dry
+    normal: closed
+    cost: 1
+    phrases:
+      open_wet: [float switch tripped, safety switch tripped, condensate switch tripped, float switch shut it off,
+        pan full of water and float tripped, wet switch tripped]
+      open_dry: [float switch stuck, float switch open with a dry pan, float switch bad, float switch open but pan
+        dry, float switch failed, float switch out of level]
+
+  - id: ctl.board_status
+    name: Unit control board status
+    ask: What does the unit control board's status light or code show?
+    how: Read the light or code on the outdoor unit's control board and look it up on the panel label or in the
+      maker's service manual. Codes differ by maker.
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [ducted]}
+    states:
+      normal: Normal (no fault)
+      lockout: Lockout after repeated safety trips
+      fault: Another fault code
+    normal: normal
+    cost: 1
+    phrases:
+      lockout: [board in lockout, lockout code, soft lockout, hard lockout, locked out on pressure, board locked out,
+        flashing lockout code, needs a power reset to run]
+      fault: [fault code on the board, flashing code on the board, error code outdoor board]
+
+  # ---------------- relays, contactors, timers ----------------
+  - id: ctl.relay
+    name: Relay that switches the load
+    ask: With the call on, is the relay (or small contactor) that switches the burner, blower or pump pulled in?
+    how: Look or listen for the armature, and meter 24 V across its coil. Then turn the call off and check that
+      it drops out.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: [fuel, hydronic]
+    states:
+      pulled_in: Pulled in on the call, drops out after
+      not_pulling: Not pulled in on the call
+      stuck_in: Stays pulled in with no call
+    normal: pulled_in
+    cost: 2
+    needs: meter
+    phrases:
+      not_pulling: [relay not pulling in, relay not clicking, relay wont pull in, zone relay not pulling in, fan
+        relay not pulling in]
+      stuck_in: [relay stuck closed, relay stuck on, relay welded, relay contacts welded, zone relay stuck,
+        circulator relay stuck on]
+
+  - id: ctl.coil_ohms
+    name: Relay coil resistance
+    ask: Power off, one lead lifted — what does the relay or contactor coil read?
+    how: Ohm across the coil. A 24 V relay or small contactor coil reads tens to a few hundred ohms depending on
+      size. Open (OL) or under about 2 Ω is a failed coil.
+    systems: [fuel, hydronic]
+    states:
+      normal: In range (not open, not near 0 Ω)
+      open: Open (OL)
+      shorted: Near 0 Ω (under about 2 Ω)
+    normal: normal
+    cost: 2
+    needs: meter
+    phrases:
+      open: [relay coil open, coil open, coil reads ol, open coil, relay coil burned out]
+      shorted: [relay coil shorted, coil reads zero, coil reads 1 ohm]
+
+  - id: ctl.contact_drop
+    name: Voltage across the closed relay contacts
+    ask: With the relay pulled in and the load running, what voltage reads across the closed contacts?
+    how: Meter from the line side to the load side of each closed contact while the load runs. Good contacts
+      read under about 1 V. More than that means pitted or burnt contacts.
+    caution: Line voltage on the contacts. Meter with insulated probes only; never touch the contacts or bridge
+      them with a probe tip.
+    systems: [fuel, hydronic]
+    ask_if: {ctl.relay: pulled_in}
+    states:
+      ok: Under about 1 V
+      drop: Several volts or more across a closed contact
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      drop: [relay contacts pitted, pitted relay contacts, burnt relay contacts, voltage across closed contacts,
+        relay contacts burnt]
+
+  - id: ctl.coil_v_off
+    name: 24 V left on the coil with the call off
+    ask: With the thermostat satisfied or turned off, is 24 V still on the contactor or relay coil?
+    how: Turn the thermostat to off (or let it satisfy) and meter across the coil. Any 24 V there means the call
+      is still being sent; none means the contactor or relay itself is stuck.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    states:
+      none: No voltage on the coil
+      present: 24 V still on the coil
+    normal: none
+    cost: 2
+    needs: meter
+    phrases:
+      present: [24 volts on y with the thermostat off, call stuck on, y wire shorted to r, thermostat stuck calling,
+        still 24 volts on the contactor with the thermostat off, voltage on the coil with no call]
+
+  - id: ctl.start_delay
+    name: When it starts after a call
+    ask: After a call comes on (or power comes back), does it start right away, after a few minutes, or not at all?
+    how: Turn the call on and time it. Many units hold the compressor off 3–5 minutes after it last stopped or
+      after power returns, and a BAS may stagger restarts after an outage.
+    systems: [vc, ahu]
+    states:
+      prompt: Starts within a few seconds
+      delayed: Waits a few minutes, then starts and runs normally
+      never: Still off after 10 minutes
+    normal: prompt
+    cost: 2
+    phrases:
+      delayed: [starts after a few minutes, delay before it starts, waits 5 minutes then runs, compressor delay,
+        takes 5 minutes to start, anti short cycle delay, time delay before starting]
+      never: [never starts, still not running after 10 minutes, waited and it never came on]
+
+  - id: ctl.timer_io
+    name: Delay timer in and out
+    ask: With the call on, is 24 V going into the delay timer (time-delay relay) and coming out after the delay?
+    how: Meter the timer's input and output terminals to C. Wait out the delay (up to 10 minutes) before you
+      judge the output.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: [vc]
+    states:
+      passes: 24 V in, 24 V out after the delay
+      in_no_out: 24 V in, nothing out after 10 minutes
+    normal: passes
+    cost: 2
+    needs: meter
+    phrases:
+      in_no_out: [delay timer bad, time delay relay bad, timer not passing voltage, delay on break failed, anti short
+        cycle timer failed, timer stuck open]
+
+  # ---------------- thermostats ----------------
+  - id: ctl.stat_settings
+    name: Thermostat mode, setpoint and schedule
+    ask: Are the thermostat's mode, setpoint, fan setting, schedule and hold set right for the call?
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    states:
+      ok: Set right
+      wrong: Set wrong
+    normal: ok
+    cost: 1
+    phrases:
+      wrong: [thermostat set wrong, thermostat set to off, thermostat on off, wrong mode, set to heat instead of cool,
+        set to cool instead of heat, setpoint too low, setpoint too high, schedule wrong on the thermostat, hold
+        left on, vacation mode on, fan set to on]
+      ok: [thermostat set right, settings ok]
+
+  - id: ctl.stat_config
+    name: Thermostat installer setup
+    ask: Is the thermostat's installer setup right for the equipment (system type, stages, fan control in heat)?
+    how: Open the installer menu and compare it with the equipment. Check system type (conventional, heat pump,
+      boiler), the number of stages, auxiliary heat, and who runs the fan in heat. A wrong system type is common
+      after a thermostat swap.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_digital]}
+    states:
+      ok: Matches the equipment
+      wrong: Wrong for the equipment
+    normal: ok
+    cost: 2
+    phrases:
+      wrong: [thermostat configured wrong, installer settings wrong, thermostat set up wrong, wrong system type,
+        thermostat set for heat pump on a furnace, thermostat set for gas on an oil furnace, stages set wrong]
+
+  - id: ctl.call_path
+    name: Call voltage at the thermostat and at the unit
+    ask: With a call set, is 24 V on the call terminal (Y or W) at the thermostat, and does it arrive at the unit?
+    how: Meter the call terminal to C at the thermostat sub-base (24 V means the thermostat is calling), then the
+      same terminal to C at the equipment's terminal board. Use C at each end, not a ground.
+    caution: 24 V only at the thermostat. At the unit, line voltage sits beside the terminal board, so keep the
+      probes on the low-voltage terminals.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    states:
+      reaches_unit: 24 V at the thermostat and at the unit
+      lost_between: 24 V at the thermostat, none at the unit
+      not_sent: No call leaving the thermostat (R live, nothing on the call terminal)
+    normal: reaches_unit
+    cost: 2
+    needs: meter
+    phrases:
+      not_sent: [thermostat not sending a signal, no 24 volts out of the thermostat, thermostat wont close,
+        thermostat relay not clicking, no y out of the thermostat, no w out of the thermostat]
+      lost_between: [24 volts at the thermostat but not at the unit, call not reaching the unit, y at the thermostat
+        but nothing at the condenser, w at the thermostat not at the boiler, thermostat calling but no signal at the
+        furnace]
+      reaches_unit: [24 volts on y at the unit and the thermostat, call reaches the unit]
+
+  - id: ctl.jumper_test
+    name: Jumper test at the equipment
+    ask: At the equipment's terminal board, does it start when you jumper R to the call terminal?
+    how: At the unit (not the thermostat), jumper R to Y for cooling or R to W for heat, for a few seconds, and
+      watch it start. Take the jumper off.
+    caution: 24 V only. Jumper R to one call terminal, never to C (a dead short), keep it on only a few seconds,
+      and leave every safety in the circuit.
+    systems: [vc.ac, vc.hp, hydronic]
+    states:
+      starts: Starts on the jumper
+      no_start: Doesn't start on the jumper
+    normal: starts
+    cost: 2
+    phrases:
+      starts: [runs when jumpered, jumper r to y and it runs, jumpered r and w and it fired, runs with a jumper,
+        starts with r and y jumped]
+      no_start: [jumpered and nothing, wont run with a jumper, jumper r to y nothing happens]
+
+  - id: ctl.stat_display
+    name: Thermostat display
+    ask: What does the thermostat's display show?
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_digital]}
+    complaint: true
+    chip: state
+    states:
+      normal: Thermostat display normal
+      blank: Thermostat display blank
+      reboots: Thermostat display flickers or restarts (often when the unit starts)
+      low_batt: Thermostat shows a low-battery warning
+    normal: normal
+    cost: 1
+    phrases:
+      blank: [thermostat blank, thermostat display blank, stat is blank, blank thermostat, thermostat dead, blank
+        screen on the thermostat, thermostat screen off, no display on the thermostat]
+      reboots: [thermostat reboots, thermostat restarts, thermostat resets itself, thermostat flickers, display
+        flickers when the unit starts, wifi thermostat keeps dropping, thermostat goes blank when the unit starts]
+      low_batt: [low battery on the thermostat, battery low warning, replace batteries icon, battery icon flashing]
+
+  - id: ctl.batteries
+    name: Thermostat batteries
+    ask: Do the thermostat's batteries test good?
+    how: Meter each cell under load, or swap in fresh ones. Under about 1.2 V a cell is low. A stat with no
+      batteries fitted counts as good.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_digital]}
+    states:
+      ok: Good, or none fitted
+      low: Low or dead
+    normal: ok
+    cost: 1
+    phrases:
+      low: [dead batteries, thermostat batteries dead, batteries low, weak batteries, batteries died, new batteries
+        fixed it]
+
+  - id: ctl.c_wire
+    name: C wire at the thermostat
+    ask: Is a C (common) wire connected at the thermostat, if the thermostat needs one?
+    how: Pull the thermostat off and look for a wire on C, then confirm it is landed on C at the equipment too.
+      24 V from R to C at the sub-base proves it.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_digital]}
+    states:
+      connected: Connected (or the thermostat doesn't need one)
+      missing: Needed, but not connected — the thermostat steals power
+    normal: connected
+    cost: 1
+    phrases:
+      missing: [no c wire, missing c wire, no common wire, c wire not connected, power stealing, power sharing
+        thermostat, wifi thermostat without a c wire, needs a c wire, no common at the thermostat]
+
+  - id: ctl.wiring_map
+    name: Thermostat wiring vs the terminals
+    ask: Do the wires land on the same letters at the thermostat and at the equipment (and is the Rh–Rc jumper right)?
+    how: Trace each conductor color from the thermostat to the equipment terminal board. Check the Rh–Rc jumper
+      (in with one transformer, out with two), and that C is not on R.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    states:
+      matches: Matches
+      wrong: Miswired
+    normal: matches
+    cost: 2
+    phrases:
+      wrong: [thermostat miswired, wires on the wrong terminals, y and g swapped, wired wrong, new thermostat wired
+        wrong, rc rh jumper missing, wrong terminal, r and c swapped, thermostat wiring wrong]
+
+  - id: ctl.cycle_setting
+    name: Heat anticipator or cycle rate
+    ask: Is the heat anticipator (mechanical thermostat) or the cycle-rate setting (digital) right for the equipment?
+    how: Mechanical thermostat — set the anticipator to the current the W circuit draws. Wrap the W wire 10
+      turns through the clamp, read the amps and divide by 10. Digital thermostat — check the cycles-per-hour
+      setting in the installer menu against the equipment type.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_mech, stat_digital]}
+    states:
+      ok: Set right
+      too_fast: Set for too many cycles (short cycles)
+      too_slow: Set for too few cycles (long cycles, big swings)
+    normal: ok
+    cost: 2
+    needs: clamp
+    phrases:
+      too_fast: [anticipator set wrong, anticipator set too low, cycles too fast, too many cycles per hour, cph set
+        too high, cycle rate too high]
+      too_slow: [overshoots the setpoint, long cycles with big temperature swings, anticipator set too high, cph too
+        low, cycle rate too low]
+
+  - id: ctl.stat_level
+    name: Mechanical thermostat level and contacts
+    ask: Is the mechanical thermostat mounted level, with its contacts and bimetal clean?
+    how: Pull the cover. A mercury-bulb thermostat must sit level (use the marks on the base); a few degrees off
+      level shifts the switching point. Look for dust or lint on the coil and contacts.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_mech]}
+    states:
+      ok: Level and clean
+      off: Off level, or dirty contacts or bimetal
+    normal: ok
+    cost: 1
+    phrases:
+      off: [thermostat not level, mercury thermostat off level, thermostat crooked, dirty thermostat contacts, lint in
+        the thermostat]
+
+  # ---------------- sensors ----------------
+  - id: ctl.stat_spot
+    name: Thermostat or sensor location
+    ask: Does the thermostat or sensor sit where it reads the space (not in sun, a supply-air stream, a door draft or on a cold wall)?
+    how: Look at what the sensor sees. Sun, a lamp or TV, a supply register, an outside wall, a kitchen, or a
+      draft from the wall cavity through the wire hole all fool it. In a walk-in or reach-in, a probe in the
+      evaporator discharge or by the door does the same.
+    systems: [vc.ac, vc.hp, vc.walkin, vc.reachin, fuel, hydronic]
+    states:
+      good: Good location
+      poor: Poor location
+    normal: good
+    cost: 1
+    phrases:
+      poor: [thermostat in the sun, thermostat on an outside wall, thermostat near a supply register, thermostat by
+        the door, thermostat near a heat source, draft from the wall behind the thermostat, probe in the air stream,
+        probe by the door, sensor in the sun, thermostat in a bad spot, thermostat in the wrong place]
+
+  - id: ctl.stat_vs_ref
+    name: Control's temperature vs a reference
+    ask: Does the thermostat's or controller's reading agree with a reference thermometer held at its sensor?
+    how: Hold a calibrated thermometer next to the sensor for a few minutes, out of your breath and hand heat,
+      and compare it with the reading the control shows. Within 2 °F agrees.
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    states:
+      agrees: Agrees within 2 °F
+      off: Off by more than 2 °F (high or low)
+    normal: agrees
+    cost: 2
+    needs: thermometer
+    phrases:
+      off: [thermostat reads high, thermostat reads warmer than the room, sensor reads high, thermostat says it is
+        warmer than it is, thermostat reads low, thermostat reads colder than the room, sensor reads low, thermostat
+        reads wrong, thermostat temperature wrong, sensor reading off]
+      agrees: [thermostat reads right, sensor reads correct]
+
+  - id: ctl.sensor_ohms
+    name: Sensor resistance vs its curve
+    ask: Disconnected and ohmed, does the temperature sensor's resistance match its chart at the temperature it sits in?
+    how: Lift one sensor lead at the controller and ohm the sensor (this also tests the wire run). Read the
+      temperature at the sensor with a thermometer and compare with the chart. A 10 kΩ NTC reads about 33.6 kΩ at
+      32 °F, 20.2 kΩ at 50 °F, 12.5 kΩ at 68 °F, 10.0 kΩ at 77 °F, 5.8 kΩ at 100 °F and 3.0 kΩ at 130 °F. Enter
+      both numbers and the app compares them with the full table.
+    systems: ['*']
+    follows:
+      hp.thermistor_check: {off: [drifted_or_open], ok: [ok, loose_or_misplaced]}
+      rf.probe_cal: {off: [drifted], ok: [accurate]}
+      ahu.sensor_check: {off: [sat_off, mat_off, oat_off, rat_off], ok: [all_agree, static_off]}
+    states:
+      ok: On its curve (within ±15 %)
+      off: Off its curve
+      open: Open (OL)
+      shorted: Near 0 Ω
+    normal: ok
+    cost: 2
+    needs: meter
+    phrases:
+      off: [thermistor out of range, sensor ohms wrong, thermistor drifted, sensor resistance off, 10k sensor reads
+        wrong]
+      open: [sensor open, thermistor open, sensor reads ol, open sensor]
+      shorted: [sensor shorted, thermistor shorted, sensor reads zero ohms]
+
+  # ---------------- heat pump O/B in cooling ----------------
+  - id: ctl.cool_mode
+    name: Mode it runs in on a cooling call
+    ask: On a cooling call, is the heat pump actually cooling, or running in heat?
+    how: Feel the big vapor line at the indoor unit. In cooling it is cold and sweating; in heat it is hot, and
+      the supply air is warm.
+    systems: [vc.ac]
+    requires: {rev_valve: ['yes']}
+    complaint: true
+    chip: state
+    states:
+      cooling: Cooling on the cooling call
+      heating: Heating on a cooling call (hot supply air, hot vapor line)
+    normal: cooling
+    cost: 1
+    phrases:
+      heating: [heating in cool mode, blowing hot air in cooling, heat pump heating instead of cooling, hot air on a
+        cooling call, runs in heat when set to cool, heats when set to cool, vapor line hot in cooling]
+
+  - id: ctl.ob_setting
+    name: Thermostat O/B setting
+    ask: Does the thermostat's O/B (reversing-valve) setting match the valve?
+    how: Go by the wiring diagram or a meter on the valve coil, not by the brand. A valve energized in cooling
+      needs O; a valve energized in heating needs B.
+    systems: [vc.ac]
+    requires: {rev_valve: ['yes'], hp_unit: [ducted, inverter]}
+    states:
+      ok: Matches the valve
+      reversed: Set the wrong way for the valve
+    normal: ok
+    cost: 1
+    phrases:
+      reversed: [o b setting wrong, ob reversed, thermostat set to b on an o valve, thermostat set to o on a b valve,
+        reversing valve setting wrong on the thermostat]
+
+  - id: ctl.rv_coil_cool
+    name: Reversing-valve coil voltage in cooling
+    ask: On a cooling call, is the reversing-valve coil getting 24 V if the valve needs it in cooling (and none if it doesn't)?
+    how: Meter at the two coil leads with the cooling call on. An O-type valve needs 24 V in cooling; a B-type
+      valve needs none.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
+    systems: [vc.ac]
+    requires: {rev_valve: ['yes'], hp_unit: [ducted, inverter]}
+    states:
+      as_required: Right for the valve
+      wrong: Wrong — none on an O valve, or 24 V on a B valve
+    normal: as_required
+    cost: 2
+    needs: meter
+    phrases:
+      wrong: [no 24 volts on the o wire in cooling, o wire dead, b wire live in cooling, reversing valve not getting
+        voltage in cooling, no voltage at the reversing valve in cooling]
+
+  # ---------------- DDC / BAS points ----------------
+  - id: ctl.point_mode
+    name: Point mode at the BAS
+    ask: At the BAS, is the point (start/stop, valve, setpoint) in auto, or held by an operator override or hand?
+    how: Open the point at the front end or a local display and read its priority or mode. An override left at
+      any priority above the program, or a hand-off-auto switch in hand, takes the sequence out of control.
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    states:
+      auto: In auto — the program has it
+      override: Overridden — operator override, hand, or a held priority
+    normal: auto
+    cost: 1
+    phrases:
+      override: [point in hand, point overridden, operator override, override left on, bas override, point in
+        manual, hand on the bas, forced on at the front end, forced off at the front end, locked in hand, override
+        never released]
+
+  - id: ctl.occupancy
+    name: Controller occupancy mode vs the building
+    ask: Does the controller's occupancy mode (occupied or unoccupied) match what the building is doing now?
+    how: Read the system's actual occupancy point and the schedule behind it, including holidays and exceptions,
+      and compare with the controller clock and the real time and date.
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    states:
+      matches: Matches
+      unocc_when_occupied: Unoccupied while people are in
+      occ_when_empty: Occupied while the building is empty
+    normal: matches
+    cost: 1
+    phrases:
+      unocc_when_occupied: [bas schedule wrong, unoccupied mode during the day, schedule says unoccupied, holiday
+        schedule left on, stuck in setback, night setback during the day, building cold every monday]
+      occ_when_empty: [runs all night, runs on weekends, occupied mode at night, schedule never goes unoccupied, never
+        sets back]
+
+  - id: ctl.occ_sensor
+    name: Occupancy sensor or override button
+    ask: Does the occupancy sensor (or the after-hours override button) change state when it should?
+    how: Walk in and out of the sensor's view, or press the override button, and watch the occupancy input at the
+      BAS. Look for a sensor blocked by furniture or one that sees a hallway.
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    states:
+      ok: Changes state as it should
+      faulted: Stuck reading occupied, or never sees anyone
+    normal: ok
+    cost: 2
+    phrases:
+      faulted: [occupancy sensor stuck on, occupancy sensor always occupied, override button stuck, sensor sees the
+        hallway, occupancy sensor not seeing anyone, occupancy sensor blocked, occupancy sensor dead, sensor never
+        detects]
+
+  - id: ctl.controller
+    name: Controller status on the network
+    ask: Is the controller online at the BAS front end, with its program and clock intact?
+    how: Look for the controller at the front end (online, last update time), then at the controller itself
+      (status lights, time and date, program version or a default program).
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    states:
+      ok: Online, program and clock intact
+      offline: Offline — the front end shows old values or no communication
+      reset: Lost its program or clock (default program, time reset)
+    normal: ok
+    cost: 2
+    phrases:
+      offline: [controller offline, bas offline, lost communication with the controller, no comm, stale values on
+        the front end, points show question marks, device offline, controller not communicating]
+      reset: [controller lost its program, controller reset, clock wrong on the controller, lost its programming,
+        default program, controller time wrong, lost the database, controller came back blank]
+
+  - id: ctl.cmd_vs_fb
+    name: BAS command vs what the equipment does
+    ask: Does the equipment do what the BAS commands (start, stop, valve position), and does its feedback agree?
+    how: Compare the command point with the equipment itself and with any feedback point (run status, valve or
+      damper position). Look at the equipment, not only at the screen.
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam]
+    requires: {controls: [bas]}
+    states:
+      agree: Equipment and feedback follow the command
+      mismatch: Command and equipment (or feedback) disagree
+    normal: agree
+    cost: 2
+    phrases:
+      mismatch: [bas says on but nothing runs, bas says on, bas says running, bas shows on, command shows on, bas says
+        open, commanded on but not running, command on and status off, bas shows
+        open but the valve is shut, feedback doesnt match the command, command and feedback disagree, bas says it
+        is running but it is off]
+
+  - id: ctl.output_signal
+    name: Control signal from the BAS output
+    ask: While it is commanded, is the control signal present at the controller's output terminal and at the device?
+    how: Meter the output at the controller terminals (24 VAC for on/off, 0–10 V or 4–20 mA for a modulating
+      output), then at the device end of the wire, including any interposing relay.
+    caution: Some outputs switch line voltage through an interposing relay. Meter the relay's load side with
+      insulated probes only.
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam]
+    requires: {controls: [bas]}
+    states:
+      present: Present at the controller and at the device
+      none_at_controller: Not leaving the controller
+      lost_in_field: Leaves the controller, doesn't reach the device
+    normal: present
+    cost: 2
+    needs: meter
+    phrases:
+      none_at_controller: [no output from the controller, controller output dead, output relay bad on the controller,
+        output fuse blown, no signal out of the controller]
+      lost_in_field: [signal not reaching the valve, broken control wire, interposing relay bad, rib relay bad, no
+        signal at the actuator but there is at the controller]
+
+inputs:
+  - {id: ctl.sensor_f, name: Temperature at the sensor, unit: °F, systems: ['*'], hint: A reference thermometer at the sensor (or in the well beside it)}
+  - {id: ctl.sensor_kohm, name: Sensor resistance, unit: kΩ, systems: ['*'], hint: One lead lifted at the controller. Enter 9999 for OL (open).}
+
+measures:
+  - id: ctl.ntc_expected
+    name: 10 kΩ NTC table value at that temperature
+    unit: kΩ
+    systems: ['*']
+    note: Beta curve, 10 kΩ at 77 °F, β = 3950 K. Other 10 kΩ curves sit within about ±10 %; for a close call use
+      the sensor maker's chart.
+    let:
+      T: ctl.sensor_f
+    value: 'T < -40 ? null : T <= -30 ? 401.86 + (T + 40) * -13.09452 : T <= -20 ? 270.914 + (T + 30) * -8.49716 : T <= -10 ? 185.943 + (T + 20) * -5.61662 : T <= 0 ? 129.777 + (T + 10) * -3.77721 : T <= 10 ? 92.005 + (T - 0) * -2.58159 : T <= 20 ? 66.189 + (T - 10) * -1.79138 : T <= 30 ? 48.275 + (T - 20) * -1.26087 : T <= 40 ? 35.666 + (T - 30) * -0.89943 : T <= 50 ? 26.672 + (T - 40) * -0.64973 : T <= 60 ? 20.175 + (T - 50) * -0.47497 : T <= 70 ? 15.425 + (T - 60) * -0.35113 : T <= 80 ? 11.914 + (T - 70) * -0.26235 : T <= 90 ? 9.29 + (T - 80) * -0.19799 : T <= 100 ? 7.31 + (T - 90) * -0.15085 : T <= 110 ? 5.802 + (T - 100) * -0.11597 : T <= 120 ? 4.642 + (T - 110) * -0.08992 : T <= 130 ? 3.743 + (T - 120) * -0.07029 : T <= 140 ? 3.04 + (T - 130) * -0.05537 : T <= 150 ? 2.486 + (T - 140) * -0.04394 : T <= 160 ? 2.047 + (T - 150) * -0.03511 : T <= 170 ? 1.696 + (T - 160) * -0.02825 : T <= 180 ? 1.413 + (T - 170) * -0.02287 : T <= 190 ? 1.185 + (T - 180) * -0.01863 : T <= 200 ? 0.998 + (T - 190) * -0.01526 : T <= 210 ? 0.846 + (T - 200) * -0.01257 : T <= 220 ? 0.72 + (T - 210) * -0.01041 : null'
+  - id: ctl.ntc_ratio
+    name: Sensor resistance vs the 10 kΩ table
+    unit: '%'
+    systems: ['*']
+    value: ctl.sensor_kohm / ctl.ntc_expected * 100
+    target: '100'
+    sets: ctl.sensor_ohms
+    states:
+      - [shorted, ctl.sensor_kohm < 0.1]
+      - [open, ctl.sensor_kohm > 2000]
+      - [off, v < 85 || v > 115]
+      - [ok, 'true']
+
+causes:
+  # ======================= 24 VAC control circuit =======================
+  - id: ctl.short_cable
+    name: Low-voltage fuse blown by a shorted thermostat or outdoor control cable
+    systems: ['*']
+    prior: occasional
+    keywords: [blown 3 amp fuse, shorted thermostat wire, nicked thermostat wire, chewed wire, weed eater cut the
+      wire, wire rubbing the cabinet]
+    signs:
+      ctl.lv_fuse: {blown: 0.55, reblows: 0.42}
+      ctl.short_where: cable!
+      gen.control_v: missing?
+      gen.power: present
+      gen.call: not_calling?
+      gen.output: none
+      gen.intermittent: yes?
+      vc.comp: off
+      blr.start: nothing
+      ahu.fan: off?
+      hyd.circ: off
+    confirm: With the thermostat off the wall and power off, a call terminal reads near 0 Ω to C, and the short
+      clears when one cable is lifted.
+    fix: |
+      Find the damage on that run: a staple through the cable, insulation rubbed through on a cabinet edge or the
+      outdoor unit's sheet metal, a cable chewed or cut outside, a wet splice. Repair or replace the run; don't
+      tape a bare spot on an outdoor cable. Replace the fuse with the same rating, never a larger one. Then run
+      every call (Y, W, G, O/B) and check the fuse holds.
+    refs: [tm-5-642, practice]
+
+  - id: ctl.short_coil
+    name: Low-voltage fuse blown by a shorted coil (contactor, relay, zone valve or reversing-valve coil)
+    systems: ['*']
+    prior: occasional
+    keywords: [shorted contactor coil, shorted relay coil, fuse blows when contactor pulls in, coil reads zero ohms]
+    signs:
+      ctl.lv_fuse: {reblows: 0.62, blown: 0.35}
+      ctl.short_where: coil!
+      ctl.coil_ohms: shorted
+      gen.control_v: missing?
+      gen.power: present
+      gen.output: none
+      vc.comp: off
+      blr.start: nothing
+      hyd.circ: off
+    confirm: The fuse blows the moment one call comes on, and the coil on that call reads under about 2 Ω with a
+      lead lifted.
+    fix: |
+      Replace the shorted coil, or the whole contactor or relay if the coil isn't sold alone. Match the coil
+      voltage. Look for why it failed: water dripping on it, a coil run on high voltage (wrong transformer tap),
+      or a contactor that chattered for a long time. Fit a fuse of the same rating and run every call.
+    refs: [practice]
+
+  - id: ctl.xfmr_open
+    name: Control transformer failed — line voltage on the primary, no 24 V out
+    systems: ['*']
+    prior: occasional
+    keywords: [bad transformer, transformer burnt, transformer dead, no 24 volts]
+    signs:
+      ctl.xfmr: no_secondary!
+      ctl.lv_fuse: intact?
+      gen.control_v: missing
+      gen.power: present
+      gen.call: not_calling
+      gen.output: none
+      gen.burnt_smell: yes?
+      vc.comp: off
+      blr.start: nothing
+      ahu.fan: off?
+      hyd.circ: off
+    confirm: Line voltage across the primary leads and 0 V across the secondary, measured at the transformer.
+    fix: |
+      Before you fit a new transformer, ohm the 24 V circuit for a short (call terminals to C with the thermostat
+      off). A transformer with no fuse ahead of its load often dies from a short that is still there. Replace it
+      with one of the same primary voltage and at least the same VA. Add an inline fuse in the secondary if the
+      circuit has none.
+    safety: The primary is line voltage. Lock out before you change it.
+    refs: [tm-5-642, practice]
+
+  - id: ctl.xfmr_overloaded
+    name: Control transformer overloaded or undersized — 24 V sags on a call, contactor chatters
+    systems: ['*']
+    prior: occasional
+    keywords: [transformer too small, transformer overloaded, transformer hot, transformer humming, added a humidifier,
+      zone dampers on the transformer]
+    signs:
+      ctl.rc_volts: low!
+      ctl.xfmr: ok
+      ctl.xfmr_tap: matches
+      ctl.vdrop: none?
+      ctl.contactor_noise: chatter?
+      gen.control_v: present
+      gen.intermittent: yes?
+      gen.short_cycle: yes?
+    confirm: R to C reads normal with no call and drops under about 21 V once the loads pull in; the voltage at the
+      coil follows the transformer down (no extra drop in the wiring).
+    fix: |
+      Add up the VA of everything on the secondary: the contactor and relays, zone dampers, a humidifier, a
+      thermostat, accessory boards. Fit a larger transformer, or move the added loads to their own transformer
+      (and keep them apart from the first one, or phase them). A transformer that runs hot to the touch is past
+      its rating.
+    refs: [practice]
+
+  - id: ctl.xfmr_tap
+    name: Transformer on the wrong primary tap for the supply (208 vs 240 V) — 24 V reads high or low
+    systems: ['*']
+    prior: uncommon
+    keywords: [wrong tap, transformer tap, 208 volt tap, 240 volt tap]
+    signs:
+      ctl.xfmr_tap: wrong!
+      ctl.rc_volts: {low: 0.5, high: 0.45}
+      ctl.xfmr: ok
+      gen.recent_work: yes?
+      ctl.contactor_noise: chatter?
+      gen.intermittent: yes?
+    confirm: The primary lead in use doesn't match the voltage you metered on the primary, and the secondary reads
+      outside 22–28 V.
+    fix: |
+      Lock out and move the primary to the tap that matches the measured supply. Cap the unused lead. Then check
+      the secondary is 24–28 V under load. A secondary that has run high for a long time can cook coils, so ohm
+      the contactor and relay coils too.
+    safety: Lock out and dead-test before you move a tap.
+    refs: [practice]
+
+  - id: ctl.xfmr_phasing
+    name: Two transformers tied together out of phase — fuses blow, controls act up
+    systems: [vc.ac, vc.hp, fuel, hydronic, ahu]
+    prior: uncommon
+    keywords: [transformers out of phase, phasing, dual fuel, two transformers, rh rc jumper left in, zone panel]
+    signs:
+      ctl.phasing: out_of_phase!
+      ctl.lv_fuse: {blown: 0.4, reblows: 0.3, intact: 0.3}
+      gen.recent_work: yes?
+      gen.intermittent: yes?
+    confirm: With the C terminals tied, about 48 V reads between the two R terminals.
+    fix: |
+      Keep the two transformers' circuits apart where the design allows: take out the Rh–Rc jumper on a
+      two-transformer thermostat, or use an isolation relay. Where they must share a common, swap the primary or
+      secondary leads on one transformer so R to R reads near 0 V. Then replace any blown fuse and recheck.
+    refs: [practice]
+
+  - id: ctl.door_switch
+    name: Blower-door safety switch open — door not seated or the switch failed
+    systems: [vc.ac, vc.hp, fuel.furnace]
+    prior: occasional
+    keywords: [door switch, blower door switch, door interlock, door not on right]
+    signs:
+      ctl.door_sw: open!
+      ctl.xfmr: no_primary
+      gen.control_v: missing
+      gen.power: present
+      gen.dead: yes?
+      gen.output: none
+      gen.recent_work: yes?
+      vc.comp: off
+      vc.evap_fan: off
+      blr.start: nothing
+      blr.blower: 'off'
+    confirm: Line voltage at the unit's power terminals but none on the transformer primary, and the switch
+      plunger isn't made with the door on.
+    fix: |
+      Seat the door so it pushes the plunger fully in; bent doors and lost screws are the usual reason after a
+      filter change. If the plunger is made and the switch still reads open, replace the switch. Never tape or
+      jumper it: it keeps hands out of a live cabinet with a blower that can start.
+    refs: [practice]
+
+  - id: ctl.lv_connection
+    name: Loose or corroded low-voltage connection — the coil gets too few volts and chatters or drops out
+    systems: ['*']
+    prior: common
+    keywords: [corroded wire nut, loose thermostat wire, bad splice, voltage drop, contactor chatter]
+    signs:
+      ctl.vdrop: drop!
+      ctl.rc_volts: normal
+      ctl.contactor_noise: chatter?
+      gen.intermittent: yes
+      gen.short_cycle: yes?
+    confirm: R to C at the transformer reads normal, but the coil reads 3 V or more lower with the call on; stepping
+      along the circuit finds the joint where the volts are lost.
+    fix: |
+      Cut back and remake the bad joint. Outdoors, use gel-filled connectors or a sealed splice. Tighten loose
+      terminal screws, and replace any aluminum or very thin conductor in the run. Check the coil's voltage
+      again with the call on.
+    refs: [practice]
+
+  - id: ctl.jumper_left
+    name: A safety or control jumpered out and left that way
+    systems: ['*']
+    prior: uncommon
+    keywords: [jumper on safety, bypassed safety, safety jumped out, jumper left in]
+    signs:
+      ctl.jumper_found: found!
+      gen.recent_work: yes?
+      gen.burnt_smell: yes?
+    confirm: A jumper, wire nut or pinned switch bridges a safety (pressure switch, float, limit, rollout, door
+      switch) or a control.
+    fix: |
+      Take the jumper out. Then find why someone put it in: the safety was tripping for a reason. Fix that reason
+      (dirty coil, clogged drain, airflow, draft) or replace a switch that tests failed. Check what running
+      without the safety may have damaged: a compressor that overheated, water on a ceiling, a scorched limit.
+    safety: A bypassed safety lets the equipment run into the condition it guards against. Don't leave a unit
+      running with any safety jumpered.
+    refs: [practice]
+
+  # ======================= safety switches that fail on their own =======================
+  - id: ctl.hps_failed
+    name: High-pressure switch failed open (or its wire loose) — open at normal head pressure
+    systems: [vc]
+    prior: uncommon
+    keywords: [bad high pressure switch, high pressure switch failed, hps bad]
+    signs:
+      vc.hps_trip: yes!
+      ctl.switch_cont: open!
+      vc.cond_sat: normal
+      vc.cond_dirty: 'no'
+      vc.cond_fan: running?
+      vc.comp: off
+      vc.coil_24v: 'no'
+      gen.output: none
+    confirm: Head pressure reads normal (or the system is off and equalized), yet the switch still reads open with
+      a lead lifted.
+    fix: |
+      Check the switch wires and spade terminals first; a loose one reads the same as an open switch. Replace the
+      switch at the same cut-out setting. Most mount on a Schrader fitting; check that a core depressor is in
+      the new one, and leak-check the fitting.
+    refs: [practice]
+
+  - id: ctl.lps_failed
+    name: Low-pressure switch failed open or set too high — open at normal suction (or trips every cold start)
+    systems: [vc.ac, vc.hp]
+    prior: uncommon
+    keywords: [bad low pressure switch, low pressure switch failed, lps bad, trips on cold start]
+    signs:
+      vc.lps_trip: yes!
+      ctl.switch_cont: open!
+      vc.evap_sat: normal
+      vc.superheat: normal?
+      vc.comp: off
+      gen.output: none
+    confirm: Suction reads normal with the unit running (or the system is equalized above the cut-out), yet the
+      switch reads open. A switch that only trips in the first minute of a cold start points at a missing
+      start-up bypass.
+    fix: |
+      Replace a switch that reads open at normal suction. Many control boards ignore the low-pressure switch for
+      the first minutes of a start; check that this feature is set or wired as the maker intends. Don't
+      lower a cut-out to hide a real low-suction problem: confirm the charge and airflow first.
+    refs: [practice]
+
+  - id: ctl.float_stuck
+    name: Condensate float switch open with the pan dry — float stuck, out of level, or wired wrong
+    systems: [vc.ac, vc.hp]
+    prior: occasional
+    keywords: [float switch stuck, bad float switch, float switch open dry]
+    signs:
+      ctl.float_sw: open_dry!
+      vc.drain: clear
+      gen.water_leak: 'no'
+      vc.comp: off
+      vc.coil_24v: 'no'
+      gen.output: none
+    confirm: The float switch reads open (24 V across it with the call on) while its pan holds no water.
+    fix: |
+      Free a float stuck in slime or debris, level a pan-mounted switch, or replace it. Check it is wired in the
+      leg the maker shows (usually breaking Y or R to the outdoor unit), then pour water in the pan to prove it
+      opens and recloses.
+    refs: [practice]
+
+  - id: ctl.rollout_failed
+    name: Rollout or spill switch failed open — won't reset with a clean flue and good draft
+    systems: [fuel]
+    prior: uncommon
+    keywords: [rollout switch bad, spill switch bad, roll out switch wont reset]
+    signs:
+      blr.spill_switch: tripped!
+      ctl.switch_cont: open!
+      blr.draft_br: normal
+      blr.flue: clear
+      blr.start: nothing
+      gen.output: none
+    confirm: Draft reads normal and the flue is clear, yet the switch reads open after a reset and a cool-down.
+    fix: |
+      Replace the switch with one of the same rating and reset type. Before you do, prove the draft and flue
+      again: a rollout or spill switch that trips is usually telling the truth. If it trips again with a new
+      switch, go back to the draft and the flue.
+    safety: A spill or rollout trip can mean flue gas in the room. Check for CO before you reset it.
+    refs: [tm-5-642, practice]
+
+  - id: ctl.board_lockout
+    name: Outdoor control board in lockout after repeated safety trips — runs only after a power reset
+    systems: [vc.ac, vc.hp]
+    requires: {hp_unit: [ducted]}
+    prior: occasional
+    keywords: [board lockout, soft lockout, hard lockout, locked out on pressure switch]
+    signs:
+      ctl.board_status: lockout!
+      vc.comp: off
+      vc.coil_24v: 'no'
+      gen.call: calling
+      gen.output: none
+      gen.intermittent: yes?
+    confirm: The board shows its lockout code; cutting power for a minute clears it and the unit runs again.
+    fix: |
+      Read the code before you reset it. The lockout counts trips of a pressure switch or another safety, so the
+      real fault is whatever trips it: a dirty condenser or failed fan (high pressure), low charge or a frozen
+      coil (low pressure). Reset, then watch the pressures through a full cycle.
+    refs: [practice]
+
+  # ======================= relays, contactors, timers =======================
+  - id: ctl.relay_coil_open
+    name: Relay coil open — 24 V on the coil, relay doesn't pull in (zone, fan, circulator or isolation relay)
+    systems: [fuel, hydronic]
+    prior: occasional
+    keywords: [relay coil open, relay not pulling in, zone relay bad, fan relay bad]
+    signs:
+      ctl.relay: not_pulling!
+      ctl.coil_ohms: open!
+      gen.call: calling
+      gen.control_v: present
+      gen.output: none
+      blr.start: nothing?
+      hyd.circ: off
+      hyd.circ_volts: missing
+    confirm: 24 V across the coil terminals with the call on, the relay stays out, and the coil reads open with a
+      lead lifted.
+    fix: |
+      Replace the relay (or the coil, if it's sold alone) with the same coil voltage and contact rating. If the
+      new coil also fails soon, look for high control voltage or water on it.
+    refs: [practice]
+
+  - id: ctl.relay_pitted
+    name: Relay contacts pitted or burnt — pulled in, but the load gets low or no voltage
+    systems: [fuel, hydronic]
+    prior: occasional
+    keywords: [pitted contacts, burnt relay contacts, relay contacts bad]
+    signs:
+      ctl.relay: pulled_in!
+      ctl.contact_drop: drop!
+      gen.intermittent: yes?
+      gen.output: none|weak
+      hyd.circ: off|hums
+      hyd.circ_volts: missing?
+    confirm: The relay is pulled in but several volts or more read across a closed contact while the load runs.
+    fix: |
+      Replace the relay; don't file the contacts. Check the load's current against the contact rating. A motor
+      with a failing capacitor or tight bearings pulls high current and burns the contacts again.
+    safety: Lock out before you change it; the contacts switch line voltage.
+    refs: [practice]
+
+  - id: ctl.relay_stuck
+    name: Relay stuck closed — burner, blower or pump runs with no call
+    systems: [fuel, hydronic]
+    prior: occasional
+    keywords: [relay stuck, relay welded, circulator runs all the time, burner wont shut off]
+    signs:
+      ctl.relay: stuck_in!
+      ctl.coil_v_off: none!
+      gen.call: not_calling
+      gen.runs_constantly: yes
+      hyd.circ: running
+      blr.start: normal?
+    confirm: With the call off there is no voltage on the relay coil, yet the relay stays in and the load runs.
+    fix: |
+      Lock out and replace the relay. Look for why the contacts welded: a load drawing more than the contact
+      rating, or contacts that chattered on low control voltage. On a boiler, check that the high limit still
+      shut the burner off while the relay was stuck.
+    safety: The load can start at any moment while the relay is stuck. Lock out before you work on it.
+    refs: [practice]
+
+  - id: ctl.call_stuck_on
+    name: Call stuck on — 24 V stays on the contactor or relay with the thermostat satisfied (Y shorted to R, stat relay stuck)
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    prior: occasional
+    keywords: [runs with the thermostat off, wont shut off, y shorted to r, thermostat stuck calling]
+    signs:
+      ctl.coil_v_off: present!
+      gen.runs_constantly: yes!
+      gen.call: {calling: 0.55, not_calling: 0.45}
+      vc.contactor: {welded: 0.55, ok: 0.43}
+      vc.comp: running
+      hyd.circ: running
+      blr.start: normal
+    confirm: With the thermostat off, 24 V still reads on the contactor or relay coil. If it goes away with the
+      thermostat off the wall, the thermostat is stuck; if it stays, the cable is shorted.
+    fix: |
+      Pull the thermostat off: if the call drops, replace the thermostat. If it stays, find the short between R
+      and the call wire in the cable (often at a staple or where it enters the unit) and repair the run. On an
+      A/C that ran nonstop, check the indoor coil for ice before you leave.
+    refs: [practice]
+
+  - id: ctl.contactor_buzz
+    name: Contactor buzzing loudly while pulled in — dirty or rusted pole faces, or a cracked shading ring
+    systems: [vc]
+    prior: occasional
+    keywords: [contactor buzzing, loud contactor, contactor humming]
+    signs:
+      ctl.contactor_noise: buzz!
+      ctl.rc_volts: normal
+      ctl.vdrop: none
+      vc.contactor: ok|burnt
+      vc.comp: running?
+    confirm: The contactor buzzes loudly with normal voltage on its coil; the noise is in the magnet, not the
+      compressor.
+    fix: |
+      Replace the contactor. A loud magnet hum means the armature isn't seating flat, and it will chatter and
+      pit its contacts soon. Look for dirt or insects in it, and check the coil voltage under load.
+    refs: [practice]
+
+  - id: ctl.asc_normal
+    name: Anti-short-cycle or restart delay timing out — normal 3–5 minute wait (longer after a power event), not a fault
+    systems: [vc, ahu]
+    prior: common
+    keywords: [anti short cycle, delay on break, time delay, compressor delay, restart delay]
+    signs:
+      ctl.start_delay: delayed!
+      ctl.timer_io: passes
+      gen.output: {none: 0.5, normal: 0.4, weak: 0.1}
+      gen.after_outage: yes?
+      vc.comp: off|running
+      ahu.fan: off|running
+    confirm: The unit starts on its own a few minutes after the call or after power returns, then runs normally.
+    fix: |
+      Nothing to repair. Wait out the delay before you troubleshoot a no-start, and tell the occupant about it.
+      Don't bypass the timer; it protects the compressor from restarting against high pressure.
+    refs: [practice]
+
+  - id: ctl.asc_failed
+    name: Delay timer (anti-short-cycle or time-delay relay) failed open — never times out
+    systems: [vc]
+    prior: uncommon
+    keywords: [time delay relay bad, delay timer bad, anti short cycle timer failed]
+    signs:
+      ctl.start_delay: never!
+      ctl.timer_io: in_no_out!
+      vc.coil_24v: no!
+      gen.call: calling
+      vc.comp: off!
+      gen.output: none
+    confirm: 24 V goes into the timer but nothing comes out after 10 minutes.
+    fix: Replace the timer, or the board it sits on. Check that the safeties wired through it read closed first.
+    refs: [practice]
+
+  # ======================= thermostats =======================
+  - id: ctl.stat_settings_wrong
+    name: Thermostat set wrong — mode, setpoint, fan, schedule or a hold
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    prior: common
+    keywords: [thermostat set wrong, thermostat off, wrong mode, hold on, vacation mode]
+    signs:
+      ctl.stat_settings: wrong!
+      ctl.call_path: not_sent?
+      gen.call: not_calling
+      gen.output: none
+      vc.comp: 'off'
+      blr.start: nothing
+      hyd.circ: 'off'
+    confirm: The mode, setpoint, fan setting, schedule or hold doesn't match the call the occupant wants; setting it
+      right brings the call on.
+    fix: |
+      Set the mode, setpoint and fan, clear any hold or vacation mode, and fix the schedule. Show the occupant how
+      it is set. If the settings keep changing, look for a second person or a remote app adjusting it.
+    refs: [practice]
+
+  - id: ctl.stat_config_wrong
+    name: Thermostat set up wrong for the equipment — system type, stages, fan in heat
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_digital]}
+    prior: occasional
+    keywords: [thermostat configured wrong, installer settings, wrong system type, new thermostat]
+    signs:
+      ctl.stat_config: wrong!
+      gen.recent_work: yes
+      gen.output: none|weak
+      ctl.stat_settings: ok
+    confirm: The installer menu doesn't match the equipment (for example set as a heat pump on a furnace, or one
+      stage on a two-stage unit).
+    fix: |
+      Set the system type, stages, auxiliary heat and fan control to match the equipment, then run each call (Y,
+      Y2, W, W2, G) and check the right parts start.
+    refs: [practice]
+
+  - id: ctl.stat_failed
+    name: Thermostat failed — set right but won't close its output
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    prior: occasional
+    keywords: [bad thermostat, thermostat failed, thermostat not calling]
+    signs:
+      ctl.call_path: not_sent!
+      ctl.stat_settings: ok!
+      ctl.jumper_test: starts
+      ctl.batteries: ok
+      gen.call: not_calling!
+      gen.output: none
+      vc.comp: off
+      blr.start: nothing
+      blr.tt: 'no'
+      hyd.circ: off
+    confirm: With the thermostat set right and 24 V on R, nothing comes out on the call terminal; jumpering R to
+      the call at the unit starts it.
+    fix: |
+      Replace the thermostat. Match the type (heat pump or conventional, stages, needs a C wire or not). Set the
+      installer menu for the equipment, then run each call.
+    refs: [practice]
+
+  - id: ctl.stat_wire_open
+    name: Thermostat wire broken or loose — the call leaves the thermostat but doesn't reach the unit
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    prior: occasional
+    keywords: [broken thermostat wire, loose thermostat wire, open wire, wire pulled off the terminal]
+    signs:
+      ctl.call_path: lost_between!
+      gen.call: not_calling!
+      ctl.jumper_test: starts!
+      blr.tt: no!
+      gen.output: none
+      gen.intermittent: yes?
+      vc.comp: off
+      blr.start: nothing
+      hyd.circ: off
+    confirm: 24 V on the call terminal at the thermostat, none at the unit's terminal board.
+    fix: |
+      Check both ends for a wire pulled out of its terminal or broken under the screw. Then ohm the conductor end
+      to end (power off, both ends lifted). Use a spare conductor in the cable if one is broken, or pull a new
+      cable.
+    refs: [practice]
+
+  - id: ctl.batteries_dead
+    name: Thermostat batteries dead — display blank or warning, the call drops out
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_digital]}
+    prior: common
+    keywords: [dead batteries, thermostat blank, thermostat batteries, low battery]
+    signs:
+      ctl.batteries: low!
+      ctl.stat_display: {blank: 0.55, low_batt: 0.4, normal: 0.05}
+      ctl.c_wire: connected
+      gen.call: not_calling
+      gen.output: none
+      vc.comp: off?
+      blr.start: nothing?
+      hyd.circ: off?
+    confirm: Fresh batteries bring the display back and the call comes on.
+    fix: |
+      Fit fresh batteries of the type marked in the thermostat. If they die again within months, the thermostat
+      may be drawing on them because it has no C wire; add one if the equipment has a C terminal.
+    refs: [practice]
+
+  - id: ctl.no_c_wire
+    name: No C wire — power-stealing thermostat browns out (blank or restarting display, chatter, false starts)
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_digital]}
+    prior: occasional
+    keywords: [no c wire, power stealing, wifi thermostat, smart thermostat keeps rebooting]
+    signs:
+      ctl.c_wire: missing!
+      ctl.stat_display: {reboots: 0.5, blank: 0.3, normal: 0.2}
+      gen.intermittent: yes
+      ctl.contactor_noise: chatter?
+      gen.short_cycle: yes?
+      gen.recent_work: yes?
+    confirm: The thermostat needs a C wire and none is connected; with a C wire landed (or a temporary one from
+      the equipment) the faults stop.
+    fix: |
+      Land a C wire: use a spare conductor in the cable, pull a new cable, or fit an adapter the thermostat maker
+      approves. Check R to C reads 24 V at the sub-base afterwards.
+    refs: [practice]
+
+  - id: ctl.stat_miswired
+    name: Thermostat miswired — wires on the wrong letters, R and C crossed, or the Rh–Rc jumper wrong
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    prior: occasional
+    keywords: [thermostat miswired, wired wrong, wrong terminal, new thermostat wired wrong, y and g swapped]
+    signs:
+      ctl.wiring_map: wrong!
+      gen.recent_work: yes!
+      gen.output: none|weak
+      ctl.lv_fuse: {intact: 0.7, blown: 0.3}
+      vc.comp: off?
+      blr.start: nothing?
+      hyd.circ: off?
+    confirm: A conductor lands on different letters at the thermostat and at the equipment, or the Rh–Rc jumper is
+      wrong for the number of transformers.
+    fix: |
+      Re-land each wire by function, not by color: follow it to the equipment terminal it actually lands on.
+      Put the Rh–Rc jumper in for one transformer, out for two. Replace a blown fuse and run every call.
+    refs: [practice]
+
+  - id: ctl.anticipator
+    name: Heat anticipator or cycle rate set wrong — short cycles, or long cycles with big swings
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_mech, stat_digital]}
+    prior: occasional
+    keywords: [heat anticipator, anticipator, cycles per hour, cycle rate, cph]
+    signs:
+      ctl.cycle_setting: {too_fast: 0.55, too_slow: 0.42}
+      gen.short_cycle: yes?
+      gen.output: normal|weak
+    confirm: The anticipator dial doesn't match the W-circuit current (clamp with 10 wraps, divide by 10), or the
+      cycle-rate setting doesn't match the equipment type.
+    fix: |
+      Set the anticipator to the measured W current. On a digital thermostat set the cycle rate for the
+      equipment (the installer menu lists types such as forced air, hot water, steam). Short cycles with every
+      setting right point back at the thermostat's location.
+    refs: [tm-5-642, practice]
+
+  - id: ctl.stat_off_level
+    name: Mechanical thermostat off level or dirty — switches several degrees off the dial
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    requires: {controls: [stat_mech]}
+    prior: occasional
+    keywords: [thermostat not level, mercury thermostat, thermostat off calibration]
+    signs:
+      ctl.stat_level: off!
+      gen.output: weak|normal
+      gen.runs_constantly: yes?
+    confirm: The base is off its level marks, or dust and lint sit on the coil and contacts, and the call switches
+      several degrees away from the dial setting.
+    fix: |
+      Level the base on its marks and clean the coil and contacts with a soft brush (no abrasive on the
+      contacts). A mercury thermostat that is cracked or no longer needed should be replaced; take the bulb for
+      proper disposal, never the trash.
+    safety: A mercury bulb is a hazardous waste. Don't break it.
+    refs: [practice]
+
+  # ======================= sensors =======================
+  - id: ctl.stat_mislocated
+    name: Thermostat or sensor in a poor location — sun, supply air, a draft, a cold wall or a heat source
+    systems: [vc.ac, vc.hp, vc.walkin, vc.reachin, fuel, hydronic]
+    prior: common
+    keywords: [thermostat location, thermostat in the sun, probe location, sensor location]
+    signs:
+      ctl.stat_spot: poor!
+      ctl.stat_vs_ref: agrees
+      ctl.sensor_ohms: ok?
+      gen.short_cycle: yes?
+      gen.output: weak|normal
+    confirm: The sensor reads its own spot correctly, but that spot runs warmer or colder than the space it is meant
+      to control.
+    fix: |
+      Move the thermostat or sensor to an inside wall in the space it serves, about 5 ft up, out of sun and
+      supply air. Seal the wire hole behind it with foam or putty. In a walk-in, mount the probe in the box air,
+      away from the evaporator discharge and the door.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.thermistor_failed
+    name: Temperature sensor failed or drifted (10 kΩ NTC) — the control acts on a false reading
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    prior: occasional
+    keywords: [bad sensor, thermistor bad, sensor failed, remote sensor bad, outdoor sensor bad, 10k sensor]
+    signs:
+      ctl.sensor_ohms: {off: 0.6, open: 0.25, shorted: 0.12}
+      ctl.stat_vs_ref: off
+      gen.output: none|weak
+    confirm: The sensor's resistance, with a lead lifted, is off the chart at the temperature it sits in (or reads
+      open or shorted).
+    fix: |
+      Replace the sensor with one of the same type and curve; the controller expects that curve. If it reads open
+      or shorted only at the controller end, the wire run is at fault: ohm the sensor at the sensor end too.
+    refs: [ntc-beta, practice]
+
+  - id: ctl.sensor_config
+    name: Sensor good but the reading is off — wrong sensor type set in the controller, an offset, or long-run wire resistance
+    systems: [vc.ac, vc.hp, fuel, hydronic]
+    prior: uncommon
+    keywords: [sensor offset, wrong sensor type, sensor calibration, calibration offset]
+    signs:
+      ctl.stat_vs_ref: off!
+      ctl.sensor_ohms: ok!
+      gen.recent_work: yes?
+    confirm: The sensor ohms correctly on its chart, yet the controller shows a different temperature.
+    fix: |
+      Check the input's sensor type (for example 10 kΩ Type II vs Type III, or a different resistance) and any
+      offset in the controller or thermostat setup. On a long sensor run, add the wire resistance to what you
+      measured. Correct the setup; don't use an offset to hide a wrong sensor type.
+    refs: [ufc-3-410-02, practice]
+
+  # ======================= heat pump O/B in cooling =======================
+  - id: ctl.ob_reversed_cool
+    name: Heat pump heats on a cooling call — thermostat O/B setting wrong for the valve
+    systems: [vc.ac]
+    requires: {rev_valve: ['yes'], hp_unit: [ducted, inverter]}
+    prior: common
+    keywords: [o b setting, ob reversed, heats in cool mode, new thermostat heat pump]
+    signs:
+      ctl.ob_setting: reversed!
+      ctl.cool_mode: heating!
+      ctl.rv_coil_cool: wrong
+      gen.recent_work: yes
+      gen.output: none
+    confirm: The thermostat's O/B setting doesn't match the valve (by the diagram or a meter on the coil), and the
+      unit heats on a cooling call.
+    fix: |
+      Set O/B to match the valve, then run cooling and heat and check the vapor line at the indoor unit in each
+      (cold in cooling, hot in heat).
+    refs: [practice]
+
+  - id: ctl.rv_coil_wrong_cool
+    name: Reversing-valve coil voltage wrong in cooling — O wire open or not landed, or a B wire live (setting right)
+    systems: [vc.ac]
+    requires: {rev_valve: ['yes'], hp_unit: [ducted, inverter]}
+    prior: occasional
+    keywords: [o wire broken, no 24 volts to the reversing valve, reversing valve wire]
+    signs:
+      ctl.rv_coil_cool: wrong!
+      ctl.cool_mode: heating!
+      ctl.ob_setting: ok!
+      gen.output: none
+    confirm: The O/B setting is right, but the coil gets no 24 V on a cooling call (O valve) or 24 V when it
+      shouldn't (B valve).
+    fix: |
+      Trace the O (or B) conductor from the thermostat to the outdoor unit: a broken wire, one not landed at the
+      outdoor board, or a B wire shorted to R. If 24 V reaches the coil and the valve still won't shift, ohm the
+      coil and check the valve itself.
+    refs: [practice]
+
+  # ======================= DDC / BAS points =======================
+  - id: ctl.point_override
+    name: BAS point left in override or hand — the equipment ignores the schedule and the sequence
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    prior: common
+    keywords: [point in hand, override left on, operator override, bas override, forced on]
+    signs:
+      ctl.point_mode: override!
+      ctl.cmd_vs_fb: agree
+      ctl.controller: ok
+      gen.output: {none: 0.4, normal: 0.4, weak: 0.2}
+      gen.runs_constantly: yes?
+    confirm: The point shows an operator override or hand at a priority above the program, and the equipment does
+      exactly what that override says.
+    fix: |
+      Release the override (relinquish it at the priority that holds it) or put the hand-off-auto switch back in
+      auto, and watch the program take it. Find out who set it and why; an override often hides a fault someone
+      meant to come back to.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.schedule_wrong
+    name: Occupancy schedule wrong — holiday or exception left in, wrong times, or a clock off by an hour
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    prior: common
+    keywords: [schedule wrong, holiday schedule, daylight saving, unoccupied during the day, runs all night]
+    signs:
+      ctl.occupancy: {unocc_when_occupied: 0.6, occ_when_empty: 0.37}
+      ctl.point_mode: auto
+      ctl.occ_sensor: ok
+      ctl.controller: ok
+      gen.intermittent: yes?
+      gen.output: none|weak
+    confirm: The schedule (or an exception in it) puts the system unoccupied while people are in, or occupied while
+      the building is empty, with the controller clock right.
+    fix: |
+      Correct the schedule and clear stale holidays and exceptions. Check the daylight-saving rule. Note the
+      building's real hours with the occupant, and set warm-up or cool-down to start early enough.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.occ_sensor_bad
+    name: Occupancy sensor or after-hours override button faulted — space held occupied, or never sees anyone
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    prior: occasional
+    keywords: [occupancy sensor, override button, sensor blocked]
+    signs:
+      ctl.occ_sensor: faulted!
+      ctl.occupancy: {occ_when_empty: 0.5, unocc_when_occupied: 0.45}
+      ctl.point_mode: auto
+    confirm: The occupancy input doesn't change when you walk in and out of its view or press the button.
+    fix: |
+      Clear what blocks the sensor's view, aim it away from hallways, or replace it. Check the input at the BAS
+      changes state, and that the off-delay is set as the design calls for.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.controller_reset
+    name: Controller lost its program or clock after a power event — default program, wrong time, outputs at their safe state
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    prior: occasional
+    keywords: [controller lost program, controller reset, lost database, clock wrong]
+    signs:
+      ctl.controller: reset!
+      gen.after_outage: yes!
+      ctl.occupancy: {unocc_when_occupied: 0.4, occ_when_empty: 0.3, matches: 0.3}
+      gen.output: none|weak
+    confirm: After the outage the controller shows a default program, a reset clock, or setpoints that don't match
+      the saved database.
+    fix: |
+      Reload the program from the saved backup and set the clock (or let it sync from the network). Check the
+      controller's memory backup (battery or flash) so it survives the next outage, and make sure the backup on
+      file is current.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.comm_lost
+    name: Controller offline on the BAS network — runs on its own default schedule while the front end shows stale values
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam, ahu]
+    requires: {controls: [bas]}
+    prior: occasional
+    keywords: [controller offline, no comm, communication lost, network down]
+    signs:
+      ctl.controller: offline!
+      gen.after_outage: yes?
+      ctl.occupancy: {matches: 0.5, unocc_when_occupied: 0.3, occ_when_empty: 0.2}
+      gen.output: none|weak|normal
+    confirm: The front end shows the controller offline, or its values haven't updated, while the controller itself
+      has power.
+    fix: |
+      Check the controller's power, then the network: a loose or broken trunk wire, a missing end-of-line
+      termination, an address clash after a board swap, or a router or switch that didn't restart after the
+      outage. While it's offline, it runs on its local default schedule, so compare that schedule with the
+      building's hours.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.bas_output_failed
+    name: BAS commands it on, but nothing leaves the controller output (dead output relay or triac, blown output fuse)
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam]
+    requires: {controls: [bas]}
+    prior: occasional
+    keywords: [bas says on but nothing runs, controller output dead, output fuse blown]
+    signs:
+      ctl.cmd_vs_fb: mismatch!
+      ctl.output_signal: none_at_controller!
+      ctl.point_mode: auto?
+      ctl.controller: ok
+      gen.output: none
+      vc.comp: off
+      blr.start: nothing
+      hyd.circ: off
+    confirm: The command point reads on, but no signal reads at the controller's output terminals.
+    fix: |
+      Check the output's fuse and its power or common supply on the controller. Replace a dead output, or move the
+      point to a spare output and update the program. Find what killed it: a shorted field device or a load
+      larger than the output's rating, which needs an interposing relay.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.field_wire_lost
+    name: BAS signal leaves the controller but doesn't reach the device (broken or miswired field wire, failed interposing relay)
+    systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam]
+    requires: {controls: [bas]}
+    prior: occasional
+    keywords: [bas says on but nothing runs, broken control wire, interposing relay bad, rib relay]
+    signs:
+      ctl.cmd_vs_fb: mismatch!
+      ctl.output_signal: lost_in_field!
+      ctl.controller: ok
+      gen.output: none
+      vc.comp: off
+      blr.start: nothing
+      hyd.circ: off
+    confirm: The signal reads at the controller terminals but not at the device, or the interposing relay gets its
+      coil signal and its contacts don't close.
+    fix: |
+      Trace the run between the controller and the device: terminal blocks, splices, the interposing relay.
+      Repair the wire or replace the relay, then command the point on and off and watch the device follow.
+    refs: [ufc-3-410-02, practice]
+
+  - id: ctl.actuator_failed
+    name: Valve or damper actuator failed on a BAS point — signal reaches it, it doesn't move (feedback disagrees with command)
+    systems: [fuel.boiler, hydronic, steam]
+    requires: {controls: [bas]}
+    prior: occasional
+    keywords: [actuator failed, valve actuator dead, command vs feedback, feedback doesnt match]
+    signs:
+      ctl.cmd_vs_fb: mismatch!
+      ctl.output_signal: present!
+      ctl.point_mode: auto?
+      gen.output: none|weak
+    confirm: The correct signal reads at the actuator's terminals, and the actuator doesn't stroke (or its feedback
+      doesn't follow).
+    fix: |
+      Check the actuator's own power, then try its manual override. If the actuator turns but the valve stem
+      doesn't, the linkage or coupling has slipped or the valve is stuck. Replace a dead actuator with one of
+      the same signal, stroke and fail position, and check the feedback span afterwards.
+    refs: [ufc-3-410-02, practice]
+
+synonyms:
+  - [bas, bms, ems, building automation, building automation system, ddc, front end, energy management system]
+  - [c wire, common wire, c terminal]
+  - [3 amp fuse, 3a fuse, three amp fuse]
+  - [24 volts, 24v, 24 v, 24 vac, 24 volt]
+
+refs:
+  - id: ufc-3-410-02
+    title: UFC 3-410-02, Direct Digital Control for HVAC and Other Building Control Systems (18 July 2018, now
+      cancelled) — points, overrides, hand-off-auto switches, occupancy schedules and the local default schedule
+      used when communication is lost
+    url: https://www.wbdg.org/FFC/DOD/UFC/ARCHIVES/ufc_3_410_02_2018.pdf
+    rights: Approved for public release; distribution unlimited (US Government work)
+  - id: ntc-beta
+    title: NTC thermistor Beta equation, R(T) = R25 · exp(β (1/T − 1/298.15 K)), with R25 = 10 kΩ and β = 3950 K;
+      table computed for this project
+    url: ''
+    rights: Physical relation (fact); our own computation
