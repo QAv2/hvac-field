@@ -43,7 +43,8 @@ the tech enters multiplies each cause by how likely that finding is **if that ca
 
 One module per file. Ids are `prefix.name`, lowercase, prefix = the module's namespace:
 `gen.` (common), `vc.` (refrigeration core), `rf.` (commercial refrigeration), `hp.` (heat pump heating),
-`blr.` (oil burner and boilers), `hyd.` (hot water, glycol, steam), `ahu.` (air handling). A file may have
+`blr.` (oil burner and boilers), `hyd.` (hot water, glycol, steam), `ahu.` (air handling), `ctl.` (controls and
+low-voltage circuits, on every system). A file may have
 `module`, `title`, `notes`, and lists: `systems`, `context`, `features`, `inputs`, `measures`, `causes`,
 `synonyms`, `refs`.
 
@@ -90,9 +91,13 @@ Existing context ids (option ids in brackets):
 - `hydronic`: `fluid` [water/glycol/pg/eg]
 - `ahu`: `fan_drive` [belt/direct], `vfd` ['yes'/'no'], `oa_type` [mixed/all_oa/hrv], `economizer`
   ['yes'/'no'], `heat_coil` [water/eg/pg/steam/electric/none], `cool_coil` [chw/dx/none]
+- every system: `controls` [stat_mech/stat_digital/bas/unit] (what tells the equipment to run; defaults to `bas`
+  on air handlers and `unit` on walk-ins, reach-ins and ice machines); A/C only: `rev_valve` ['yes'/'no'] (heat
+  pump or cooling only)
 
 Shared questions live in `systems.yaml`, a module's own questions in its module file. `hp_unit` and
-`rv_energized` sit in `systems.yaml` because vc-core gates on `hp_unit` too.
+`rv_energized` sit in `systems.yaml` because vc-core gates on `hp_unit` too; `controls` and `rev_valve` sit there
+because any module may gate a thermostat or BAS cause on them.
 
 ## Features — the things a tech can observe or measure
 

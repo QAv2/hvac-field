@@ -36,6 +36,8 @@ features:
     how: Look at the blade fuse on the control board, or the inline fuse in the transformer secondary. With power
       on, 24 V measured across the fuse means it is open. A fuse that holds until a call comes on, then blows,
       points at the circuit that call energizes.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: ['*']
     states:
       intact: Intact
@@ -76,6 +78,8 @@ features:
     ask: With the call on and the loads pulled in, what does R to C read at the transformer?
     how: Meter R to C at the transformer or board while the contactor or relays are pulled in. Healthy is about
       22–28 V. A reading that sags several volts when the call comes on means the transformer is near its limit.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: ['*']
     ask_unless: {gen.control_v: missing}
     states:
@@ -115,6 +119,8 @@ features:
     how: With the two C terminals tied together, meter R of one transformer to R of the other. Near 0 V means
       in phase. About 48 V means out of phase. Common on a furnace with a heat pump, zoning panels, and boilers
       with several zone controls.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: [vc.ac, vc.hp, fuel, hydronic, ahu]
     states:
       single: Only one transformer in the circuit
@@ -171,6 +177,8 @@ features:
     ask: With the call on, is the voltage across the coil within a volt or two of R to C at the transformer?
     how: Meter R to C at the transformer, then across the coil it should pull in. Then step along the path (R
       at the thermostat, Y at the unit, each splice) to find the joint that loses the volts.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: ['*']
     states:
       none: Within a volt or two
@@ -235,6 +243,8 @@ features:
     ask: Is the condensate float or safety switch open — and is there water in its pan?
     how: Find the float switch on the drain pan, the secondary pan or the drain line. Meter across it with the
       call on (24 V across it means open), then look at the water level.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: [vc.ac, vc.hp]
     follows: {vc.drain: {open_wet: [clogged], closed: [clear]}}
     states:
@@ -273,6 +283,8 @@ features:
     ask: With the call on, is the relay (or small contactor) that switches the burner, blower or pump pulled in?
     how: Look or listen for the armature, and meter 24 V across its coil. Then turn the call off and check that
       it drops out.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: [fuel, hydronic]
     states:
       pulled_in: Pulled in on the call, drops out after
@@ -328,6 +340,8 @@ features:
     ask: With the thermostat satisfied or turned off, is 24 V still on the contactor or relay coil?
     how: Turn the thermostat to off (or let it satisfy) and meter across the coil. Any 24 V there means the call
       is still being sent; none means the contactor or relay itself is stuck.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: [vc.ac, vc.hp, fuel, hydronic]
     states:
       none: No voltage on the coil
@@ -361,6 +375,8 @@ features:
     ask: With the call on, is 24 V going into the delay timer (time-delay relay) and coming out after the delay?
     how: Meter the timer's input and output terminals to C. Wait out the delay (up to 10 minutes) before you
       judge the output.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: [vc]
     states:
       passes: 24 V in, 24 V out after the delay
@@ -410,6 +426,8 @@ features:
     ask: With a call set, is 24 V on the call terminal (Y or W) at the thermostat, and does it arrive at the unit?
     how: Meter the call terminal to C at the thermostat sub-base (24 V means the thermostat is calling), then the
       same terminal to C at the equipment's terminal board. Use C at each end, not a ground.
+    caution: 24 V only at the thermostat. At the unit, line voltage sits beside the terminal board, so keep the
+      probes on the low-voltage terminals.
     systems: [vc.ac, vc.hp, fuel, hydronic]
     states:
       reaches_unit: 24 V at the thermostat and at the unit
@@ -589,8 +607,8 @@ features:
     name: Sensor resistance vs its curve
     ask: Disconnected and ohmed, does the temperature sensor's resistance match its chart at the temperature it sits in?
     how: Lift one sensor lead at the controller and ohm the sensor (this also tests the wire run). Read the
-      temperature at the sensor with a thermometer and compare with the chart. A 10 kΩ NTC reads about 32.7 kΩ at
-      32 °F, 19.9 kΩ at 50 °F, 12.5 kΩ at 68 °F, 10.0 kΩ at 77 °F, 5.8 kΩ at 100 °F and 3.0 kΩ at 130 °F. Enter
+      temperature at the sensor with a thermometer and compare with the chart. A 10 kΩ NTC reads about 33.6 kΩ at
+      32 °F, 20.2 kΩ at 50 °F, 12.5 kΩ at 68 °F, 10.0 kΩ at 77 °F, 5.8 kΩ at 100 °F and 3.0 kΩ at 130 °F. Enter
       both numbers and the app compares them with the full table.
     systems: ['*']
     follows:
@@ -651,6 +669,8 @@ features:
     ask: On a cooling call, is the reversing-valve coil getting 24 V if the valve needs it in cooling (and none if it doesn't)?
     how: Meter at the two coil leads with the cooling call on. An O-type valve needs 24 V in cooling; a B-type
       valve needs none.
+    caution: The 24 V side is safe to touch, but line-voltage terminals sit beside it in the cabinet. Keep the probes on
+      the low-voltage terminals and your hands clear of the line side.
     systems: [vc.ac]
     requires: {rev_valve: ['yes'], hp_unit: [ducted, inverter]}
     states:
