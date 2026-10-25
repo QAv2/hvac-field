@@ -14,6 +14,7 @@ import { diagnose, prepare, posterior } from '../docs/js/engine.js';
 import { refs, knownFunction } from '../docs/js/expr.js';
 import { computeMeasures, checkSanity } from '../docs/js/measure.js';
 import * as calc from '../docs/js/calcs.js';
+import { Search } from '../docs/js/search.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -145,6 +146,23 @@ for (const sc of scen) {
   const line = `${sc.name} → ${res.post.slice(0, 3).map((r) => `${r.id} ${(r.p * 100).toFixed(0)}%`).join(', ')} | next: ${res.next.slice(0, 2).map((n) => n.id).join(', ')}`;
   if (fails.length) problems.push(`scenario (${sc._file}) ${line}\n      ✗ ${fails.join('\n      ✗ ')}`);
   else { pass++; say(`  ✓ ${line}`); }
+}
+
+// 4b. typed complaint → the system it should pick first. One module's synonym or keyword can hijack the most
+// common calls (a terminal-unit synonym once sent "ac not blowing cold air" to the unit-heater system).
+const ROUTES = [
+  ['ac not blowing cold air', 'vc.ac'], ['walk in cooler not blowing cold air', 'vc.walkin'],
+  ['furnace blowing cold air', 'fuel.furnace'], ['ahu supply air blowing cold', 'ahu'],
+  ['heat pump blowing cold air in heat mode', 'vc.hp'], ['walk in freezer warm', 'vc.walkin'],
+  ['boiler wont fire', 'fuel.boiler'], ['unit heater blowing cold', 'terminal'], ['fan coil not heating', 'terminal'],
+  ['glycol unit heater not heating', 'terminal'], ['electric baseboard not heating', 'terminal'],
+];
+{
+  const search = new Search(kb);
+  for (const [text, want] of ROUTES) {
+    const got = search.run(text, null).systems[0]?.id;
+    if (got !== want) problems.push(`route "${text}" picks ${got}, want ${want}`);
+  }
 }
 
 // 5. self-recognition and 6. confusable pairs, per selectable system

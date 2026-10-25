@@ -117,7 +117,8 @@ systems:
     icon: sun
     keywords: [unit heater, fan coil, fcu, cabinet heater, cabinet unit heater, cuh, baseboard, fin tube, convector,
       radiator, radiant, radiant panel, radiant floor, electric heater, electric baseboard, electric unit heater,
-      wall heater, kickspace heater, blowing cold, terminal unit, steam unit heater, hot water unit heater]
+      wall heater, kickspace heater, unit heater blowing cold, cabinet heater blowing cold, fan coil blowing cold,
+      terminal unit, steam unit heater, hot water unit heater, glycol unit heater]
     ok_note: The unit itself reads normal — hot water or steam reaches it, the valve opens, the coil heats evenly
       and the fan moves air (or the elements draw full current). Compare the unit's rating with the room's heat
       loss (doors, infiltration, a cold snap, an exhaust fan), check the thermostat setpoint and schedule, and if

@@ -114,8 +114,9 @@ features:
   - id: tu.fan_cap
     name: Fan motor run capacitor
     ask: How does the fan motor's run capacitor test (µF against its rating)?
-    how: Lock out, discharge the capacitor, take one lead off and read it in µF. More than about 6–10 % under its
-      rating, open, or swollen counts as bad. Shaded-pole motors have no capacitor.
+    how: Take one lead off and read it in µF. More than about 6–10 % under its rating, open, or swollen counts as bad.
+      Shaded-pole and ECM motors (a control module on the motor's end) have no capacitor.
+    caution: Lock out, then discharge the capacitor through a resistor before you touch its terminals.
     systems: [terminal]
     requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
     ask_if: {tu.fan: ['off', hums]}
@@ -180,12 +181,29 @@ features:
     phrases:
       low: [fan on low, fan stuck on low speed, wrong speed tap, speed switch on low, fan speed low]
 
+  - id: tu.rotation
+    name: Fan rotation
+    ask: Watch the fan as it starts or coasts to a stop — does it turn the way the arrow on the housing or motor
+      shows?
+    caution: Look from outside the guard; don't reach in to check it.
+    systems: [terminal]
+    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    ask_if: {tu.fan: running}
+    cost: 1
+    states:
+      right: Turns the way the arrow shows
+      backwards: Turns against the arrow
+    normal: right
+    phrases:
+      backwards: [fan running backwards, fan turning backwards, wrong rotation, blower backwards, fan reversed,
+        motor runs backwards]
+
   - id: tu.filter
     name: Unit filter
     ask: What does the unit's filter look like?
     caution: Turn the unit off before you pull the filter so the fan doesn't pull the debris in.
     systems: [terminal]
-    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    requires: {tu_type: [cabinet, fcu2, fcu4]}   # propeller unit heaters rarely have one
     cost: 1
     states:
       clean: Clean, or no filter on this unit
@@ -201,6 +219,7 @@ features:
     ask: What do the coil fins (or the baseboard element) and the air path into and out of the unit look like?
     how: Look at the coil face with a light, and at the inlet and outlet grilles. On baseboard, lift the cover and
       look at the fins and the damper flap.
+    caution: On electric baseboard, switch its breaker off before you lift the cover.
     systems: [terminal]
     requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4, baseboard]}
     cost: 1
@@ -223,6 +242,7 @@ features:
       steam temperature (about 40–50 °F on a 180 °F hot-water unit, 60–80 °F on steam).
     systems: [terminal]
     requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    ask_unless: {tu.fan: ['off', hums]}
     needs: thermometer
     cost: 2
     states:
@@ -233,7 +253,8 @@ features:
     normal: normal
     follows: {gen.output: {none: [none], low: [weak], normal: [normal]}}
     phrases:
-      none: [air not warm, cold air off unit, no temperature rise, air leaving at room temperature]
+      none: [air not warm, cold air off unit, no temperature rise, air leaving at room temperature, blowing cold,
+        blows cold, blowing cold air, blowing cool air, blowing room temperature air]
       low: [lukewarm air, barely warm air, low temperature rise, air only warm]
       high: [air very hot but weak, hot air low flow, high temperature rise]
 
@@ -256,9 +277,11 @@ features:
   # ==================== WATER, GLYCOL AND STEAM SIDE ====================
   - id: tu.supply_pipe
     name: Supply pipe at the unit
-    ask: How hot is the pipe feeding the unit, ahead of its valve?
-    how: Touch it or read it with a strap-on or IR thermometer (IR on a piece of tape or a painted spot). Compare
-      with what the loop or steam main is meant to carry right now.
+    ask: How hot is the pipe feeding the unit, ahead of its valve (the heating supply on a 4-pipe fan coil)?
+    how: Read it with a strap-on or IR thermometer (IR on a piece of tape or a painted spot). Compare with what the
+      loop or steam main is meant to carry right now. On a 4-pipe fan coil, read the heating supply.
+    caution: Steam and hot-water pipes burn on contact. Use the thermometer, or touch only for an instant with the
+      back of a gloved hand — never on steam.
     systems: [terminal]
     requires: {tu_heat: [water, glycol, steam]}
     cost: 1
@@ -279,10 +302,12 @@ features:
 
   - id: tu.coil_dt
     name: Drop across the coil
-    ask: With the unit calling and the fan on, how does the pipe leaving the coil compare with the pipe feeding it?
+    ask: With the unit calling (and its fan on, if it has one), how does the pipe leaving the coil compare with the
+      pipe feeding it?
     how: Read both pipes at the unit — the supply ahead of the valve and the return (or the condensate line ahead
       of the trap on steam). A hot-water coil normally drops about 10–30 °F. A steam coil's outlet ahead of the
       trap stays close to steam temperature.
+    caution: Steam and hot-water pipes burn on contact. Read them with a thermometer.
     systems: [terminal]
     requires: {tu_heat: [water, glycol, steam]}
     ask_if: {tu.supply_pipe: [hot, lukewarm]}
@@ -291,7 +316,7 @@ features:
     states:
       normal: Normal drop
       wide: Leaving pipe much cooler or cold — little flow through the coil, or condensate backed up in it
-      none: Leaving pipe as hot as the supply — the coil is not giving up heat
+      none: Leaving pipe as hot as the supply — the coil is not giving up heat (hot water or glycol)
     normal: normal
     phrases:
       wide: [return pipe cold, return cold supply hot, supply hot return cold, outlet pipe cold, coil outlet cold,
@@ -300,8 +325,9 @@ features:
 
   - id: tu.coil_pattern
     name: Heat spread across the coil
-    ask: Feel along the coil, radiator or baseboard element (or scan it with an IR thermometer) — how is the heat
-      spread?
+    ask: Scan the coil, radiator or baseboard element with an IR thermometer (or feel it at a safe distance) — how is
+      the heat spread?
+    caution: Steam radiators and coils burn on contact. Use an IR thermometer, or hold a hand near it, not on it.
     systems: [terminal]
     requires: {tu_heat: [water, glycol, steam]}
     cost: 1
@@ -325,6 +351,8 @@ features:
     ask: With the unit calling for heat, is the control signal reaching the valve actuator?
     how: Meter at the actuator terminals — 24 V on a two-position valve, or the 0–10 V, 2–10 V or 4–20 mA signal
       on a modulating one. Compare with what the thermostat or controller says it is sending.
+    caution: Read the actuator's label for its voltage first; some zone valve heads are 120 V. Read 4–20 mA in
+      series on the meter's mA range, never across the terminals.
     systems: [terminal]
     requires: {tu_heat: [water, glycol, steam]}
     needs: meter
@@ -373,7 +401,8 @@ features:
 
   - id: tu.chw_side
     name: Chilled-water side (4-pipe fan coil)
-    ask: With the unit heating, feel the chilled-water coil's pipes — is that side shut off?
+    ask: With the unit heating, feel the chilled-water coil's pipes after its valve (the coil side or its return) —
+      is that side shut off? The pipe ahead of a shut valve is always cold.
     systems: [terminal]
     requires: {tu_type: [fcu4]}
     cost: 1
@@ -404,10 +433,12 @@ features:
 
   # ==================== CONTROLS AND SAFETIES ====================
   - id: tu.fan_interlock
-    name: Fan-delay switch (strap-on aquastat or low limit)
+    name: Fan-delay switch (strap-on temperature switch or low limit)
     ask: Check the fan-delay switch that lets the fan run only once the coil is hot — how does it behave?
-    how: It is usually a strap-on aquastat or snap-disc switch on the supply or return pipe, or a pressure switch on
-      steam. Meter across it with the pipe hot, then with it cold. Check that it is clamped tight to bare pipe.
+    how: It is usually a strap-on temperature switch or snap-disc switch on the supply or return pipe, or a pressure
+      switch on steam. Meter across it with the pipe hot, then with it cold. Check that it is clamped tight to bare
+      pipe.
+    caution: Live line-voltage fan circuit. Meter it with a rated meter; don't bridge the switch to test it.
     systems: [terminal]
     requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
     needs: meter
@@ -430,7 +461,7 @@ features:
       coil is actually cold.
     caution: A freeze-stat trip is the unit protecting its coil. Don't jumper or hold it in; find the cold air first.
     systems: [terminal]
-    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4], tu_heat: [water, glycol, steam]}
     cost: 1
     states:
       ok: Not tripped (or the unit has none)
@@ -464,7 +495,7 @@ features:
 
   - id: tu.cross_test
     name: Thermostat-to-unit check
-    ask: Turn this unit's thermostat up and its neighbour's down — does the right unit respond?
+    ask: Turn this unit's thermostat up and its neighbor's down — does the right unit respond?
     systems: [terminal]
     cost: 2
     states:
@@ -481,8 +512,8 @@ features:
     ask: With power locked out and a lead lifted, what do the heating elements read?
     how: Ohm each element end to end, then each terminal to the sheath or cabinet. The reading should be close to
       V² ÷ W from the nameplate (a 1,500 W, 240 V element reads about 38 Ω).
-    caution: Lock out and tag, and verify dead on every leg. A 240 V heater can be fed from a double-pole breaker that
-      leaves one leg live when only one side is off.
+    caution: Lock out and tag, and verify dead on both legs. A 240 V heater has two live legs, so a single-pole
+      thermostat or one breaker handle turned off can leave the other leg live.
     systems: [terminal]
     requires: {tu_heat: [electric]}
     needs: meter
@@ -501,7 +532,11 @@ features:
   - id: tu.heat_amps
     name: Heater current
     ask: With the heater called, what current does it draw compared with its nameplate?
-    how: Clamp one supply leg. Nameplate watts ÷ volts gives the expected amps on a single-phase heater.
+    how: Clamp one supply leg. Nameplate watts ÷ volts gives the expected amps on a single-phase heater; on a
+      three-phase heater, watts ÷ (volts × 1.73) on each leg — one leg low or zero means a blown fuse, a dead
+      contactor pole or a lost phase.
+    caution: Live conductors. Open only the cover you need, clamp with a rated meter and PPE, and keep clear of the
+      terminals.
     systems: [terminal]
     requires: {tu_heat: [electric]}
     needs: clamp
@@ -581,8 +616,9 @@ features:
   - id: tu.rated_v
     name: Heater nameplate voltage vs supply
     ask: Does the heater's nameplate voltage match the supply it's on?
-    how: Read the nameplate, then meter the supply at the heater. Output goes with the square of voltage, so a
-      240 V heater on 208 V gives about three-quarters of its rated heat.
+    how: Read the nameplate, then meter the supply at the heater. Output goes with the square of voltage — a 240 V
+      heater on 208 V gives about three-quarters of its rated heat, a 480 V heater on 277 V only about a third.
+    caution: Live supply at the heater. Meter it with a rated meter and PPE.
     systems: [terminal]
     requires: {tu_heat: [electric]}
     cost: 1
@@ -670,7 +706,8 @@ measures:
     sets: tu.coil_dt
     states:
       - [wide, 'v > (has(t) ? t + 20 : 40)']
-      - [none, v < 3]
+      # a steam coil's outlet ahead of the trap stays near steam temperature, good coil or trap blowing through
+      - [none, "coalesce(ctx.tu_heat, 'x') != 'steam' && v < 3"]
       - [normal, 'true']
 
   - id: tu.air_rise
@@ -683,11 +720,13 @@ measures:
     # temperature; with no pipe temperature, steam units run about 60 °F of rise and electric ones about 40.
     target: "has(tu.supply_f) ? 0.45 * (tu.supply_f - tu.ent_air_f) : (ctx.tu_heat == 'steam' ? 60 : (ctx.tu_heat == 'electric' ? 40 : null))"
     sets: tu.air_rise
+    # a supply less than about 55 °F above the room (t under 25) can't tell a weak coil from a cool loop: the
+    # supply-pipe check carries that, and only "none" still reads here
     states:
       - [none, v < 5]
-      - [low, v < t * 0.55]
-      - [high, v > t * 1.4]
-      - [normal, 'true']
+      - [low, 't >= 25 && v < t * 0.55']
+      - [high, 't >= 25 && v > t * 1.4']
+      - [normal, 't >= 25']
 
 causes:
   # ==================== NO HOT WATER OR STEAM AT THE UNIT ====================
@@ -758,7 +797,7 @@ causes:
   - id: tu.chw_passing
     name: 4-pipe fan coil's chilled-water valve passing or stuck open while it heats
     systems: [terminal]
-    requires: {tu_type: [fcu4]}
+    requires: {tu_type: [fcu4], tu_heat: [water, glycol]}
     prior: occasional
     keywords: [cooling valve stuck open, heating and cooling at the same time, chilled water valve leaking through]
     signs:
@@ -816,7 +855,8 @@ causes:
     confirm: Steam is hot up to the valve, the unit stays cold, and the valve is shut or part-open, or its handwheel
       turns with no change (disc off the stem).
     fix: |
-      Open the valve fully. On one-pipe steam a supply valve is either fully open or fully closed; throttling it
+      Crack the valve open and let the unit warm and drain, listening for hammer, before you open it fully (shut it
+      at once if it bangs). On one-pipe steam a supply valve is either fully open or fully closed; throttling it
       traps condensate in the radiator and causes hammer. If the handwheel turns freely without lifting the disc,
       isolate the branch, let it cool and replace the valve.
     safety: Never open a steam valve bonnet or union while the line holds pressure. Close, cool and confirm 0 psig.
@@ -843,6 +883,7 @@ causes:
       and the valve body arrow points with the flow. On a hot-water coil reversed flow costs capacity and puts the
       vent at the wrong end; on steam it floods the coil and hammers. Check the vent and trap are at the right ends
       afterwards.
+    safety: Isolate both pipes and relieve to 0 psig before re-piping; on steam, let it cool first.
     refs: [tm-5-642, practice]
 
   - id: tu.air_bound
@@ -888,8 +929,9 @@ causes:
     confirm: Supply hot, valve open, bleeds solid water, yet some tubes or sections stay cold and the return runs far
       colder than it should.
     fix: |
-      Isolate the unit, relieve it and clean any strainer ahead of the valve. Back-flush the coil with a hose from
-      the return side to a drain. If sections stay cold, the coil is scaled or sludged — replace it or have it
+      Isolate the unit, relieve it and clean any strainer ahead of the valve. Back-flush the coil from the return
+      side into a container, not a floor drain: keep glycol for recovery, and put a backflow preventer on any hose
+      from the domestic water. If sections stay cold, the coil is scaled or sludged — replace it or have it
       cleaned. Then find the source: old glycol breaking down, corrosion in the loop, or no dirt separator.
     safety: Isolate both pipes and relieve to 0 psig before opening a strainer or a union. Catch and keep glycol.
     refs: [practice]
@@ -926,15 +968,18 @@ causes:
     signs:
       gen.water_leak: yes!
       tu.leak_at: {valve: 0.45, coil: 0.3, vent: 0.2}
+      hyd.steam_vent: stuck_open?
       hyd.pipe_frost: 'no'
       gen.output: normal
     confirm: Water, glycol or steam dripping from the unit's valve stem, a union, its vent, or the coil itself, not
       from a pipe elsewhere.
     fix: |
-      A packing leak: snug the packing nut a quarter turn with the valve open, or repack it. A union or fitting:
-      isolate, relieve and remake it. A vent: clean or replace it. A pinhole or corroded return bend: isolate the
+      A packing leak on hot water: snug the packing nut a quarter turn with the valve open, or repack it; on steam,
+      close, cool and confirm 0 psig first. A union or fitting: isolate, relieve and remake it. A vent: clean or replace it. A pinhole or corroded return bend: isolate the
       unit and replace the coil (a patch rarely lasts). Check the loop's water or glycol treatment if coils are
       pitting from the inside.
+    safety: Hot water and glycol scald. On steam, don't touch a leaking packing nut or vent while it holds
+      pressure.
     refs: [practice]
 
   - id: tu.actuator
@@ -957,6 +1002,8 @@ causes:
       Check the actuator's own fuse or end stop if it has one, then replace the motor head or actuator to match the
       valve body (same stroke, signal and spring-return direction). On a zone valve with a removable head, change
       the head only. Make sure the manual lever is released afterwards.
+    safety: Most zone valve heads come off live, but never open the valve body or bonnet under pressure; on steam,
+      cool and confirm 0 psig.
     refs: [practice]
 
   - id: tu.valve_seized
@@ -977,6 +1024,8 @@ causes:
     fix: |
       Isolate the unit and work the stem by hand; scale often frees with a few strokes. If it won't free, replace the
       cartridge or the valve body. Check the loop's treatment if valves are scaling up across the building.
+    safety: Isolate both sides and relieve the pressure before you pull a cartridge or bonnet; on steam, cool and
+      confirm 0 psig.
     refs: [practice]
 
   - id: tu.valve_stuck_open
@@ -997,6 +1046,7 @@ causes:
       Release a latched manual lever. If the actuator is closed and the valve still passes, the seat is cut or
       scaled — replace the cartridge or valve. If the actuator is being told to open with no call, it's the control
       (see "Thermostat on a cold wall" and "Thermostats crossed").
+    safety: Isolate and relieve the pressure before you open the valve body; on steam, cool and confirm 0 psig.
     refs: [practice]
 
   - id: tu.valve_signal
@@ -1009,11 +1059,13 @@ causes:
       tu.valve_signal: missing!
       gen.call: calling
       hyd.zone_valve: stays_closed
+      tu.coil_dt: wide
       tu.supply_pipe: hot
       gen.output: none
       gen.control_v: present
     confirm: The thermostat or controller calls for heat, but no 24 V or modulating signal arrives at the actuator.
-      Jumpering 24 V to it opens the valve and brings heat.
+      Powering the actuator directly at its rated voltage (read its label first; some zone valve heads are 120 V)
+      opens the valve and brings heat.
     fix: |
       Trace back from the actuator: the controller's output terminal, the wiring, any relay between them. On a
       building automation point, check that it isn't left in manual or overridden closed. Repair the wire or
@@ -1085,22 +1137,25 @@ causes:
       tu.fan: 'off!'
       tu.fan_interlock: open_hot!
       tu.fan_volts: missing
+      tu.coil_dt: none|normal
       tu.supply_pipe: hot
       gen.output: weak|none
       gen.call: calling
       tu.limit: cycling?
-    confirm: The coil or element is hot and the unit calls, but no voltage reaches the fan. The strap-on aquastat,
-      pressure switch or snap-disc fan switch stays open with the pipe hot.
+    confirm: The coil or element is hot and the unit calls, but no voltage reaches the fan. The strap-on temperature
+      switch, pressure switch or snap-disc fan switch stays open with the pipe hot.
     fix: |
-      Check it is clamped to bare pipe. Jumper it briefly to prove the fan runs, remove the jumper, and replace the
-      switch with one of the same closing temperature. Never leave it jumpered: the fan would blow cold air when
-      the loop is cold, and on steam it can freeze the coil.
+      Check it is clamped to bare pipe. Prove it without a jumper: lock out and ohm the switch with the pipe hot (it
+      should read closed), and read the voltage at the motor with the unit live. Replace the switch with one of the
+      same closing temperature. Never jumper it, even to test: the fan would blow cold air when the loop is cold,
+      and on steam it can freeze the coil.
+    safety: Lock out and tag before you ohm the switch or reach into the fan section.
     refs: [tm-5-642, practice]
 
   - id: tu.fan_delay_closed
     name: Fan-delay switch stuck closed, jumpered or off the pipe (fan blows cold air when the loop is cold)
     systems: [terminal]
-    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4], tu_heat: [water, glycol, steam]}
     prior: occasional
     keywords: [unit heater blowing cold, fan runs with no heat, aquastat jumpered, cold drafts from unit heater]
     signs:
@@ -1120,12 +1175,13 @@ causes:
   - id: tu.freezestat_tripped
     name: Freeze-stat tripped by cold air at the coil (outside-air damper open, coil starved of heat, or a draft)
     systems: [terminal]
-    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4], tu_heat: [water, glycol, steam]}
     prior: common
     keywords: [freeze stat tripped, unit tripped on freeze, low limit tripped, fan coil off on freeze]
     signs:
       tu.freezestat: tripped!
       tu.fan: 'off'
+      tu.coil_dt: none|normal
       tu.fan_volts: missing?
       gen.output: none
       gen.call: calling
@@ -1142,12 +1198,13 @@ causes:
   - id: tu.freezestat_failed
     name: Freeze-stat failed open or out of calibration (trips with warm air at the coil)
     systems: [terminal]
-    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4], tu_heat: [water, glycol, steam]}
     prior: uncommon
     keywords: [bad freezestat, freezestat wont reset, kinked capillary, freeze stat lost charge]
     signs:
       tu.freezestat: open_warm!
       tu.fan: 'off!'
+      tu.coil_dt: none|normal
       tu.supply_pipe: hot
       gen.output: none
       gen.call: calling
@@ -1156,6 +1213,7 @@ causes:
     fix: |
       Replace it with one of the same setting (usually about 35–38 °F) and route the capillary across the coil face,
       off cold metal. Test it before you leave by chilling the element.
+    safety: Lock out before you replace it. Never jumper a freeze-stat to keep the unit running.
     refs: [practice]
 
   # ==================== FAN ====================
@@ -1170,12 +1228,15 @@ causes:
       tu.fan_volts: present!
       tu.fan_spin: free
       tu.fan_cap: ok
+      tu.coil_dt: none|normal
       gen.burnt_smell: yes?
       gen.output: none|weak
     confirm: Full voltage at the motor leads, the fan turns freely by hand and the capacitor tests good, but the motor
       doesn't run. The windings read open.
     fix: |
-      Replace the motor with one of the same voltage, speed, rotation, frame and mounting. On a fan coil it is often
+      Replace the motor with one of the same voltage, speed, rotation, frame and mounting. An ECM motor (a control
+      module on its end) has no capacitor: with line voltage and its control signal both present, replace the module
+      or the motor. On a fan coil it is often
       quickest to swap the whole fan deck and repair the old one at the shop. Re-tighten the blade or wheel on the
       shaft and check rotation before you close it up.
     safety: Lock out and tag before you reach in.
@@ -1192,6 +1253,7 @@ causes:
       tu.fan_cap: bad!
       tu.fan_spin: free!
       tu.fan_volts: present
+      tu.coil_dt: none|normal
       gen.output: none|weak
     confirm: The fan hums or sits still with voltage on it, turns freely by hand (and may run if you spin it), and the
       capacitor reads low or open.
@@ -1212,6 +1274,7 @@ causes:
       tu.fan_spin: stiff|seized!
       tu.fan_cap: ok
       tu.fan_volts: present
+      tu.coil_dt: none|normal
       gen.intermittent: yes?
       gen.output: none|weak
     confirm: The fan drags, grinds or won't turn by hand with power locked out. The motor may run hot, stop on its
@@ -1219,6 +1282,7 @@ causes:
     fix: |
       Oil the bearings if the motor has oil ports and turns freely afterwards. A motor that stays stiff or grinds
       needs replacing. Fan-coil and unit-heater motors need periodic oiling where they have ports.
+    safety: Lock out and tag before you spin or oil the motor.
     refs: [tm-5-642, practice]
 
   - id: tu.fan_control
@@ -1232,6 +1296,7 @@ causes:
       tu.fan_volts: missing!
       tu.fan_interlock: ok
       tu.freezestat: ok
+      tu.coil_dt: none|normal
       gen.call: calling
       gen.power: present
     confirm: The unit has power and a call, the safeties and fan-delay switch are closed, but no voltage leaves the fan
@@ -1240,6 +1305,7 @@ causes:
       Follow the fan circuit from the supply through the switch or relay to the motor. Check the relay coil gets its
       signal, then the contacts pass voltage. Replace a burnt speed switch, a relay that won't close, or a board whose
       fan output stays dead with the call present.
+    safety: Live voltage in the fan circuit. Lock out before you touch the relay, speed switch or board.
     refs: [practice]
 
   - id: tu.fan_wheel
@@ -1259,7 +1325,7 @@ causes:
       dirt, or the blade rubs the housing.
     fix: |
       Lock out. Clean a caked wheel in place or pull it and wash it. Re-seat a loose blade on the shaft's flat and
-      tighten the set screw; replace a worn shaft or blade. Straighten or replace a bent blade, and re-centre it so it
+      tighten the set screw; replace a worn shaft or blade. Straighten or replace a bent blade, and re-center it so it
       doesn't rub.
     safety: Lock out and tag before you reach in.
     refs: [practice]
@@ -1282,13 +1348,38 @@ causes:
     fix: |
       Set the speed the unit is designed to run on, re-terminate the motor on the right tap, or replace a stuck speed
       switch or relay. A motor that runs slow on every tap is failing.
+    safety: Lock out before you move a motor tap or open the speed switch.
     refs: [tm-5-642, practice]
+
+  - id: tu.fan_rotation
+    name: Fan turning backwards (after a motor change, or two leads swapped on a three-phase motor)
+    systems: [terminal]
+    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    prior: uncommon
+    keywords: [fan running backwards, wrong rotation, blower backwards, new motor weak air, fan reversed]
+    signs:
+      tu.rotation: backwards!
+      tu.fan: running
+      tu.airflow: weak!
+      tu.filter: clean
+      tu.wheel: ok
+      tu.fan_speed: ok
+      gen.recent_work: yes
+      gen.output: weak
+    confirm: The fan runs at speed with normal amps but moves little air, and it turns against the arrow on the
+      housing or motor. Usually right after a motor change or rewiring.
+    fix: |
+      On a three-phase motor, swap any two of the three motor leads. On a single-phase motor, follow the motor's
+      wiring diagram to reverse it, or fit a motor of the right rotation. Check that a propeller blade or blower
+      wheel was not fitted the wrong way round on the shaft.
+    safety: Lock out and tag before you change motor leads.
+    refs: [practice]
 
   # ==================== AIR SIDE ====================
   - id: tu.filter
     name: Unit filter plugged
     systems: [terminal]
-    requires: {tu_type: [unit_heater, cabinet, fcu2, fcu4]}
+    requires: {tu_type: [cabinet, fcu2, fcu4]}
     prior: very_common
     keywords: [dirty filter, plugged filter, fan coil filter, cabinet heater filter]
     signs:
@@ -1370,6 +1461,7 @@ causes:
       Aim horizontal louvers down toward the floor and along outside walls, all units blowing the same way round the
       space. Fit a downturn nozzle on a vertical unit. If the unit hangs above its rated height, lower it or add a
       recirculation duct from near the floor to its inlet, or a ceiling fan to push the warm air down.
+    safety: Work at height from a lift or a secured ladder, with the unit locked out before you touch the louvers.
     refs: [tm-5-642, practice]
 
   # ==================== STEAM UNITS ====================
@@ -1405,7 +1497,6 @@ causes:
     keywords: [trap failed open, trap blowing through, steam in return, hot return line]
     signs:
       hyd.trap_check: failed_open!
-      tu.coil_dt: none?
       gen.output: normal|weak
       tu.coil_pattern: even
       hyd.water_hammer: yes?
@@ -1413,7 +1504,7 @@ causes:
       fine while units further along starve and the return runs hot.
     fix: |
       Isolate, cool to 0 psig and replace the trap's internals or the trap. A blowing trap wastes steam and can
-      pressurise the return so other traps can't drain. Test the other traps on the same return while you are there.
+      pressurize the return so other traps can't drain. Test the other traps on the same return while you are there.
     safety: Never open a trap while the line holds steam. Close, cool and confirm 0 psig.
     refs: [doe-steam-tip1, practice]
 
@@ -1434,8 +1525,7 @@ causes:
       two-pipe unit, a thermostatic air vent on the coil is shut.
     fix: |
       Close the supply, let it cool and replace the vent (a clogged or painted vent rarely cleans up well). Fit it at
-      the end opposite the supply, above the water line. On a unit heater with no trap on an open return, the vent
-      sits at the top of a pipe run up from the return drop.
+      the end opposite the supply, above the water line.
     safety: Watch it, don't unscrew it hot. Close the supply, cool and confirm 0 psig before removing a vent.
     refs: [tm-5-642, practice]
 
@@ -1458,6 +1548,8 @@ causes:
       Fit or replace a vacuum breaker at the coil's condensate outlet ahead of the trap, and make sure the trap drains
       by gravity to a vented return. With a modulating valve, the steam in the coil can fall below the return pressure
       and condensate won't leave on its own. In freezing air, this is how steam coils split.
+    safety: Close the steam supply, let it cool and confirm 0 psig before you open the coil outlet or fit a vacuum
+      breaker.
     refs: [tm-5-642, practice]
 
   - id: tu.steam_piping
@@ -1479,6 +1571,7 @@ causes:
       Re-pipe so the condensate drops at least a foot from the coil outlet to the trap, and the trap discharges down to
       the return. Shim or re-hang the radiator so it pitches toward its outlet. Never lift condensate after a modulated
       coil without a pump.
+    safety: Close the steam supply, let it cool and confirm 0 psig before you open any condensate piping.
     refs: [tm-5-642, practice]
 
   # ==================== ELECTRIC HEATERS ====================
@@ -1491,6 +1584,7 @@ causes:
     signs:
       tu.element: open!
       tu.heat_amps: zero|low
+      tu.rated_v: heater_lower?
       tu.limit: closed
       tu.contactor: ok
       gen.output: none|weak
@@ -1513,6 +1607,7 @@ causes:
     signs:
       tu.limit: cycling!
       gen.intermittent: yes
+      tu.rated_v: heater_lower?
       gen.output: weak
       tu.airflow: weak?
       tu.heat_amps: normal
@@ -1566,6 +1661,8 @@ causes:
     fix: |
       Check the coil voltage and resistance. Replace a contactor with an open coil or burnt contacts, rated for the
       heater's current (resistive load). Look at its wire terminals for heat damage and re-terminate.
+    safety: Lock out and tag, and verify dead on every leg before you touch the contactor; its line side stays
+      live with the call off.
     refs: [practice]
 
   - id: tu.contactor_welded
@@ -1621,6 +1718,7 @@ causes:
     fix: |
       Replace the thermostat with one rated for the heater's current. A stat that welded may have been undersized for
       the load — check the heater's amps against its rating.
+    safety: Line voltage at the wall — lock out the breaker before you open the thermostat.
     refs: [practice]
 
   - id: tu.wrong_voltage
@@ -1637,11 +1735,13 @@ causes:
       tu.limit: closed
       gen.runs_constantly: yes?
     confirm: The heater works but is weak. Its nameplate says 240 V (or 480 V) and the supply at it reads 208 V (or
-      277 V). Output follows the square of voltage, so it gives about three-quarters of its rating.
+      277 V). Output follows the square of voltage — about three-quarters of its rating for a 240 V heater on 208 V,
+      about a third for a 480 V heater on 277 V.
     fix: |
       Replace the heater or its elements with ones rated for the actual supply, or add heaters to make up the shortfall.
       The reverse — a heater rated below its supply — overheats and burns out elements, so check that while you are at
       it.
+    safety: Lock out and tag before you open the heater. Meter the supply with a rated meter.
     refs: [practice]
 
   # ==================== RADIANT ====================
@@ -1686,8 +1786,6 @@ causes:
     refs: [practice]
 
 synonyms:
-  # "unit heater blowing cold" → the fan runs, and there's no heat (two chips, not one)
-  - [fan running no heat, blowing cold, blows cold, blowing cold air, blowing cool air, blowing room temperature air]
   - [fan coil, fcu, fancoil, fan coil unit, fan-coil]
   - [cabinet unit heater, cuh, cabinet heater]
   - [baseboard, base board, fin tube, fintube, finned tube, fin-tube]

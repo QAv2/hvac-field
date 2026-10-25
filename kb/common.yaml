@@ -22,7 +22,7 @@ features:
       normal: '{Output} is normal'
     phrases:
       none: [not cooling, no cooling, no cold air, no heat, not heating, no hot water, no ice, nothing coming out,
-        not working at all, dead warm, room temperature, blowing warm, no air]
+        not working at all, dead warm, room temperature, blowing warm, blowing cold air in heat, no air]
       weak: [not cooling enough, not cold enough, warm, too warm, box warm, box temperature high, high box temp,
         temperature rising, cant keep up, can't keep up, not heating enough, cold building, cold room, lukewarm,
         weak heat, weak cooling, slow to cool, slow to heat, poor cooling, poor heat, slow ice, low airflow]
@@ -253,6 +253,7 @@ causes:
       ahu.fan: off!
       hyd.circ: off!
       tu.fan: off!
+      tu.fan_volts: missing
       tu.heat_amps: zero!
     confirm: No voltage across the line terminals at the unit's disconnect, then work back toward the panel.
     fix: |
@@ -276,7 +277,9 @@ causes:
       ahu.fan: off|trips
       hyd.circ: off|hums
       tu.fan: off|hums
+      tu.fan_volts: missing?
       tu.heat_amps: zero
+      tu.element: grounded!
     confirm: With power locked out, meter (or megger) each load to ground — compressor terminals, motor leads,
       heaters — and look for scorched wiring.
     fix: |
@@ -301,6 +304,7 @@ causes:
       ahu.fan: 'off'
       hyd.circ: 'off'
       tu.fan: 'off'
+      tu.fan_volts: missing
       tu.heat_amps: zero
     confirm: Line voltage on the transformer primary but no 24 V on the secondary (transformer bad), or a
       blown low-voltage fuse on the board.
@@ -326,6 +330,7 @@ causes:
       ahu.fan: 'off'   # an air handler's call is its start command; hand mode can still run it
       hyd.circ: 'off'
       tu.fan: {'off': 0.6, running: 0.4}   # a fan coil's fan may run on in occupied mode with no heat call
+      tu.fan_volts: missing
       tu.heat_amps: zero
     confirm: No call signal at the unit while the space is away from setpoint; jumpering the call (e.g. R to Y
       or R to W) at the unit starts it.

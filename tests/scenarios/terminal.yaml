@@ -481,8 +481,10 @@
 - name: Steam unit heater trap blowing through, coil outlet as hot as the steam
   system: terminal
   ctx: {tu_type: unit_heater, tu_heat: steam}
-  findings: {tu.supply_pipe: hot, tu.coil_dt: none, hyd.trap_check: failed_open}
+  inputs: {tu.supply_f: 227, tu.return_f: 225}   # a steam coil's outlet ahead of the trap: no drop is normal here
+  findings: {hyd.trap_check: failed_open}
   expect:
+    measured: {tu.supply_pipe: hot, tu.coil_dt: normal}
     top: tu.trap_open
 
 - name: Steam radiator cold at the far end, vent never hisses
@@ -718,3 +720,40 @@
   findings: {}
   expect:
     unmeasured: [tu.air_rise]
+
+# --- blind-QC fixes (.lane/qc/terminal-review.md) -----------------------------------------------------
+- name: QC H3 — fan coil with the fan dead, coil hot and no drop across it, the fan causes lead (not the filter)
+  system: terminal
+  ctx: {tu_heat: water, tu_type: fcu4}
+  findings: {gen.output: weak, tu.fan: 'off', tu.supply_pipe: hot, tu.coil_dt: none}
+  expect:
+    not_top3: [tu.filter, tu.fins_dirty]
+    next_not: [tu.air_rise]
+
+- name: QC H4 — electric baseboard dead, an element reads to ground, no breaker reading yet
+  system: terminal
+  ctx: {tu_heat: electric, tu_type: baseboard}
+  findings: {gen.output: none, tu.element: grounded}
+  expect: {top: gen.short_to_ground}
+
+- name: QC H5 — electric unit heater, fan off and no heat, the freeze-stat is never suggested
+  system: terminal
+  ctx: {tu_heat: electric, tu_type: unit_heater}
+  findings: {gen.output: none, tu.fan: 'off'}
+  expect:
+    not_top3: [tu.freezestat_tripped, tu.fan_delay_closed]
+    next_not: [tu.freezestat]
+
+- name: QC M9 — supply only lukewarm, the air rise gives no verdict (the supply check carries it)
+  system: terminal
+  ctx: {tu_heat: water, tu_type: unit_heater}
+  inputs: {tu.ent_air_f: 65, tu.supply_f: 90, tu.lvg_air_f: 80}
+  expect:
+    measured: {tu.supply_pipe: lukewarm}
+    unmeasured: [tu.air_rise]
+
+- name: Fan coil after a motor change runs at speed but moves little air, turning against the arrow
+  system: terminal
+  ctx: {tu_heat: water, tu_type: fcu2}
+  findings: {gen.output: weak, tu.fan: running, tu.airflow: weak, tu.rotation: backwards, gen.recent_work: 'yes'}
+  expect: {top: tu.fan_rotation}

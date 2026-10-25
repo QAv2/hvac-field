@@ -304,6 +304,7 @@ features:
     name: Sound in pipes or pump
     ask: What sound do you hear in the hydronic pipes, coils, or pump?
     systems: [hydronic, terminal]
+    requires: {tu_heat: [water, glycol]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     complaint: true
     chip: state
     cost: 1
@@ -323,6 +324,7 @@ features:
     ask_for: {terminal: "What comes out when you open the unit's coin vent or bleed valve at its high point?"}
     caution: Hot fluid can spray from a vent or bleed port. Open it slowly with a hose to a container, face away, and collect glycol (ethylene glycol is poisonous).
     systems: [hydronic, terminal]
+    requires: {tu_heat: [water, glycol]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 2
     states:
       water: Solid stream of water or glycol right away
@@ -352,6 +354,7 @@ features:
     ask: Check the isolation, service, and balancing valves in the loop — how are they set?
     ask_for: {terminal: "Check the unit's own isolation and balancing valves on its supply and return — how are they set?"}
     systems: [hydronic, terminal]
+    requires: {tu_heat: [water, glycol]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 1
     states:
       open: Open and balanced normally
@@ -386,7 +389,10 @@ features:
     how: |
       Push the manual opener lever on the actuator head: if the valve is already open, the lever moves freely
       with no resistance; if closed, you feel spring resistance pushing the ball/poppet open.
+    caution: On steam, don't latch a valve open or drive it with a jumper onto a cold coil. Crack it open, listen for
+      hammer, and shut it at once if it bangs. Some zone valve heads are 120 V — read the label before you meter.
     systems: [hydronic, terminal]
+    requires: {tu_heat: [water, glycol, steam]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 1
     states:
       ok: Opens on call and closes when satisfied
@@ -547,6 +553,7 @@ features:
     ask: Is a pipe or coil iced up, slushy, blocked with ice, or split? (On a glycol loop, being below 32 °F is normal.)
     caution: Treat every frozen coil or pipe as split. Never thaw it while it is connected to a live supply. Lock out the unit, close and verify both isolation valves, and open its drain or vent first.
     systems: [hydronic, terminal]
+    requires: {tu_heat: [water, glycol, steam]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 1
     states:
       'no': No ice or slush, and intact (cold pipe is normal on a glycol loop)
@@ -593,6 +600,7 @@ features:
       Read the controller's calculated target supply temperature and its outdoor sensor reading. Compare the
       sensor reading with a thermometer outdoors and check the reset curve settings.
     systems: [hydronic, terminal]
+    requires: {tu_heat: [water, glycol]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 2
     states:
       ok: Setpoint matches outdoor conditions and curve
@@ -649,6 +657,7 @@ features:
     name: Water hammer (banging pipes)
     ask: Are the steam pipes or radiators banging, clanking, or pounding (water hammer)?
     systems: [steam, terminal]
+    requires: {tu_heat: [steam]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     complaint: true
     chip: state
     cost: 1
@@ -723,6 +732,7 @@ features:
       little drop, so a small drop alone is not a failure.
     caution: Test by sound and surface temperature only. Never open a trap cap, strainer plug or union while the line holds steam.
     systems: [steam, terminal]
+    requires: {tu_heat: [steam]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     needs: thermometer
     cost: 2
     states:
@@ -756,6 +766,7 @@ features:
     ask: How does the automatic air vent (on the radiator or end of the steam main) behave when steam comes on?
     caution: Watch it, do not unscrew it. Never remove a vent, plug or union from anything holding steam. Close the supply valve, let it cool, and confirm 0 psig first.
     systems: [steam, terminal]
+    requires: {tu_heat: [steam]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 1
     states:
       ok: Hisses air out while cold, then closes tight when steam hits it
@@ -770,6 +781,7 @@ features:
     name: Steam pipe pitch & hangers
     ask: Check the pitch of the steam main, runout, or radiator with a level — are there sags, pockets, or un-trapped lifts?
     systems: [steam, terminal]
+    requires: {tu_heat: [steam]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 2
     states:
       good: Pitched continuously toward the drain or trap, with no low pockets
@@ -785,6 +797,7 @@ features:
       On one-pipe steam, a supply valve must be 100% open or 100% closed — never throttled part-way. Also
       check whether the handwheel turns freely with a detached disc sitting on the seat.
     systems: [steam, terminal]
+    requires: {tu_heat: [steam]}   # on a terminal unit; other systems don't ask tu_heat, so it stays
     cost: 1
     states:
       open: Fully open and passing steam
