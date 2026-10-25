@@ -484,3 +484,14 @@
   inputs: {vc.ambient_f: 95, vc.suction_psig: 125, vc.suction_line_f: 52, vc.liquid_psig: 340, vc.liquid_line_f: 120}
   expect:
     unmeasured: [vc.subcool]
+
+# --- receiver level (vc.receiver_level) ------------------------------------------------------------------
+- name: Walk-in box warm, receiver near empty and the sight glass foaming
+  system: vc.walkin
+  findings: {rf.box_temp: high, vc.receiver_level: low, vc.sight_glass: bubbles}
+  expect: {top: vc.undercharge}
+
+- name: Walk-in after a recharge, receiver full above the top glass and head pressure high
+  system: vc.walkin
+  findings: {gen.recent_work: 'yes', vc.receiver_level: full, vc.cond_sat: high}
+  expect: {top: vc.overcharge}

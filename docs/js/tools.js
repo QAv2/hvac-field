@@ -65,7 +65,7 @@ export function renderTool(id, { ctx = {}, refrigerants = [] } = {}) {
       break;
     case 'glycol':
       body = `<div class="fields">${select('glycol', 'type', 'Glycol', [['EG', 'Ethylene (EG)'], ['PG', 'Propylene (PG)']], 'PG')}<div></div>
-        ${field('glycol', 'pct', 'Concentration', '% by mass')}${field('glycol', 'fp', 'or freeze point wanted', '°F')}</div>`;
+        ${field('glycol', 'pct', 'Concentration', '% by mass', '', 'By weight. A % by volume, read or mixed, errs on the safe side (glycol is denser than water); a refractometer\'s freeze-point scale is the best check.')}${field('glycol', 'fp', 'or freeze point wanted', '°F')}</div>`;
       break;
     case 'combustion':
       body = `<div class="fields">${field('combustion', 'stack', 'Stack temperature (gross)', '°F')}${field('combustion', 'air', 'Combustion air temp', '°F', '70')}

@@ -1826,6 +1826,7 @@ causes:
       ahu.fan_cap: {low_open: 0.6, bulged: 0.35}
       ahu.motor: ok
       ahu.bearings: ok
+      ahu.phase: ok
       gen.output: none|weak
     confirm: A single-phase fan motor hums or won't start and spins freely by hand; the capacitor tests well
       under its label µF (or open) or is bulged or leaking; the motor windings test good.
@@ -3131,7 +3132,7 @@ causes:
       ahu.cold_oa: yes!
       ahu.hrv_defrost: never|stuck
       ahu.hrv_eff: low
-      gen.output: weak
+      gen.output: weak!
       ahu.freezestat: tripped?
     confirm: Ice on the core's exhaust face in cold weather; supply airflow dropping off and the supply arriving
       colder; the defrost never starts, never finishes, or the damper that should open for it doesn't move.

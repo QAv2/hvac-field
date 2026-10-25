@@ -1509,6 +1509,7 @@ causes:
       vc.low_ambient: yes!
       vc.cond_sat: low!
       vc.sight_glass: bubbles!
+      vc.receiver_level: low!
       vc.subcool: low
       vc.superheat: high
       vc.evap_sat: low

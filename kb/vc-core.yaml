@@ -325,6 +325,24 @@ features:
       bubbles: [bubbles in sight glass, bubbling sight glass, foaming sight glass, sight glass bubbles,
         flashing, foamy]
       clear: [sight glass clear, clear sight glass, full sight glass]
+  - id: vc.receiver_level
+    name: Receiver level
+    ask: Where is the liquid level in the receiver with the system running steady?
+    how: Read the receiver's level glass (or the two glasses) after 10–15 minutes of steady running — not during
+      pump-down, defrost or a start-up. Without a glass, in cold weather the shell feels or reads cooler below the liquid
+      line. A flooding head-pressure valve holds liquid back in the condenser in cold air, so the level runs lower in
+      winter than in summer.
+    systems: [vc]
+    requires: {receiver: 'yes'}
+    states:
+      low: Low or empty (below the bottom glass)
+      normal: In range (between the glasses)
+      full: Full (above the top glass)
+    normal: normal
+    cost: 1
+    phrases:
+      low: [receiver low, receiver empty, receiver dry, receiver level low, low receiver level]
+      full: [receiver full, receiver overfull, receiver level high, full receiver]
   - id: vc.moisture_ind
     name: Moisture indicator
     ask: What color is the moisture indicator in the sight glass?
@@ -904,6 +922,7 @@ causes:
         signs:
           vc.subcool: {low: 0.45, normal: 0.5, high: 0.05}
           vc.sight_glass: bubbles!
+          vc.receiver_level: low!
     confirm: Superheat high with subcooling low (fixed orifice), or subcooling low with the TXV wide open (high
       superheat); bubbles in the sight glass; then find the leak.
     fix: |
@@ -947,6 +966,7 @@ causes:
       - if: {receiver: 'yes'}
         signs:
           vc.subcool: high?
+          vc.receiver_level: full!
     confirm: High head pressure and high subcooling with a clean condenser and a fan that runs, and a standing
       pressure that matches the PT chart (rules out air in the system).
     fix: |
