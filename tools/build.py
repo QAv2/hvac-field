@@ -350,7 +350,7 @@ def bundle_standalone():
         "glycol": json.loads((docs / "data" / "glycol.json").read_text()),
         "charging": json.loads((docs / "data" / "charging.json").read_text()),
     }
-    order = ["kb", "engine", "expr", "calcs", "measure", "search", "tools", "main"]
+    order = ["kb", "engine", "expr", "calcs", "measure", "search", "spoken", "dialog", "voice", "tools", "main"]
     chunks = ["window.__FDX_INLINE_DATA__ = " + json.dumps(data, ensure_ascii=False, separators=(",", ":")) + ";"]
     for mod in order:
         src = (docs / "js" / f"{mod}.js").read_text()

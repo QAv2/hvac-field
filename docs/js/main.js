@@ -7,6 +7,8 @@ import { computeMeasures } from './measure.js';
 import * as calc from './calcs.js';
 import { Search, norm } from './search.js';
 import { TOOL_LIST, renderTool, updateTool, numBox } from './tools.js';
+import { checkTurn, interpret, grammar, speakable } from './dialog.js';
+import * as voice from './voice.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -23,6 +25,7 @@ let kb, search;
 let job = null;
 let view = { name: 'home', arg: null, q: {} };
 let focusCheck = null; // a check the tech picked from "other checks"
+let lastRes = null;     // the diagnosis on screen, for the voice
 
 const ICONS = {
   snow: '<path d="M12 2v20M3.3 7l17.4 10M20.7 7L3.3 17M9 4l3 2 3-2M9 20l3-2 3 2"/>',
@@ -64,9 +67,11 @@ async function boot() {
   document.addEventListener('click', onClick);
   document.addEventListener('input', onInput);
   document.addEventListener('keydown', onKey);
+  if (window.__FDX_INLINE_DATA__ || !navigator.mediaDevices) $('#micbtn').hidden = true;
+  setupHold();
   route();
   registerSW();
-  if (window.location.search.includes('dbg')) Object.assign(window, { __kb: kb, __search: search, __job: () => job, __eval: evaluate });
+  if (window.location.search.includes('dbg')) Object.assign(window, { __kb: kb, __search: search, __job: () => job, __eval: evaluate, __heard: voiceHeard, __vs: () => vs, __voiceDry: voiceDry });
 }
 
 function registerSW() {
@@ -151,6 +156,7 @@ function render() {
   sysEl.title = job ? 'Unit details' : '';
   const views = { home: viewHome, setup: viewSetup, diag: viewDiag, readings: viewReadings, cause: viewCause, tools: viewTools, tool: viewTool, about: viewAbout, reports: viewReports };
   (views[view.name] || viewHome)();
+  if (vs.on) voiceView();
 }
 
 function helper(text) { $('#helpertext').textContent = text; }
@@ -274,6 +280,7 @@ const COMMON_REFS = {
 // ---------------------------------------------------------------- diagnose
 function viewDiag() {
   const { m, findings, res } = evaluate();
+  lastRes = res;
   const sysId = job.system;
   const ctxLine = contextLine();
   // findings chips: the tech's own, then measured ones not overridden
@@ -406,13 +413,7 @@ function viewReadings() {
   const focusF = view.q.f || null;
   // every measure that can set this finding, and the inputs they read (directly or through
   // another measure, e.g. superheat reads the evaporator saturation measure)
-  const focusMeasures = focusF ? kb.measures.filter((m) => m.sets === focusF && kb.inSystem(m, job.system) && kb.requireFactor(m, job.ctx) > 0) : [];
-  const focusIds = new Set();
-  for (const fm of focusMeasures) {
-    const src = [fm.value, fm.target, ...Object.values(fm.let || {})].join(' ');
-    for (const inp of kb.inputs.values()) if (src.includes(inp.id)) focusIds.add(inp.id);
-    for (const mm of kb.measures) if (src.includes(mm.id)) for (const inp of kb.inputs.values()) if (String(mm.value).includes(inp.id)) focusIds.add(inp.id);
-  }
+  const focusIds = new Set(focusF ? focusInputs(focusF) : []);
   const inputs = [...kb.inputs.values()].filter((i) => kb.inSystem(i, sys) && kb.requireFactor(i, job.ctx) > 0);
   inputs.sort((a, b) => (focusIds.has(b.id) ? 1 : 0) - (focusIds.has(a.id) ? 1 : 0));
   const needsRef = kb.contextFor(sys).some((c) => c.kind === 'refrigerant');
@@ -444,6 +445,19 @@ function viewReadings() {
     </div>`;
   helper('Enter what you have — results update as you type. Blank boxes are fine.');
   if (focusIds.size) setTimeout(() => $(`#in-${CSS.escape([...focusIds][0])}`)?.focus(), 50);
+}
+
+// every input a finding's measures read, directly or through another measure (superheat reads the evaporator
+// saturation measure, which reads suction pressure)
+function focusInputs(fid) {
+  const ids = [];
+  const add = (id) => { if (!ids.includes(id)) ids.push(id); };
+  for (const fm of kb.measures.filter((m) => m.sets === fid && kb.inSystem(m, job.system) && kb.requireFactor(m, job.ctx) > 0)) {
+    const src = [fm.value, fm.target, ...Object.values(fm.let || {})].join(' ');
+    for (const mm of kb.measures) if (src.includes(mm.id)) for (const inp of kb.inputs.values()) if (String(mm.value).includes(inp.id)) add(inp.id);
+    for (const inp of kb.inputs.values()) if (src.includes(inp.id)) add(inp.id);
+  }
+  return ids;
 }
 
 function refPicker() {
@@ -679,6 +693,219 @@ function viewReports() {
   helper(fresh ? `${fresh} report${fresh > 1 ? 's' : ''} not backed up yet.` : 'Everything here is backed up.');
 }
 
+function finishSave() { saveReport(); archive(); job = null; store.set(KEY_JOB, null); closeSheet(); go('#/'); }
+function finishDelete() { job = null; store.set(KEY_JOB, null); closeSheet(); toast('Job deleted.'); go('#/'); }
+
+// ---------------------------------------------------------------- voice
+// Hold the bar, talk, let go. dialog.js says what the words mean; this carries it out on the same screens a tap
+// would. Every answer is read back and can be undone; readings and deleting a job are confirmed with a yes.
+const vs = { on: false, mode: 'idle', turn: null, spokenFor: null, pending: null, misses: 0, reading: null, picks: null };
+
+async function voiceToggle() {
+  if (vs.on) { voice.say('Voice off.'); setTimeout(() => voice.stop(), 900); vs.on = false; voiceChrome(); return; }
+  try {
+    await voice.start((msg) => helper(msg));
+    vs.on = true; vs.spokenFor = null;
+    voiceChrome();
+    render();
+  } catch (err) {
+    toast(`Voice couldn't start: ${err.message || err.name}`);
+    helper('Voice is off.');
+  }
+}
+
+// ?dbg: drive the dialog with typed text, no microphone or voice pack
+function voiceDry() { vs.on = true; vs.spokenFor = null; voiceChrome(); render(); }
+
+function voiceChrome() {
+  $('#micbtn').classList.toggle('on', vs.on);
+  $('#talk').hidden = !vs.on;
+  document.body.classList.toggle('voice-on', vs.on);
+}
+
+function setupHold() {
+  const b = $('#holdbtn');
+  let h = null;
+  b.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (!voice.isOn()) return;
+    const g = vs.mode === 'free' ? null : grammar(vs.mode === 'idle' || vs.mode === 'pick' ? 'check' : vs.mode, vs.mode === 'pick' ? vs.picks.options : vs.turn?.options || []);
+    h = voice.press(g, (text) => voiceHeard(text));
+    if (h) { b.classList.add('down'); b.textContent = 'Listening… let go when done'; }
+  });
+  const up = () => { if (!h) return; h.release(); h = null; b.classList.remove('down'); b.textContent = 'Hold to talk'; };
+  ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => b.addEventListener(t, up));
+  b.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+// after every render: set what the voice listens for, and speak a new check once
+function voiceView() {
+  if (vs.pending) return;
+  vs.turn = null; vs.picks = null;
+  if (view.name === 'home') {
+    vs.mode = 'free';
+    if (vs.spokenFor !== 'home') { vs.spokenFor = 'home'; voice.say("What's wrong? Hold the bar and describe it."); }
+    return;
+  }
+  if (view.name === 'diag' && lastRes) {
+    const n = currentCheck(lastRes);
+    vs.mode = 'check';
+    if (!n) {
+      vs.turn = { fid: null, options: [], lines: [] };
+      if (vs.spokenFor !== '-') { vs.spokenFor = '-'; voice.say("No check left that would change the picture. Say what's leading, or save report."); }
+      return;
+    }
+    vs.turn = checkTurn(kb, job.system, n.feature);
+    if (vs.spokenFor !== n.id) { vs.spokenFor = n.id; voice.say(vs.turn.lines); }
+    return;
+  }
+  if (view.name === 'readings' && vs.reading) { vs.mode = 'number'; return; }
+  vs.mode = 'idle';
+}
+
+function askPending(prompt, onYes, onNo) {
+  vs.pending = { prompt, onYes, onNo, back: vs.mode };
+  vs.mode = 'confirm';
+  voice.say(prompt);
+}
+
+function voiceHeard(text) {
+  if (vs.mode === 'free' && !vs.pending) {
+    // a command still works on the home screen ("stop listening" isn't a complaint)
+    const c = interpret('check', text, { turn: { fid: null, options: [] } });
+    if (c.do === 'command') { helper(`Heard: “${text}”`); voiceCommand(c.id); return; }
+  }
+  const mode = vs.mode === 'idle' ? 'check' : vs.mode === 'pick' ? 'check' : vs.mode;
+  const turn = vs.mode === 'pick' ? vs.picks : vs.turn || { fid: null, options: [] };
+  const a = interpret(mode, text, { turn, unit: vs.reading?.unit });
+  helper(text ? `Heard: “${text.replace(/\[unk\]/g, '…')}”` : 'Heard nothing.');
+  if (a.do === 'unclear') {
+    vs.misses++;
+    if (vs.pending) voice.say(`Say yes or no. ${vs.pending.prompt}`);
+    else if (vs.misses >= 2 && turn.lines?.length) voice.say(['Say the number of the answer.', turn.lines[turn.lines.length - 1]]);
+    else voice.say('Say again?');
+    return;
+  }
+  vs.misses = 0;
+  if (vs.pending) {
+    const p = vs.pending;
+    if (a.do === 'command' && a.id === 'repeat') { voice.say(p.prompt); return; }
+    vs.pending = null; vs.mode = p.back;
+    (a.do === 'yes' ? p.onYes : p.onNo)();
+    return;
+  }
+  switch (a.do) {
+    case 'text': return voiceComplaint(a.text);
+    case 'answer':
+      if (vs.mode === 'pick') { focusCheck = a.state; vs.spokenFor = null; render(); return; }
+      setFinding(a.fid, a.state, 'voice');
+      voice.say(a.readback);
+      render();
+      return;
+    case 'reading': return voiceReading(a.text);
+    case 'command': return voiceCommand(a.id);
+    default:
+  }
+}
+
+function voiceComplaint(text) {
+  const box = $('#homeq');
+  if (box) { box.value = text; homeSearch(); }
+  const sys = guessSystem(text, search.run(text, null));
+  if (!sys) { voice.say("I couldn't tell which equipment. Say it again with the equipment's name, or pick it on the screen."); return; }
+  askPending(`Sounds like ${kb.systems.get(sys).name}. Start? Yes or no.`,
+    () => startFromText(text, sys),
+    () => voice.say('Pick the equipment on the screen, or describe it again.'));
+}
+
+function voiceCommand(id) {
+  const fid = vs.turn?.fid;
+  switch (id) {
+    case 'repeat': vs.spokenFor = null; voiceView(); return;
+    case 'how': voice.say(vs.turn?.how || 'No how-to for this one.'); return;
+    case 'skip':
+      if (vs.mode === 'number') { voiceNextInput(); return; }
+      if (job && fid && !job.skip.includes(fid)) { job.skip.push(fid); focusCheck = null; save(); voice.say('Skipped.'); render(); }
+      return;
+    case 'undo': {
+      if (!job) return;
+      const last = Object.entries(job.f).filter(([, r]) => r.src === 'voice').sort((x, y) => (y[1].t || 0) - (x[1].t || 0))[0];
+      if (!last) { voice.say('Nothing to undo.'); return; }
+      const label = speakable(kb.label(last[0], last[1].s, job.system));
+      delete job.f[last[0]]; save();
+      focusCheck = last[0]; vs.spokenFor = null;
+      voice.say(`Undone: ${label}.`);
+      if (view.name === 'diag') render(); else go('#/diag');
+      return;
+    }
+    case 'leading': {
+      if (!job || !lastRes) { voice.say('No job open.'); return; }
+      const top = lastRes.post.slice(0, 3);
+      const lines = [];
+      if (top[0]?.cause.safety) lines.push(`Safety first: ${speakable(top[0].cause.safety)}`);
+      lines.push(top.map((r) => `${speakable(r.cause.name.split(' — ')[0])}, ${pct(r.p)} percent.`).join(' '));
+      voice.say(lines);
+      return;
+    }
+    case 'numbers': {
+      const ids = (fid ? focusInputs(fid) : []).filter((id) => { const i = kb.inputs.get(id); return kb.inSystem(i, job.system) && kb.requireFactor(i, job.ctx) > 0; });
+      if (!ids.length) { voice.say('This check has no numbers to enter.'); return; }
+      vs.reading = { ids, i: -1, back: fid };
+      go(`#/readings?f=${encodeURIComponent(fid)}`);
+      voiceNextInput();
+      return;
+    }
+    case 'other': {
+      const alts = (lastRes?.next || []).filter((x) => x.id !== fid).slice(0, 3);
+      if (!alts.length) { voice.say('No other checks.'); return; }
+      vs.picks = { fid: null, options: alts.map((x) => ({ id: x.id, label: x.feature.name, keys: [] })) };
+      vs.mode = 'pick';
+      voice.say(`Other checks. ${alts.map((x, i) => `${['one', 'two', 'three'][i]}: ${speakable(kb.fill(x.feature.name, job.system))}.`).join(' ')} Say the number.`);
+      return;
+    }
+    case 'stop': voiceToggle(); return;
+    case 'save':
+      if (!job) { voice.say('No job open.'); return; }
+      finishSave(); voice.say('Report saved on the phone.');
+      return;
+    case 'delete':
+      if (!job) { voice.say('No job open.'); return; }
+      askPending('Delete this job? Nothing is saved. Say yes to delete.', () => { finishDelete(); voice.say('Deleted.'); }, () => voice.say('Kept.'));
+      return;
+    default:
+  }
+}
+
+// readings by voice: one input at a time, each read back and confirmed before it's entered
+function voiceNextInput() {
+  const r = vs.reading;
+  if (!r) return;
+  r.i++;
+  if (r.i >= r.ids.length) {
+    vs.reading = null; vs.spokenFor = null;
+    voice.say('Done. Back to the diagnosis.');
+    go('#/diag');
+    return;
+  }
+  const inp = kb.inputs.get(r.ids[r.i]);
+  r.unit = inp.unit || '';
+  vs.mode = 'number';
+  voice.say(`Say the ${speakable(inp.name)}${inp.unit ? `, in ${speakable(inp.unit)}` : ''}. Or say skip.`);
+}
+
+function voiceReading(text) {
+  const r = vs.reading;
+  if (!r || r.i < 0) return;
+  const inp = kb.inputs.get(r.ids[r.i]);
+  const got = calc.readValue(text, inp.unit || '');
+  if (got.v == null) { voice.say(`That didn't read as a number${got.note ? `: ${speakable(got.note)}` : ''}. Say it again.`); return; }
+  askPending(`${fmt(got.v, 2)} ${speakable(inp.unit || '')}. Right?`, () => {
+    job.inputs[inp.id] = String(got.v); save();
+    if (view.name === 'readings') render();
+    voiceNextInput();
+  }, () => { r.i--; voiceNextInput(); });
+}
+
 // ---------------------------------------------------------------- sheet: change a finding
 function openSheet(fid) {
   const f = kb.features.get(fid);
@@ -735,9 +962,10 @@ function onClick(e) {
       break;
     }
     case 'finish': finishSheet(); break;
-    case 'finish-save': saveReport(); archive(); job = null; store.set(KEY_JOB, null); closeSheet(); go('#/'); break;
+    case 'finish-save': finishSave(); break;
     case 'finish-delete': finishSheet(true); break;
-    case 'finish-delete-yes': job = null; store.set(KEY_JOB, null); closeSheet(); toast('Job deleted.'); go('#/'); break;
+    case 'finish-delete-yes': finishDelete(); break;
+    case 'voice': voiceToggle(); break;
     case 'report-share': shareReports([el.dataset.id]); break;
     case 'report-delete': deleteReport(el.dataset.id, el.dataset.sure === '1'); break;
     case 'backup': shareReports(null); break;

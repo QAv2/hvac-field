@@ -13,8 +13,11 @@ worker caches everything; after that it works with no connection, and it updates
 opened online.
 **Saved reports:** Finish → "Save the report" keeps a plain-text job report on the phone; Saved reports → "Back up"
 sends the new ones as one text file through the share sheet (Save to Files, or the Drive app when there's signal).
-**Voice (in testing):** `docs/voice/lab.html` (linked from About) tests the offline recognizer on the phone. Design and
-bench results: `research/voice-design.md`.
+**Voice (in testing):** the mic button in the top bar turns it on (the first time downloads a 47 MB offline voice
+pack). Hold the bar at the bottom and talk: describe the problem, answer a check by its number ("two"), or say
+"repeat", "how", "skip", "undo", "what's leading", "numbers", "other check", "save report", "delete job", "stop
+listening". Answers are read back and can be undone; readings and deleting a job are confirmed with a yes.
+`docs/voice/lab.html` (linked from About) tests the phone. Design and bench results: `research/voice-design.md`.
 
 ## Coverage (420 causes · 391 checks · 74 calculations · 729 scenarios · 11 systems)
 - **Vapor-compression core (`kb/vc-core.yaml` + `kb/common.yaml`, 43 causes)** — charge, metering (TXV/EEV/piston/cap tube), airflow, non-condensables, restrictions, single/three-phase electrical, compressor mechanical.
@@ -42,6 +45,9 @@ bench results: `research/voice-design.md`.
   (California ACM RD-2/RD-3), glycol freeze points, oil and gas combustion efficiency, fan and pump affinity laws,
   three-phase voltage and current unbalance with NEMA MG-1 motor derating, and run-capacitor µF under load.
 - `docs/js/search.js` — typed symptoms → findings, with trade synonyms, negation and clause splitting.
+- `docs/js/dialog.js` — the voice dialog without audio: what to say for a check (caution first), which words to
+  listen for, what a heard phrase means. `docs/js/voice.js` — the recognizer, microphone, hold-to-talk and the
+  phone's voice.
 - `docs/js/spoken.js` — speech → the same: spoken readings ("one twenty-five pounds" → 125 psi) and short answers
   matched exactly against the current check. `docs/voice/` — the optional offline voice pack (Vosk small en-us +
   vosk-browser, Apache-2.0; `NOTICE.txt`), kept out of the precache and in its own cache.
@@ -54,6 +60,7 @@ python3 tools/build.py && node tools/check.mjs     # compile KB + standalone HTM
 node tools/coverage.mjs                            # verify per-system and per-module scenario coverage
 node tools/fuzz.mjs                                # odd input: search text, readings, calculators, engine
 node tools/voice_check.mjs                         # spoken readings and answers
+node tools/voice_sim.mjs                           # the voice dialog on every check, by typed transcript
 node tools/offline_check.mjs                       # headless Chromium: precache, offline launch, updates, file://
 npm install && node tools/a11y_check.mjs           # axe-core, 44 px tap targets, no sideways scroll at 360 px, both themes
 node tools/dx.mjs --help                           # terminal CLI diagnostics & physics calculators

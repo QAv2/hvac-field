@@ -19,6 +19,9 @@
 <header class="top">
   <button class="brand" data-act="home" aria-label="Home">Field <b>Dx</b></button>
   <button class="sys" id="sysname" data-act="setup"></button>
+  <button class="icon-btn" id="micbtn" data-act="voice" aria-label="Voice on or off" title="Voice">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v4M8 22h8"/></svg>
+  </button>
   <button class="icon-btn" data-act="tools" aria-label="Calculators" title="Calculators">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><path d="M8 6h8M8 11h2M14 11h2M8 15h2M14 15h2M8 19h2M14 19h2"/></svg>
   </button>
@@ -28,6 +31,7 @@
 </header>
 <main id="main"><p class="muted">Loading…</p></main>
 <div class="helper" id="helper"><i class="dot"></i><span id="helpertext">Loading the knowledge base…</span></div>
+<div class="talk" id="talk" hidden><button class="hold" id="holdbtn">Hold to talk</button></div>
 <div id="sheet"></div>
 <noscript><p style="padding:16px">Field Dx needs JavaScript.</p></noscript>
 <script type="module" src="js/main.js"></script>
