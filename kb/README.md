@@ -37,7 +37,9 @@ the tech enters multiplies each cause by how likely that finding is **if that ca
 - A pseudo-cause "nothing wrong found" is always in the race. The system's `ok_signs` say how a call with
   nothing wrong gets reported (mostly "not enough", seldom "nothing at all"); other complaint features
   (`complaint: true`) stay at their base rates, and every other check is read at the leak rate. So the
-  complaint alone doesn't count against it, and all-normal readings push the real faults down.
+  complaint alone doesn't count against it, and all-normal readings push the real faults down. It reads a
+  complaint told another way (`follows`, e.g. a warm box for "cooling weak") through its `ok_signs` too, and it
+  never reads a normal answer worse than a silent cause does.
 
 ## Files and ids
 
@@ -55,7 +57,10 @@ Selectable systems: `vc.ac`, `vc.hp`, `vc.walkin`, `vc.reachin`, `vc.ice`, `fuel
 with a group applies it to every member. `'*'` = every system.
 
 A system's `ok_note` is the advice shown when "nothing wrong found" leads, and `ok_signs` (signs, as on a
-cause; the nearest system or group that has them wins) is how such calls get reported.
+cause; the nearest system or group that has them wins — a child's own `ok_signs` replace the parent's, so merge
+them with `{<<: *ok_signs, ...}`) is how such calls get reported. Put the system's hazard complaints there at a
+tiny share (`blr.co_room: {'no': 0.995, 'yes': 0.005}`), so "nothing wrong" never surfaces on a CO, oil-leak or
+relief-valve call.
 
 The shared no-run causes in `common.yaml` (no line power, no control power, no call, short to ground) name
 the thing that moves on each system — `vc.comp`, `blr.start`, `ahu.fan`, `hyd.circ`, `tu.fan` (and `tu.heat_amps`
@@ -121,11 +126,18 @@ because any module may gate a thermostat or BAS cause on them.
                                         #   thermometer, probe, refractometer, shutdown, ladder, panel, tools, hydrometer
   ask_if: {blr.flame: established}      # optional: only ask once these findings are known and match
   ask_unless: {blr.lockout: repeats}    # optional: never suggest it once a finding makes it unsafe or pointless
-  requires: {fuel_type: [kerosene]}     # optional: only when the context fits (unknown context = allowed)
+  requires: {fuel_type: [kerosene]}     # optional: only when the context fits (unknown context = allowed;
+                                        #   a question the system never asks doesn't weigh at all)
   complaint: true                       # optional: offered on the "what's wrong?" screen
   confuse: {none: {weak: 0.25}}         # optional: how often a true state gets reported as another
   follows: {gen.output: {high: [none, weak], normal: [normal]}}   # optional: the same fact told another way —
-                                        #   a cause silent here reads it from its sign on that feature
+                                        #   a cause silent here reads it from its sign on that feature while
+                                        #   the source is unanswered; once the source is answered it is one
+                                        #   shared term for every cause that doesn't sign it (no double count).
+                                        #   Only for the SAME fact: two points on a series path (power at the
+                                        #   switch vs at the primary) disagree for a reason — sign them. A
+                                        #   cause that signs the follower must sign the source too (check.mjs).
+                                        #   No chains: a source can't itself follow another feature.
   situational: true                     # optional: weather or history, not a symptom — a cause that doesn't
                                         #   mention it has no opinion (base rate), instead of being marked down
   chip: state                           # optional: state labels read alone ("No heat at all")
@@ -135,6 +147,11 @@ because any module may gate a thermostat or BAS cause on them.
 Rules:
 - **One physical quantity → one feature.** Don't add both "suction pressure low" and "evaporator
   temperature low"; they're the same fact and the engine would count it twice.
+- **Sign the abnormal state, not the normal one.** Silence already reads an abnormal finding at the leak rate;
+  a plain sign on the normal state (`blr.flue: clear`) leaves the abnormal states more room than silence does, so
+  it can count *for* the cause when the abnormal state is found. Use `!` if a normal answer really matters.
+- **A safety trip leaves the unit off.** A cause that trips a pressure, spill or rollout switch also expects the
+  compressor off or the burner dead a fair share of the time, or the "switch failed" cause wins on every trip.
 - States should be what the tech can actually tell apart in the field.
 - Write `phrases` generously — this is how typed symptoms find their chip. Include slang, misspellings and
   abbreviations techs use.

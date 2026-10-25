@@ -166,6 +166,16 @@ for (const sc of scen) {
   else { pass++; say(`  ✓ ${line}`); }
 }
 
+// 4a. a cause that signs a `follows` feature must sign its source too: the tech may answer either end, and a
+// cause that names only one of them is blind when the other is the one answered
+for (const c of raw.causes) {
+  for (const f of raw.features.filter((x) => x.follows && c.signs?.[x.id] !== undefined)) {
+    for (const src of Object.keys(f.follows)) {
+      if (c.signs[src] === undefined) problems.push(`${c.id} signs ${f.id} but not its source ${src}: sign both ends`);
+    }
+  }
+}
+
 // 4b. typed complaint → the system it should pick first. One module's synonym or keyword can hijack the most
 // common calls (a terminal-unit synonym once sent "ac not blowing cold air" to the unit-heater system).
 const ROUTES = [

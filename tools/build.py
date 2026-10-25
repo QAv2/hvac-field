@@ -188,18 +188,30 @@ def check(kb):
             else:
                 for src, m in fol.items():
                     if src not in feats:
-                        err(where(f), f"follows unknown feature {src}")
+                        # a partial build (--only) leaves other modules out
+                        if not (ONLY and src.split(".")[0] not in {x["id"].split(".")[0] for x in kb["features"]}):
+                            err(where(f), f"follows unknown feature {src}")
                         continue
+                    if src == f["id"]:
+                        err(where(f), "follows itself")
+                    src_f = next((x for x in kb["features"] if x["id"] == src), None)
+                    if src_f and src_f.get("follows"):
+                        err(where(f), f"follows {src}, which itself follows another feature (chains aren't resolved)")
                     for s, xs in m.items():
                         if str(s) not in feats[f["id"]]:
                             err(where(f), f"follows: {f['id']} has no state {s}")
-                        for x in xs if isinstance(xs, list) else [xs]:
+                        # a bare string would be read one character at a time
+                        if not isinstance(xs, list) or not xs:
+                            err(where(f), f"follows: {s} must map to a non-empty list of {src}'s states")
+                            continue
+                        for x in xs:
                             if str(x) not in feats[src]:
                                 err(where(f), f"follows: {src} has no state {x}")
         for key in ("ask_if", "ask_unless"):
             for fid, states in (f.get(key) or {}).items():
                 if fid not in feats:
-                    err(where(f), f"{key} names unknown feature {fid}")
+                    if not (ONLY and fid.split(".")[0] not in {x["id"].split(".")[0] for x in kb["features"]}):
+                        err(where(f), f"{key} names unknown feature {fid}")
                     continue
                 for s in states if isinstance(states, list) else [states]:
                     if str(s) not in feats[fid]:
@@ -253,7 +265,11 @@ def check(kb):
                 err(where(c), f"unknown ref {r}")
 
     for s in kb["systems"]:
-        for fid, spec in (s.get("ok_signs") or {}).items():
+        oks = s.get("ok_signs")
+        if oks is not None and not isinstance(oks, dict):
+            err(where(s), "ok_signs must be a map of {feature: sign}")
+            continue
+        for fid, spec in (oks or {}).items():
             check_sign(s, fid, spec, "ok_signs")
 
     inputs = {i["id"] for i in kb["inputs"]}

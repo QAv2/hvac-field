@@ -1284,6 +1284,7 @@ causes:
     prior: occasional
     keywords: [pitted contacts, burnt relay contacts, relay contacts bad]
     signs:
+      gen.call: calling
       blr.tt: no?
       ctl.relay: pulled_in!
       ctl.contact_drop: drop!
@@ -1401,6 +1402,7 @@ causes:
     prior: occasional
     keywords: [bad control board, furnace board bad, air handler board, zone panel bad, board fried after outage]
     signs:
+      vc.drain: clear
       ctl.board_output: none!
       gen.call: calling
       gen.control_v: present
@@ -1616,6 +1618,7 @@ causes:
     prior: common
     keywords: [thermostat location, thermostat in the sun, probe location, sensor location]
     signs:
+      hp.thermistor_check: ok?
       ctl.stat_spot: poor!
       ctl.stat_vs_ref: agrees
       ctl.sensor_ohms: ok?
@@ -1635,6 +1638,7 @@ causes:
     prior: occasional
     keywords: [bad sensor, thermistor bad, sensor failed, remote sensor bad, outdoor sensor bad, 10k sensor]
     signs:
+      hp.thermistor_check: drifted_or_open
       ctl.sensor_ohms: {off: 0.6, open: 0.25, shorted: 0.12}
       ctl.stat_vs_ref: off
       gen.output: none|weak
@@ -1651,6 +1655,7 @@ causes:
     prior: uncommon
     keywords: [sensor offset, wrong sensor type, sensor calibration, calibration offset]
     signs:
+      hp.thermistor_check: ok
       ctl.stat_vs_ref: off!
       ctl.sensor_ohms: ok!
       gen.recent_work: yes?
@@ -1886,4 +1891,6 @@ refs:
       published rows (Type III, 10K-3 table, −40 to 150 °C; Type II, the 10K3A1 curve, 336.1 kΩ at −40 °C, 32.65 kΩ
       at 0 °C, 3.60 kΩ at 50 °C)
     url: https://cdn.automationdirect.com/static/support/techqa/10K-3_thermistor_resistance.pdf
+    # checked 2026-10-24 against the Veris ZL0010-0E table (10k Type 2 / Type 3): within about 1 % from −22 to
+    # 122 °F, 2–2.5 % low at −40 °F (research/controls.md)
     rights: Physical data (facts); the fit and the 10 °F tables are our own computation

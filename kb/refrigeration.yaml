@@ -1245,6 +1245,7 @@ causes:
     prior: occasional
     keywords: [door frozen shut, mullion heater bad, anti sweat heater open, sweating door frame, ice on door jamb]
     signs:
+      gen.output: normal
       rf.antisweat_heater: cold_failed!
       rf.door_seal: leaking?
       gen.water_leak: yes?
@@ -1436,6 +1437,7 @@ causes:
     prior: uncommon
     keywords: [epr stuck open, epr set too low, produce cooler freezing, coil icing with epr]
     signs:
+      gen.output: normal
       rf.epr_valve: stuck_low!
       vc.evap_frost: heavy
       rf.box_temp: low|normal
@@ -2126,6 +2128,7 @@ causes:
     prior: common
     keywords: [cooler coil icing, air defrost not clearing, produce cooler iced coil, setpoint too low cooler, short off cycle]
     signs:
+      gen.output: normal?
       vc.evap_frost: heavy!
       rf.ice_pattern: uniform_fin?
       rf.box_temp: low|normal
@@ -2170,6 +2173,7 @@ causes:
     prior: common
     keywords: [controller reset after power outage, defrost parameters wrong, controller settings changed, keypad unlocked, parameters back to default]
     signs:
+      gen.output: weak|normal
       gen.after_outage: yes?
       gen.recent_work: yes?
       rf.probe_cal: accurate

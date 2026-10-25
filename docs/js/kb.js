@@ -55,7 +55,8 @@ export function prepFeature(f) {
   }
   f.obsBase = observe(f, f.baseDist);
   const silent = Float64Array.from(f.baseDist, (b, i) => (f.situational || states[i] === f.normal ? b : b * SILENT_ABNORMAL));
-  f.silentDist = observe(f, normalize(silent));
+  f.silentTrue = normalize(silent); // before report confusion; followDist builds on it
+  f.silentDist = observe(f, f.silentTrue);
   f.cost ??= 2;
   return f;
 }
@@ -113,7 +114,7 @@ export function signDist(f, spec) {
 export function followDist(f, map, src, srcTrue) {
   const out = new Float64Array(f.stateIds.length);
   let free = 1;
-  for (const s of f.stateIds) if (!map[s]) { out[f.idx[s]] = f.silentDist[f.idx[s]]; free -= out[f.idx[s]]; }
+  for (const s of f.stateIds) if (!map[s]) { out[f.idx[s]] = f.silentTrue[f.idx[s]]; free -= out[f.idx[s]]; }
   for (const [s, from] of Object.entries(map)) {
     let p = 0;
     for (const x of from) p += srcTrue[src.idx[x]] ?? 0;

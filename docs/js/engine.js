@@ -141,6 +141,16 @@ function lik(model, cause, fid, state, F) {
   return i === undefined ? 1 : distFor(cause, f, F, model.kb)[i];
 }
 
+// For tools/why.mjs: the likelihood the ranking used, and where it came from — the cause's own sign (''),
+// silence ('~'), a `follows` reading of the cause's sign on the source ('^'), or the shared term once the
+// source is answered ('=').
+export function reading(model, cause, fid, state, findings) {
+  const F = asMap(findings), f = model.kb.features.get(fid);
+  const own = cause.dist.has(fid) && !cause.derived?.has(fid);
+  const kind = own ? '' : f.follows && sameFact(model.kb, f, F) ? '=' : cause.derived?.has(fid) ? '^' : '~';
+  return { p: lik(model, cause, fid, state, F), kind };
+}
+
 export function posterior(model, findings) {
   const M = asMap(findings);
   const F = Object.entries(M).filter(([fid]) => model.fset.has(fid));

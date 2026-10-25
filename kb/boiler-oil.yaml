@@ -2118,6 +2118,8 @@ causes:
     prior: occasional
     keywords: [primary control, bad primary, protectorelay, control board, r8184, safety switch wont reset]
     signs:
+      gen.power: present
+      gen.call: calling
       blr.start: nothing!
       blr.motor_v: missing!
       blr.primary_line_in: present!
@@ -2145,6 +2147,7 @@ causes:
     prior: uncommon
     keywords: [reversed polarity, polarity, hot neutral swapped, bad ground, generator transfer]
     signs:
+      gen.power: present
       blr.polarity: reversed!
       blr.lockout: once|repeats
       blr.start: {flame_lost: 0.35, nothing: 0.3, no_flame: 0.2, normal: 0.1, delayed: 0.05}
@@ -2193,6 +2196,7 @@ causes:
     keywords: [end switch, zone valve end switch, interlock, relay, no call at the burner, outdoor reset, proving
       switch, louver end switch, damper end switch, draft proving switch, low oil switch]
     signs:
+      gen.power: present
       gen.call: calling!
       blr.tt: no!
       blr.start: nothing!
@@ -2222,6 +2226,8 @@ causes:
     prior: occasional
     keywords: [aquastat bad, high limit bad, pressuretrol bad, limit open, limit failed, sensing bulb out of the well]
     signs:
+      gen.power: present
+      gen.call: calling
       blr.limit_open: open_early!
       blr.start: nothing!
       blr.primary_line_in: missing!
@@ -2299,6 +2305,7 @@ causes:
     prior: common
     keywords: [low water, low water cutoff, lwco tripped, lost water, boiler dry]
     signs:
+      gen.power: present
       blr.lwco: open_low!
       blr.water_level: low!
       blr.pressure_hw: low
@@ -2323,6 +2330,7 @@ causes:
     prior: occasional
     keywords: [lwco bad, probe dirty, float stuck, low water cutoff nuisance, lwco wont reset]
     signs:
+      gen.power: present
       blr.lwco: open_fooled!
       blr.water_level: normal|bouncing
       blr.start: nothing!

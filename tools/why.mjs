@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Why does one cause outrank another? Prints, for the leading causes of one case, each finding's
-// likelihood under that cause — `~` marks a reading the cause is silent on (leak rate) — plus its prior.
+// likelihood under that cause, plus its prior. Marks: `~` the cause is silent (leak rate), `^` read through
+// `follows` from its sign on the source, `=` the shared term once the source is answered (the same fact again).
 //
 //   node tools/why.mjs --scenario "Reach-in freezer coil"        a scenario from tests/scenarios.json, by name
 //   node tools/why.mjs '{"system":"vc.ac","findings":{"gen.output":"weak"},"inputs":{...},"ctx":{...}}'
@@ -11,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { KB } from '../docs/js/kb.js';
-import { prepare, posterior } from '../docs/js/engine.js';
+import { prepare, posterior, reading } from '../docs/js/engine.js';
 import { computeMeasures } from '../docs/js/measure.js';
 import * as calc from '../docs/js/calcs.js';
 
@@ -52,10 +53,8 @@ console.log(`findings: ${F.map(([f, s]) => `${f}=${s}`).join(' ')}\n`);
 for (const r of post.filter((x) => show.has(x.id))) {
   const c = model.causes.find((x) => x.id === r.id);
   const parts = F.map(([fid, s]) => {
-    const f = kb.features.get(fid);
-    const own = c.dist.get(fid);
-    const d = own || (c.id === '_ok' && f.complaint ? f.obsBase : f.silentDist);
-    return `${fid}${own ? '' : '~'}${d[f.idx[s]].toFixed(2)}`;
+    const { p, kind } = reading(model, c, fid, s, findings);
+    return `${fid}${kind}${p.toFixed(2)}`;
   });
   console.log(`${(r.p * 100).toFixed(1).padStart(5)}%  #${post.indexOf(r) + 1}  prior ${c.prior.toFixed(2)}  ${c.id}`);
   console.log(`         ${parts.join('  ')}`);

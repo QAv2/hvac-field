@@ -12,7 +12,7 @@ Everything runs on the device — built for McMurdo, where the connection can't 
 worker caches everything; after that it works with no connection, and it updates itself the next time it is
 opened online.
 
-## Coverage (415 causes · 386 checks · 73 calculations · 676 scenarios · 11 systems)
+## Coverage (418 causes · 391 checks · 74 calculations · 722 scenarios · 11 systems)
 - **Vapor-compression core (`kb/vc-core.yaml` + `kb/common.yaml`, 43 causes)** — charge, metering (TXV/EEV/piston/cap tube), airflow, non-condensables, restrictions, single/three-phase electrical, compressor mechanical.
 - **Commercial refrigeration & ice (`kb/refrigeration.yaml`, 58 causes)** — walk-ins, reach-ins, prep tables, cube/flake ice machines, defrost systems, EPR/CPR, cold-ambient (−40 °F) head-pressure control, water/glycol condensers.
 - **Heat pumps & mini-splits (`kb/heatpump.yaml`, 41 causes)** — 4-way reversing valves, defrost boards/sensors, auxiliary strip heat, inverter drives/IPMs, EEV stepper coils, multi-zone port cross-wiring.
