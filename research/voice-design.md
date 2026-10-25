@@ -62,7 +62,11 @@ So:
 | what's leading / top causes | reads the top 3 with percentages; a hazard cause's safety line first |
 | numbers / readings | switches to entering the reading for this check (§4) |
 | other check | reads the next 3 alternatives as numbers |
-| stop listening / done | ends the voice session |
+| stop listening | ends the voice session |
+| save report / delete job | end of job (Joe 10-24): save keeps the report on the phone; delete asks "delete — sure?" and needs "yes" |
+
+Bench lesson (10-25): one-word commands that open ordinary sentences ("what", "done", "stop") were dropped — stray
+talk gets forced into list words, and "what time is lunch" came out "what turning one".
 
 Short, acoustically distinct, few syllables apart. The final list gets tuned against the engine's confusions.
 
@@ -144,6 +148,29 @@ laptop and Android. Downloaded once as an optional "voice pack", cached for offl
 3. Grammar recognition: say "two", "not running", "sixty-two pounds" — in airplane mode.
 4. The phone's own voice speaks in airplane mode, in the Home Screen app.
 5. (Optional) Web Speech in airplane mode; the Siri Shortcut chain; a Bluetooth headset.
+
+### Bench results (10-25, WebKit headless on the Pentium 5405U; 47 phrases × 3 ElevenLabs voices; noise = brown
+rumble + pink broadband with 30 Hz flutter + 120 Hz motor hum; SNR on voiced frames)
+
+| | clean | 10 dB | 5 dB | 0 dB |
+|---|---|---|---|---|
+| answer keys (grammar) | 100 % | 100 % | 100 % | 100 % |
+| commands (grammar) | 100 % | 100 % | 100 % | 96 % |
+| numbers by position (grammar) | 100 % | 94 % | 100 % | 89 % |
+| stray talk rejected (exact match) | 100 % | 100 % | 100 % | 89 % (the miss = "how", harmless) |
+| readings (number grammar) | 100 % | 100 % | 97 % | 58 % (words dropped: "one twenty" for 125) |
+| callout "field check" | 100 % | 100 % | 100 % | 92 % |
+| false wakes on everything else | 0/129 | 0/129 | 1/129 ("can't check") | 0/129 |
+| same answer clips, NO grammar | 83–100 % | 72–94 % | 61–100 % | 33–72 % |
+| free-speech complaints, word recall | 90 % | 79 % | 75 % | 45 % |
+
+- The grammar is what makes noise survivable: at 0 dB keys hold 100 % where free speech falls to 33 %.
+- Readings get a read-back + yes/no confirm before they're entered (0 dB drops words into plausible wrong numbers).
+- The callout must share no word with any command ("can't check" woke "field check" once). Joe picks the phrase.
+- Speed: WebKit decodes at ~0.4–0.6× realtime on this Pentium; headless Firefox ran 8× slower (bench in WebKit).
+  Model load 4.3 s first time, 2.5 s from the phone's storage with the network gone (lab_smoke, server killed).
+- Harness: `.lane/voice/` (gitignored): corpus.json, gen_corpus.py (ElevenLabs, 2,169 chars), mix_noise.py,
+  bench.html + run_bench.mjs (results bench-webkit.json), lab_smoke.mjs, report_smoke.mjs, live_smoke.mjs.
 
 ### Before the phone: the bench (laptop, headless)
 Feed recorded utterances straight into the recognizer (no mic) in Playwright Firefox and WebKit: grammar-mode
