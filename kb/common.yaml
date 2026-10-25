@@ -324,6 +324,7 @@ causes:
       gen.control_v: present?
       gen.output: none
       gen.dead: no?
+      ctl.jumper_test: {starts: 0.97, no_start: 0.03}   # a jumper at the unit bypasses the thermostat side
       vc.comp: off!
       blr.start: nothing!
       blr.motor_v: missing

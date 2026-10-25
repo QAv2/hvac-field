@@ -656,10 +656,20 @@
   system: terminal
   ctx: {tu_type: unit_heater, tu_heat: water}
   inputs: {tu.ent_air_f: 60, tu.lvg_air_f: 112, tu.supply_f: 180, tu.return_f: 160}
-  findings: {gen.output: weak, tu.fan: running, tu.airflow: good, tu.filter: clean, tu.fins: clean, tu.coil_pattern: even, tu.strat: small}
+  findings: {gen.output: weak, tu.fan: running, tu.airflow: good, tu.filter: clean, tu.fins: clean, tu.coil_pattern: even, tu.strat: small,
+    tu.stat_spot: ok, ctl.stat_settings: ok}
   expect:
     top: _ok
     measured: {tu.air_rise: normal, tu.supply_pipe: hot, tu.coil_dt: normal}
+
+- name: Unit heater reads normal everywhere but the thermostat isn't checked yet — that is the next check
+  system: terminal
+  ctx: {tu_type: unit_heater, tu_heat: water}
+  inputs: {tu.ent_air_f: 60, tu.lvg_air_f: 112, tu.supply_f: 180, tu.return_f: 160}
+  findings: {gen.output: weak, tu.fan: running, tu.airflow: good, tu.filter: clean, tu.fins: clean, tu.coil_pattern: even, tu.strat: small}
+  expect:
+    top3: [_ok]
+    not_top3: [tu.fan_motor, tu.filter, tu.air_bound, tu.actuator]
 
 # ==================== MEASURES FROM RAW READINGS ====================
 - name: Readings — unit heater supply 72 °F in a 62 °F room reads cold

@@ -763,3 +763,14 @@
     blr.air_filter: dirty, blr.blower: weak}
   expect:
     top: blr.furnace_airflow
+
+# --- pump pressure with the burner's rating blank (blind read, finding 7) ---------------------------------
+- name: Readings — oil pump at 140 psi with the burner rating blank gives no verdict (many burners run 140)
+  system: fuel.boiler
+  inputs: {blr.pump_psi_meas: 140}
+  expect: {unmeasured: [blr.pump_psi]}
+
+- name: Readings — oil pump at 60 psi with the burner rating blank still reads low
+  system: fuel.boiler
+  inputs: {blr.pump_psi_meas: 60}
+  expect: {measured: {blr.pump_psi: low}}

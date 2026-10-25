@@ -1,0 +1,30 @@
+# Terminal units on the controls module (thermostat, BAS point, relay causes reach the terminal system)
+- name: Fan coil on the BAS not heating, the valve point held in hand
+  system: terminal
+  ctx: {tu_heat: water, tu_type: fcu4, controls: bas}
+  findings: {gen.output: none, ctl.point_mode: override}
+  expect: {top: ctl.point_override}
+
+- name: Unit heater on a digital thermostat, display blank, nothing runs
+  system: terminal
+  ctx: {tu_heat: water, tu_type: unit_heater, controls: stat_digital}
+  findings: {gen.output: none, ctl.stat_display: blank, ctl.batteries: low}
+  expect: {top: ctl.batteries_dead}
+
+- name: Cabinet heater, the call leaves the thermostat but never arrives at the unit
+  system: terminal
+  ctx: {tu_heat: water, tu_type: cabinet, controls: stat_digital}
+  findings: {gen.output: none, ctl.call_path: lost_between}
+  expect: {top3: [ctl.stat_wire_open]}
+
+- name: Unit heater keeps heating with the thermostat satisfied, 24 V still on the relay coil
+  system: terminal
+  ctx: {tu_heat: steam, tu_type: unit_heater, controls: stat_mech}
+  findings: {gen.runs_constantly: 'yes', ctl.coil_v_off: present}
+  expect: {top3: [ctl.call_stuck_on]}
+
+- name: Unit heater blowing cold, nothing about the controls entered — the valve still leads (a thermostat fan switch left on is a fair third)
+  system: terminal
+  ctx: {tu_heat: water, tu_type: unit_heater}
+  findings: {gen.output: none, tu.fan: running}
+  expect: {top3: [tu.actuator], not_top3: [ctl.point_override, ctl.batteries_dead]}

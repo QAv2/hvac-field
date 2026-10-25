@@ -1339,6 +1339,7 @@ causes:
     signs:
       tu.fan_speed: low!
       tu.airflow: weak
+      tu.air_rise: high?
       tu.fan: running
       tu.filter: clean
       tu.wheel: ok
@@ -1427,6 +1428,7 @@ causes:
     signs:
       tu.fins: blocked!
       gen.output: weak
+      tu.air_rise: high?
       tu.supply_pipe: hot
       tu.coil_dt: none|normal
       hyd.scope: one_zone
@@ -1610,6 +1612,7 @@ causes:
       tu.rated_v: heater_lower?
       gen.output: weak
       tu.airflow: weak?
+      tu.air_rise: high?
       tu.heat_amps: normal
       tu.element: ok
       gen.burnt_smell: yes?

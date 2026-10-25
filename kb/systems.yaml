@@ -63,7 +63,9 @@ systems:
   - id: fuel
     name: Oil-fired heating
     abstract: true
-    ok_signs: *ok_signs
+    # a hazard complaint is never "nothing wrong" (CO, an oil leak, a relief valve lifting)
+    ok_signs: {<<: *ok_signs, blr.co_room: {'no': 0.995, 'yes': 0.005}, blr.oil_leak: {'no': 0.998, 'yes': 0.002},
+      blr.relief: {ok: 0.97, weeping: 0.025, popping: 0.005}}
   - id: fuel.boiler
     parent: fuel
     name: Boiler & oil burner
@@ -88,7 +90,7 @@ systems:
   # ---------------- water & steam distribution ----------------
   - id: hydronic
     name: Hot-water & glycol loop
-    ok_signs: *ok_signs
+    ok_signs: {<<: *ok_signs, hyd.relief_weeping: {'no': 0.97, weeping: 0.025, discharging: 0.005}}
     output: heat
     short: Hydronic loop
     icon: drop

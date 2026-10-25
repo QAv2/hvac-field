@@ -36,9 +36,11 @@
 
 - name: Engine — no power plus a waterlogged tank and waxed fuel is a poor fit, not a confident no-power call
   system: fuel.boiler
+  # power missing at the service switch and at the primary line-in is one fact told twice, counted once
   findings: {gen.power: missing, blr.exp_tank: waterlogged, blr.primary_line_in: missing, blr.fuel_sample: cloudy_wax}
   expect:
-    top: gen.no_line_power
+    top3: [gen.no_line_power]
+    top_p_max: 0.6
     fit: poor
 
 - name: Engine — a typical walk-in complaint fits
@@ -72,3 +74,53 @@
   findings: {gen.output: normal}
   expect:
     next_any: [rf.box_temp]
+
+# --- same fact told twice (follows), "nothing wrong" (blind read .lane/qc/engine-semantics-review.md) ------
+- name: Engine — furnace with power at the service switch but none at the primary line-in is a limit in the leg, not "no power"
+  system: fuel.furnace
+  findings: {gen.power: present, blr.primary_line_in: missing}
+  expect:
+    top3: [blr.limit_failed_open]
+    not_top3: [gen.no_line_power]
+
+- name: Engine — boiler calling at the thermostat but no call at T–T is between the two, not "no call"
+  system: fuel.boiler
+  findings: {gen.call: calling, blr.tt: 'no'}
+  expect:
+    not_top3: [gen.no_call, ctl.stat_settings_wrong, gen.control_power]
+
+- name: Engine — walk-in entered as "box warm" with every check normal ends in nothing wrong
+  system: vc.walkin
+  findings: {rf.box_temp: high, vc.comp: running, rf.ice_pattern: none, vc.evap_frost: none, gen.runs_constantly: 'no',
+    vc.cond_sat: normal, gen.short_cycle: 'no', vc.evap_sat: normal, rf.door_switch: ok, rf.antisweat_heater: warm_ok,
+    ctl.stat_spot: good, rf.probe_cal: accurate}
+  expect: {top: _ok}
+
+- name: Engine — boiler with output normal and every check normal ends in nothing wrong
+  system: fuel.boiler
+  findings: {gen.output: normal, blr.start: normal, blr.pressure_hw: normal, gen.intermittent: 'no', blr.flame_look: normal,
+    gen.runs_constantly: 'no', gen.short_cycle: 'no', blr.relief: ok, blr.oil_smell: 'no', blr.dhw: ok}
+  expect: {top: _ok}
+
+- name: Engine — hydronic loop with output normal and every check normal ends in nothing wrong
+  system: hydronic
+  findings: {gen.output: normal, hyd.pressure: normal, hyd.scope: normal, hyd.circ: running, gen.water_leak: 'no',
+    gen.intermittent: 'no', gen.runs_constantly: 'no', hyd.loop_noise: quiet, hyd.relief_weeping: 'no', ctl.stat_spot: good}
+  expect: {top: _ok}
+
+- name: Engine — a clear lead with "recently worked on" and "after an outage" added still fits (situational facts)
+  system: vc.ac
+  findings: {gen.output: weak, vc.cond_dirty: 'yes', vc.cond_sat: high, vc.cond_split: high, gen.recent_work: 'yes', gen.after_outage: 'yes'}
+  expect:
+    top: vc.dirty_condenser
+    fit: good
+
+- name: Engine — furnace with a CO alarm and the rest reading normal never ends in "nothing wrong"
+  system: fuel.furnace
+  findings: {blr.co_room: 'yes', gen.output: normal, blr.start: normal, blr.flame_look: normal}
+  expect: {not_top3: [_ok]}
+
+- name: Engine — boiler relief valve lifting with the rest reading normal never ends in "nothing wrong"
+  system: fuel.boiler
+  findings: {blr.relief: popping, gen.output: normal, blr.start: normal}
+  expect: {not_top3: [_ok]}

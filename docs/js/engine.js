@@ -40,8 +40,8 @@ export function prepare(kb, system, ctx = {}) {
       if (!fset.has(fid)) continue;
       dist.set(fid, signDist(kb.features.get(fid), spec));
     }
-    follow(kb, feats, signs, dist);
-    causes.push({ id: c.id, c, prior: (PRIOR[c.prior] ?? PRIOR.occasional) * rf, dist });
+    const derived = follow(kb, feats, signs, dist);
+    causes.push({ id: c.id, c, prior: (PRIOR[c.prior] ?? PRIOR.occasional) * rf, dist, derived });
   }
   // "Nothing wrong here": the system checks out, so look at load, settings, expectations or the
   // equipment upstream. The system's `ok_signs` say how such calls get reported (mostly "not enough",
@@ -50,11 +50,19 @@ export function prepare(kb, system, ctx = {}) {
   const sys = kb.systems.get(system);
   const okSigns = kb.lineage(system).map((s) => kb.systems.get(s).ok_signs).find(Boolean) || {};
   const okDist = new Map();
-  for (const [fid, spec] of Object.entries(okSigns)) if (fset.has(fid)) okDist.set(fid, signDist(kb.features.get(fid), spec));
-  // (no follow() here: ok_signs say how the complaint gets reported, while a measured box under "nothing
-  // wrong" sits at setpoint)
+  for (const [fid, spec] of Object.entries(okSigns)) {
+    if (!fset.has(fid)) continue;
+    // a likelihood floor, not a distribution: "nothing wrong" never reads a normal answer worse than a silent
+    // cause does, or a call that checks out everywhere could not end in "nothing wrong"
+    const f = kb.features.get(fid), d = Float64Array.from(signDist(f, spec)), i = f.idx[f.normal];
+    if (i !== undefined) d[i] = Math.max(d[i], f.silentDist[i]);
+    okDist.set(fid, d);
+  }
+  // The complaint told another way (a warm box for "cooling weak") reads through ok_signs too; checks like
+  // the air rise across a unit don't, since under "nothing wrong" they read normal.
+  const okDerived = follow(kb, feats.filter((f) => f.complaint), okSigns, okDist);
   causes.push({
-    id: '_ok', prior: PRIOR.occasional, dist: okDist,
+    id: '_ok', prior: PRIOR.occasional, dist: okDist, derived: okDerived,
     c: { id: '_ok', name: 'Nothing wrong found in this system yet', systems: [system],
       fix: sys?.ok_note || 'Everything entered so far reads normal. Check the load (doors, product, occupancy), the settings, and the equipment that feeds this system, and re-read any number that looked odd.' },
   });
@@ -63,39 +71,82 @@ export function prepare(kb, system, ctx = {}) {
 
 // Features that `follow` another (rf.box_temp follows gen.output) take a silent cause's reading from its
 // sign on the feature they follow, so a cause that only says "weak cooling" also predicts a warm box.
+// Returns the follower ids it derived (the cause didn't sign them itself).
 function follow(kb, feats, signs, dist) {
+  const derived = new Set();
   for (const f of feats) {
     if (!f.follows || dist.has(f.id)) continue;
     for (const [src, map] of Object.entries(f.follows)) {
       if (signs[src] === undefined) continue;
       const sf = kb.features.get(src);
       dist.set(f.id, followDist(f, map, sf, signDistTrue(sf, signs[src])));
+      derived.add(f.id);
       break;
     }
   }
+  return derived;
+}
+
+// Once the source of a `follows` pair is answered, the follower is the same fact told again. For a cause
+// that doesn't sign the follower itself it is then one shared term, the same for every such cause: likely
+// where the two answers agree, the leak rate where they don't. So an agreeing pair isn't counted twice, and
+// a disagreeing one (a call at the thermostat that never reaches T–T) counts for the causes that predict
+// exactly that, instead of being explained away as a misreport.
+const AGREE = 0.9;
+const sameFactCache = new WeakMap();
+function sameFact(kb, f, F) {
+  for (const src of Object.keys(f.follows)) {
+    const x = F[src];
+    if (x === undefined) continue;
+    let byState = sameFactCache.get(f);
+    if (!byState) sameFactCache.set(f, (byState = new Map()));
+    const key = `${src}=${x}`;
+    if (!byState.has(key)) {
+      const expect = f.stateIds.filter((s) => (f.follows[src][s] || []).includes(x));
+      let d = f.silentDist;
+      if (expect.length) {
+        d = new Float64Array(f.stateIds.length);
+        let rest = 0;
+        for (const s of f.stateIds) if (!expect.includes(s)) rest += f.silentDist[f.idx[s]];
+        for (const s of f.stateIds) {
+          const i = f.idx[s];
+          d[i] = expect.includes(s) ? AGREE / expect.length : rest > 0 ? ((1 - AGREE) * f.silentDist[i]) / rest : 0;
+        }
+      }
+      byState.set(key, d);
+    }
+    return byState.get(key);
+  }
+  return null;
 }
 
 // The distribution a cause predicts for a feature: its sign if it has one; the leak rate if it is
 // silent (see SILENT_ABNORMAL in kb.js). "Nothing wrong found" takes the plain base rate on the
 // complaint features its ok_signs don't cover, so a complaint alone doesn't count against it.
-function distFor(cause, f) {
+// F (the answers so far) switches a follower to its shared term once its source is answered.
+function distFor(cause, f, F, kb) {
+  if (F && f.follows && !(cause.dist.has(f.id) && !cause.derived?.has(f.id))) {
+    const d = sameFact(kb, f, F);
+    if (d) return d;
+  }
   const d = cause.dist.get(f.id);
   if (d) return d;
   if (cause.id === '_ok' && f.complaint) return f.obsBase;
   return f.silentDist;
 }
 
-function lik(model, cause, fid, state) {
+function lik(model, cause, fid, state, F) {
   const f = model.kb.features.get(fid);
   const i = f.idx[state];
-  return i === undefined ? 1 : distFor(cause, f)[i];
+  return i === undefined ? 1 : distFor(cause, f, F, model.kb)[i];
 }
 
 export function posterior(model, findings) {
-  const F = Object.entries(asMap(findings)).filter(([fid]) => model.fset.has(fid));
+  const M = asMap(findings);
+  const F = Object.entries(M).filter(([fid]) => model.fset.has(fid));
   const logs = model.causes.map((c) => {
     let l = Math.log(c.prior);
-    for (const [fid, s] of F) l += TAU * Math.log(lik(model, c, fid, s));
+    for (const [fid, s] of F) l += TAU * Math.log(lik(model, c, fid, s, M));
     return l;
   });
   const mx = Math.max(...logs);
@@ -111,13 +162,17 @@ export function explain(model, findings, causeId) {
   const c = model.causes.find((x) => x.id === causeId);
   if (!c) return { support: [], against: [], silent: [] };
   const support = [], against = [], silent = [];
-  for (const [fid, s] of Object.entries(asMap(findings))) {
+  const M = asMap(findings);
+  for (const [fid, s] of Object.entries(M)) {
     if (!model.fset.has(fid)) continue;
     const f = model.kb.features.get(fid);
-    const p = lik(model, c, fid, s);
+    const p = lik(model, c, fid, s, M);
     const b = f.obsBase[f.idx[s]];
     const row = { f: fid, s, p, base: b, lr: p / b, label: model.kb.label(fid, s, model.system) };
-    if (!c.dist.has(fid)) { if (s !== f.normal) silent.push(row); }
+    const own = c.dist.has(fid) && !c.derived?.has(fid);
+    const told = !own && f.follows && sameFact(model.kb, f, M);
+    if (told) { if (p < AGREE / 2 && s !== f.normal) silent.push(row); } // agrees with its source: nothing new
+    else if (!c.dist.has(fid)) { if (s !== f.normal && !f.situational) silent.push(row); }
     else if (row.lr >= 1.5) support.push(row);
     else if (row.lr <= 0.67) against.push(row);
   }
@@ -178,7 +233,7 @@ export function nextChecks(model, findings, post, opts = {}) {
     if (!askable(model, f, F, skip)) continue;
     const n = f.stateIds.length;
     const pk = new Float64Array(n);
-    const lk = C.map((c) => distFor(c, f));
+    const lk = C.map((c) => distFor(c, f, F, model.kb));
     // a check that no cause in play has an opinion on can't help
     if (!C.some((c, i) => P[i] > 0.01 && c.dist.has(f.id))) continue;
     for (let i = 0; i < C.length; i++) for (let k = 0; k < n; k++) pk[k] += P[i] * lk[i][k];

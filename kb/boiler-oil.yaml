@@ -1282,8 +1282,9 @@ inputs:
       0.04" that is −0.04; a plus sign means pressure}
   - {id: blr.pump_psi_meas, name: Pump pressure, unit: psi, systems: [fuel], hint: "Gauge in the pump's gauge or nozzle
       port, burner running"}
-  - {id: blr.pump_psi_spec, name: Rated pump pressure, unit: psi, systems: [fuel], default: 100, choices: [100, 140,
-      150, 175, 200], hint: From the burner spec; 100 psi unless the burner says otherwise}
+  - {id: blr.pump_psi_spec, name: Rated pump pressure, unit: psi, systems: [fuel], choices: [100, 140, 150, 175, 200],
+      hint: "From the burner spec. Blank: a low reading still reads low (no burner runs under 100 psi), but a high one
+      needs the rating — many burners run 140–200"}
   - {id: blr.pump_vac_inhg, name: Pump vacuum, unit: in. Hg, systems: [fuel], hint: "Gauge on the pump inlet / vacuum
       port, burner running"}
   - {id: blr.lift_ft, name: Lift from tank bottom to pump, unit: ft, systems: [fuel], hint: Zero or blank if the tank
@@ -1389,13 +1390,15 @@ measures:
     unit: psi
     systems: [fuel]
     value: blr.pump_psi_meas
-    target: blr.pump_psi_spec
+    # no burner runs under 100 psi, so "low" reads against 100 when the rating is blank; "high" needs the
+    # burner's own rating (a 140 psi burner read against 100 would be turned down and burn badly)
+    target: blr.pump_psi_spec ?? 100
     sets: blr.pump_psi
     states:
       - [zero, v < 20]
       - [low, v < t - 10]
-      - [high, v > t + 10]
-      - [normal, 'true']
+      - [high, 'has(blr.pump_psi_spec) && v > t + 10']
+      - [normal, 'has(blr.pump_psi_spec) || v <= t + 10']
   # how much a pump may pull depends on its piping: one-pipe about 6 in. Hg (air breaks out of the oil above
   # that), two-pipe single-stage about 10, two-stage about 15 — the pump's data sheet rules
   - id: blr.pump_vacuum

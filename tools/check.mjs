@@ -112,6 +112,20 @@ let scen = [];
 try { scen = JSON.parse(readFileSync(opt('--scenarios') || join(ROOT, 'tests/scenarios.json'), 'utf8')); } catch { /* none yet */ }
 let pass = 0;
 for (const sc of scen) {
+  // a finding with a misspelled feature or state is silently ignored by the engine, so the scenario would test
+  // nothing: reject it here
+  for (const [fid, st] of Object.entries(sc.findings || {})) {
+    const f = kb.features.get(fid);
+    if (!f) problems.push(`scenario "${sc.name}": unknown feature ${fid}`);
+    else if (f.idx[st] === undefined) problems.push(`scenario "${sc.name}": ${fid} has no state "${st}" (states: ${f.stateIds.join(', ')})`);
+  }
+  for (const id of sc.inputs ? Object.keys(sc.inputs) : []) if (!kb.inputs.has(id)) problems.push(`scenario "${sc.name}": unknown input ${id}`);
+  for (const [k, v] of Object.entries(sc.ctx || {})) {
+    const c = kb.context.get(k);
+    if (k === 'refrigerant') continue; // the refrigerant pick-list comes from the PT table, not a context question
+    if (!c) problems.push(`scenario "${sc.name}": unknown context ${k}`);
+    else if (!(c.options || []).some((o) => String(o?.id ?? o) === String(v))) problems.push(`scenario "${sc.name}": context ${k} has no option "${v}"`);
+  }
   const ctx = { ...kb.defaultCtx(sc.system), ...(sc.ctx || {}) };
   const measured = computeMeasures(kb, sc.system, ctx, sc.inputs || {});
   const findings = { ...Object.fromEntries(Object.entries(measured.findings).map(([k, v]) => [k, v.s])), ...(sc.findings || {}) };

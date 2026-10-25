@@ -32,7 +32,7 @@
   findings: {ctl.contactor_noise: chatter, gen.intermittent: 'yes', ctl.rc_volts: low, ctl.xfmr_tap: matches}
   expect: {top: ctl.xfmr_overloaded}
 
-- name: New condensing unit on a 208 V service, 24 V reads 31 V — transformer left on the 240 V tap
+- name: New condensing unit on a 240 V service, 24 V reads 31 V — transformer left on the 208 V tap
   system: vc.ac
   findings: {gen.recent_work: 'yes', ctl.rc_volts: high, ctl.xfmr_tap: wrong}
   expect: {top: ctl.xfmr_tap}
@@ -46,6 +46,22 @@
   system: fuel.furnace
   findings: {gen.output: none, gen.dead: 'yes', gen.power: present, ctl.xfmr: no_primary, ctl.door_sw: open}
   expect: {top: ctl.door_switch}
+
+- name: Oil boiler dead — power at the burner service switch box, none on the transformer primary
+  system: fuel.boiler
+  findings: {gen.output: none, gen.power: present, ctl.xfmr: no_primary}
+  expect: {top: ctl.primary_lost}
+
+- name: Oil furnace with the door seated, line voltage at the unit, none on the transformer primary
+  system: fuel.furnace
+  findings: {gen.power: present, gen.control_v: missing, ctl.xfmr: no_primary, ctl.door_sw: closed}
+  expect: {top: ctl.primary_lost, not_top: [ctl.door_switch]}
+
+- name: Ductless head dead after a service call — no blower-door switch to blame
+  system: vc.ac
+  ctx: {hp_unit: minisplit}
+  findings: {gen.recent_work: 'yes', gen.output: none}
+  expect: {not_top3: [ctl.door_switch, ctl.stat_miswired]}
 
 - name: Air handler dead with the blower door off — no 24 V
   system: vc.hp
@@ -83,10 +99,35 @@
   findings: {gen.output: none, vc.comp: 'off', ctl.float_sw: open_wet}
   expect: {top: vc.drain_clogged, not_top3: [ctl.float_stuck]}
 
-- name: Boiler spill switch won't reset — draft normal, switch reads open cold
+- name: Boiler spill switch tripped, full inspection finds nothing — draft normal, switch reads open cold
   system: fuel.boiler
-  findings: {gen.output: none, blr.start: nothing, blr.spill_switch: tripped, blr.draft_br: normal, ctl.switch_cont: open}
+  findings: {gen.output: none, blr.start: nothing, blr.spill_switch: tripped, blr.draft_br: normal, ctl.trip_reason: none_found, ctl.switch_cont: open}
   expect: {top: ctl.rollout_failed}
+
+- name: Boiler spill switch tripped and the burner dead — heat-exchanger passages heavily sooted
+  system: fuel.boiler
+  findings: {gen.output: none, blr.start: nothing, blr.spill_switch: tripped, blr.soot_hx: heavy}
+  expect: {top: blr.hx_sooted, not_top: [ctl.rollout_failed]}
+
+- name: Opening move — spill switch tripped, nothing else known
+  system: fuel.boiler
+  findings: {blr.spill_switch: tripped}
+  expect: {top3: [blr.hx_sooted], not_top3: [ctl.rollout_failed]}
+
+- name: A/C off on the high-pressure switch with a dirty condenser — the trip is real
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', vc.hps_trip: 'yes', vc.cond_dirty: 'yes'}
+  expect: {top: vc.dirty_condenser, not_top: [ctl.hps_failed]}
+
+- name: A/C off on the high-pressure switch with the condenser fan stopped
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', vc.hps_trip: 'yes', vc.cond_fan: 'off'}
+  expect: {top: vc.cond_fan_failed, not_top: [ctl.hps_failed]}
+
+- name: A/C off on the low-pressure switch with low suction — the trip is real
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', vc.lps_trip: 'yes', vc.evap_sat: low}
+  expect: {top3: [vc.undercharge], not_top3: [ctl.lps_failed]}
 
 - name: Ducted A/C dead outside, call present, the outdoor board shows its lockout code
   system: vc.ac
@@ -167,6 +208,26 @@
   findings: {gen.output: none, gen.call: not_calling, ctl.stat_settings: ok, ctl.call_path: not_sent, ctl.jumper_test: starts}
   expect: {top: ctl.stat_failed, not_top: [gen.no_call]}
 
+- name: No cooling, jumper R to Y at the unit and it still doesn't start — not the thermostat
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', ctl.jumper_test: no_start}
+  expect: {not_top3: [gen.no_call, ctl.stat_settings_wrong, ctl.stat_failed]}
+
+- name: Oil boiler no heat after its yearly burner service — not the thermostat wiring
+  system: fuel.boiler
+  findings: {gen.recent_work: 'yes', gen.output: none}
+  expect: {not_top: [ctl.stat_miswired]}
+
+- name: Zone panel has 24 V and the call from the thermostat, but no output to the zone pump
+  system: hydronic
+  findings: {gen.output: none, hyd.circ: 'off', gen.call: calling, gen.control_v: present, ctl.board_output: none}
+  expect: {top: ctl.board_failed}
+
+- name: After a generator transfer the furnace-side board has 24 V and Y in, nothing out to the condenser
+  system: vc.ac
+  findings: {gen.output: none, vc.comp: 'off', gen.after_outage: 'yes', gen.call: calling, ctl.board_output: none}
+  expect: {top: ctl.board_failed}
+
 - name: Zone cold — the thermostat sends 24 V on W but nothing reaches the zone panel
   system: hydronic
   findings: {gen.output: none, gen.call: not_calling, ctl.call_path: lost_between}
@@ -189,7 +250,7 @@
 
 - name: After a thermostat swap the cooling doesn't come on — Y and G landed on each other's terminals
   system: vc.ac
-  findings: {gen.recent_work: 'yes', gen.output: none, ctl.wiring_map: wrong}
+  findings: {gen.recent_work: 'yes', ctl.stat_changed: 'yes', gen.output: none, ctl.wiring_map: wrong}
   expect: {top: ctl.stat_miswired}
 
 - name: Mechanical thermostat short-cycles the boiler, anticipator set far below the W current
@@ -215,10 +276,10 @@
   findings: {gen.output: weak, ctl.stat_spot: poor}
   expect: {top: ctl.stat_mislocated}
 
-- name: Zone stays cold, the controller reads 6 °F high, and its 10 kΩ sensor reads 25 kΩ at 70 °F
+- name: Zone stays cold, the controller reads 6 °F high, and its 10 kΩ sensor reads 10.3 kΩ at 70 °F
   system: hydronic
   findings: {gen.output: weak, ctl.stat_vs_ref: 'off'}
-  inputs: {ctl.sensor_f: 70, ctl.sensor_kohm: 25}
+  inputs: {ctl.sensor_f: 70, ctl.sensor_kohm: 10.3}
   expect:
     top: ctl.thermistor_failed
     measured: {ctl.sensor_ohms: 'off'}
@@ -228,7 +289,9 @@
   findings: {gen.output: weak}
   inputs: {ctl.sensor_f: 68, ctl.sensor_kohm: 9999}
   expect:
-    top: ctl.thermistor_failed
+    # on a heat pump the heat-pump module's thermistor cause is the same fault; both lead, either sends the tech
+    # to replace the sensor
+    top3: [ctl.thermistor_failed, hp.thermistor_drifted]
     measured: {ctl.sensor_ohms: open}
 
 - name: Thermostat reads 4 °F off, but its sensor ohms right on the chart — wrong sensor type set
@@ -244,15 +307,50 @@
   inputs: {ctl.sensor_f: 32, ctl.sensor_kohm: 0.05}
   expect: {measured: {ctl.sensor_ohms: shorted}}
 
-- name: 10 kΩ table at -20 °F — 186 kΩ is on the curve
-  system: ahu
-  inputs: {ctl.sensor_f: -20, ctl.sensor_kohm: 186}
+- name: 10 kΩ Type II table at -20 °F — 165 kΩ is on the curve
+  system: hydronic
+  inputs: {ctl.sensor_f: -20, ctl.sensor_kohm: 165}
   expect: {measured: {ctl.sensor_ohms: ok}}
+
+- name: Outdoor sensor in a McMurdo winter — a good 10 kΩ Type II reads 336 kΩ at -40 °F
+  system: fuel.boiler
+  inputs: {ctl.sensor_f: -40, ctl.sensor_kohm: 336}
+  expect: {measured: {ctl.sensor_ohms: ok}}
+
+- name: A good 10 kΩ Type III sensor reads 29.5 kΩ at 32 °F
+  system: hydronic
+  inputs: {ctl.sensor_f: 32, ctl.sensor_kohm: 29.5}
+  expect: {measured: {ctl.sensor_ohms: ok}}
+
+- name: A sensor 6 °F off at 32 °F is off both 10 kΩ tables (24 kΩ)
+  system: hydronic
+  inputs: {ctl.sensor_f: 32, ctl.sensor_kohm: 24}
+  expect: {measured: {ctl.sensor_ohms: 'off'}}
 
 - name: Sensor ohms entered with no temperature — no verdict
   system: hydronic
   inputs: {ctl.sensor_kohm: 12}
   expect: {unmeasured: [ctl.sensor_ohms]}
+
+- name: Sensor reads OL, no temperature taken — still open
+  system: vc.ac
+  inputs: {ctl.sensor_kohm: 9999}
+  expect: {measured: {ctl.sensor_ohms: open}}
+
+- name: Sensor reads 0 Ω, no temperature taken — still shorted
+  system: hydronic
+  inputs: {ctl.sensor_kohm: 0}
+  expect: {measured: {ctl.sensor_ohms: shorted}}
+
+- name: Walk-in probe off against a thermometer though its sensor ohms fine — still the probe
+  system: vc.walkin
+  findings: {rf.probe_cal: drifted, ctl.sensor_ohms: ok}
+  expect: {top: rf.box_probe_drifted}
+
+- name: Air handler outdoor sensor reads off against a thermometer, sensor ohms fine — still the outdoor sensor
+  system: ahu
+  findings: {ahu.sensor_check: oat_off, ctl.sensor_ohms: ok}
+  expect: {top: ahu.oat_sensor}
 
 # ---------------- heat pump O/B in cooling ----------------
 - name: New thermostat, heat pump blows hot air on a cooling call — O/B set the wrong way
