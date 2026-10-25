@@ -81,6 +81,14 @@
     <div class="out" id="wsout"></div>
   </div>
 
+  <div class="step" id="s6">
+    <h3><span class="num">6</span>Save a report to the phone</h3>
+    <p class="muted">Tap, then pick <b>Save to Files</b> and a folder (On My iPhone › make a "Field Dx" folder). That's
+      where saved job reports will go. If the Drive app is installed and you have signal, try it there too.</p>
+    <button class="cta" id="share">Save a sample report</button>
+    <div class="out" id="shareout"></div>
+  </div>
+
   <h2>Results</h2>
   <div id="summary"></div>
   <div class="row"><button class="cta" id="copy">Copy results</button><button class="cta ghost" id="clear">Clear</button></div>
@@ -120,7 +128,7 @@ function line(r) {
     `  mic ${r.mic ?? '–'}${r.rate ? ` ${r.rate} Hz` : ''} · voice ${r.tts ?? '–'}${r.voices != null ? ` (${r.voices} voices, ${r.localVoices} on-device)` : ''}`,
     `  pack ${r.pack ?? '–'}${r.packMs ? ` ${(r.packMs / 1000).toFixed(1)} s` : ''}${r.persist != null ? ` · keep-storage ${r.persist}` : ''}${r.usedMB ? ` · ${r.usedMB} MB stored` : ''}`,
     `  answers ${p.length ? `${okN}/${p.length}` : '–'}${med != null ? ` · median ${med} ms after letting go` : ''}`,
-    `  callout ${r.callout ?? '–'} · apple ${r.webspeech ?? '–'}`,
+    `  callout ${r.callout ?? '–'} · apple ${r.webspeech ?? '–'} · save-to-files ${r.share ?? '–'}`,
   ].join('\n');
 }
 function summary() { $('summary').textContent = [...runs, run].map(line).join('\n\n') || 'Nothing yet.'; }
@@ -328,6 +336,16 @@ $('ws').onclick = () => {
   r.onerror = (e) => { run.webspeech = `error ${e.error}`; $('wsout').innerHTML = `<span class="bad">Error:</span> ${e.error}`; save(); };
   r.onend = () => { if (!run.webspeech) { run.webspeech = 'no result'; save(); } };
   try { r.start(); $('wsout').textContent = 'Listening…'; } catch (err) { run.webspeech = `failed ${err.name}`; $('wsout').textContent = err.message; save(); }
+};
+
+// ---------- 6. save a file through the share sheet ----------
+$('share').onclick = async () => {
+  const text = `FIELD DX JOB REPORT (sample)\nWalk-in freezer\nSaved ${new Date().toLocaleString()} from the voice test.\n`;
+  const file = new File([text], `fielddx-sample-${Date.now()}.txt`, { type: 'text/plain' });
+  if (!navigator.canShare?.({ files: [file] })) { run.share = 'no share sheet'; $('shareout').textContent = 'This browser has no file sharing.'; save(); return; }
+  try { await navigator.share({ files: [file], title: file.name }); run.share = 'done'; $('shareout').innerHTML = '<span class="ok">Shared.</span> Check the folder in the Files app.'; }
+  catch (err) { run.share = err.name === 'AbortError' ? 'cancelled' : `error ${err.name}`; $('shareout').textContent = `${err.name}: ${err.message}`; }
+  save();
 };
 
 // ---------- results ----------

@@ -13,7 +13,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const pct = (p) => (p >= 0.995 ? '99' : p < 0.01 ? '<1' : String(Math.round(p * 100)));
 const fmt = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : (Math.round(v * 10 ** d) / 10 ** d).toFixed(d).replace(/\.0+$/, ''));
 
-const KEY_JOB = 'fdx.job', KEY_HIST = 'fdx.history', KEY_THEME = 'fdx.theme';
+const KEY_JOB = 'fdx.job', KEY_HIST = 'fdx.history', KEY_THEME = 'fdx.theme', KEY_REPORTS = 'fdx.reports';
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode: work without saving */ } },
@@ -114,7 +114,7 @@ function archive() {
 function save() { store.set(KEY_JOB, job); }
 
 function setFinding(fid, s, src = 'answer') {
-  job.f[fid] = { s, src };
+  job.f[fid] = { s, src, t: Date.now() };
   if (focusCheck === fid) focusCheck = null;
   save();
 }
@@ -149,7 +149,7 @@ function render() {
   const sysEl = $('#sysname');
   sysEl.textContent = job ? `${kb.systems.get(job.system)?.short || kb.systems.get(job.system)?.name} ▾` : '';
   sysEl.title = job ? 'Unit details' : '';
-  const views = { home: viewHome, setup: viewSetup, diag: viewDiag, readings: viewReadings, cause: viewCause, tools: viewTools, tool: viewTool, about: viewAbout };
+  const views = { home: viewHome, setup: viewSetup, diag: viewDiag, readings: viewReadings, cause: viewCause, tools: viewTools, tool: viewTool, about: viewAbout, reports: viewReports };
   (views[view.name] || viewHome)();
 }
 
@@ -174,6 +174,7 @@ function viewHome() {
     <div class="results">${TOOL_LIST.slice(0, 4).map((t) => `<button class="res" data-act="tool" data-id="${t.id}">${esc(t.label)}</button>`).join('')}
       <button class="res" data-act="tools"><span>All calculators</span><span class="k">›</span></button></div>
     ${recent ? `<h2>Recent jobs</h2><div class="results">${recent}</div>` : ''}
+    ${reportsLink()}
     <p class="muted" style="margin-top:28px"><a class="block" href="#/about">About, sources and offline use</a></p>`;
   helper('Pick the equipment — or describe the problem in the box.');
   if (view.q.text) homeSearch();
@@ -225,7 +226,7 @@ function startFromText(text, sys) {
       if ((o.words || []).some((w) => n.includes(` ${norm(w)} `))) job.ctx[c.id] = String(o.id);
     }
   }
-  for (const p of search.run(text, sys).picks) job.f[p.f] = { s: p.s, src: 'text' };
+  for (const p of search.run(text, sys).picks) job.f[p.f] = { s: p.s, src: 'text', t: Date.now() };
   save();
   go('#/diag');
 }
@@ -296,7 +297,7 @@ function viewDiag() {
     <div style="margin-top:24px;display:grid;gap:10px">
       <button class="cta ghost" data-act="copy">Copy job summary</button>
       ${job.skip.length ? `<button class="cta ghost" data-act="unskip">Bring back ${job.skip.length} skipped check${job.skip.length > 1 ? 's' : ''}</button>` : ''}
-      <button class="cta ghost" data-act="newjob">Finish — start a new job</button>
+      <button class="cta ghost" data-act="finish">Finish — save or delete this job</button>
     </div>`;
   const top = res.post[0];
   const n = currentCheck(res);
@@ -545,6 +546,139 @@ function viewAbout() {
   helper('Back to work: tap Field Dx at the top.');
 }
 
+// ---------------------------------------------------------------- saved reports
+// A finished job is saved as a plain-text report on the phone (no connection needed). Backing up sends the new ones
+// as one text file through the share sheet: Save to Files, or the Drive app when there's signal.
+const reports = () => store.get(KEY_REPORTS, []);
+
+function jobReport() {
+  const { m, res } = evaluate();
+  const sys = kb.systems.get(job.system);
+  const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+  const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const SRC = { answer: 'answered', text: 'typed', edit: 'changed', voice: 'said' };
+  const lines = [`FIELD DX JOB REPORT`, `${sys.name}`, `Started ${when(job.t0)} · finished ${when(Date.now())}`];
+  const unit = kb.contextFor(job.system).filter((c) => job.ctx[c.id] != null).map((c) => {
+    const v = job.ctx[c.id];
+    const o = (c.options || []).find((x) => String(x.id ?? x) === v);
+    return `- ${c.ask} ${o?.label ?? v}`;
+  });
+  if (unit.length) lines.push('', 'Unit:', ...unit);
+  const own = Object.entries(job.f).sort((a, b) => (a[1].t || 0) - (b[1].t || 0));
+  if (own.length) lines.push('', 'Found (in order):', ...own.map(([fid, r]) => `- ${r.t ? `${clock(r.t)} ` : ''}${kb.label(fid, r.s, job.system)} [${SRC[r.src] || r.src}]`));
+  const meas = Object.entries(m.findings).filter(([fid]) => !job.f[fid]);
+  if (meas.length) lines.push('', 'From the readings:', ...meas.map(([fid, r]) => `- ${kb.label(fid, r.s, job.system)}`));
+  const vals = m.results.filter((r) => Number.isFinite(r.v) && !r.measure.hidden && (!r.sets || m.findings[r.sets]?.from === r.id));
+  if (vals.length) lines.push('', 'Readings:', ...vals.map((r) => `- ${r.measure.name}: ${fmt(r.v)} ${r.measure.unit || ''}${r.t != null && Number.isFinite(r.t) ? ` (target ${fmt(r.t)})` : ''}${r.state ? ` — ${r.state}` : ''}`));
+  const raw = Object.entries(job.inputs).map(([id, v]) => `${kb.inputs.get(id)?.name || id}: ${v} ${kb.inputs.get(id)?.unit || ''}`.trim());
+  if (raw.length) lines.push('', 'Entered:', ...raw.map((x) => `- ${x}`));
+  lines.push('', 'Likely causes:', ...res.post.slice(0, 3).map((r) => `- ${r.cause.name} (${pct(r.p)}%)`));
+  if (job.skip.length) lines.push('', `Checks skipped: ${job.skip.map((fid) => kb.features.get(fid)?.name || fid).join('; ')}`);
+  if (job.notes) lines.push('', 'Notes:', job.notes);
+  lines.push('', `Field Dx · knowledge base ${kb.raw.meta?.built || ''}`.trim());
+  return { text: lines.join('\n'), title: `${sys.short || sys.name}${res.post[0] ? ` — ${res.post[0].cause.name}` : ''}` };
+}
+
+function saveReport() {
+  const { text, title } = jobReport();
+  const list = reports();
+  list.unshift({ id: job.id, when: Date.now(), title, text, backedUp: false });
+  store.set(KEY_REPORTS, list);
+  navigator.storage?.persist?.().catch(() => {}); // ask the phone to keep the app's storage
+  const fresh = list.filter((r) => !r.backedUp).length;
+  toast(`Report saved on this phone. ${fresh} not backed up yet.`);
+}
+
+function finishSheet(confirmDelete = false) {
+  $('#sheet').innerHTML = `<div class="sheet-bg" data-act="sheet-close"><div class="sheet" role="dialog" aria-label="Finish this job">
+    ${confirmDelete
+    ? `<div class="q">Delete this job? Nothing is saved.</div>
+      <div class="answers"><button class="ans" data-act="finish-delete-yes" style="border-color:var(--high)">Delete it</button>
+      <button class="ans skip" data-act="sheet-close">Keep it</button></div>`
+    : `<div class="q">Finish this job</div>
+      <div class="answers"><button class="ans" data-act="finish-save">Save the report</button>
+      <button class="ans" data-act="finish-delete">Delete it</button>
+      <button class="ans skip" data-act="sheet-close">Keep working</button></div>`}
+  </div></div>`;
+}
+
+const fileStamp = (t) => { const d = new Date(t), p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`; }; // local time, like the report
+const slug = (s) => norm(s).replace(/\s+/g, '-').slice(0, 40).replace(/-[^-]*$/, '');
+
+// ids: one report, or null for every report not backed up yet (all of them if none are new)
+async function shareReports(ids) {
+  const list = reports();
+  let pick = ids ? list.filter((r) => ids.includes(r.id)) : list.filter((r) => !r.backedUp);
+  if (!pick.length) pick = list;
+  if (!pick.length) return;
+  const name = pick.length === 1 ? `fielddx-${fileStamp(pick[0].when)}-${slug(pick[0].title)}.txt` : `fielddx-backup-${fileStamp(Date.now())}-${pick.length}-reports.txt`;
+  const body = pick.map((r) => r.text).join('\n\n' + '='.repeat(40) + '\n\n');
+  const file = new File([body], name, { type: 'text/plain' });
+  let ok = false;
+  if (navigator.canShare?.({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); ok = true; }
+    catch (err) { if (err.name !== 'AbortError') toast(`Couldn't share: ${err.message}`); }
+  } else {
+    // no share sheet (laptop browsers): download the file instead
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(file); a.download = name; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    ok = true;
+  }
+  if (!ok) return;
+  const done = new Set(pick.map((r) => r.id));
+  store.set(KEY_REPORTS, reports().map((r) => (done.has(r.id) ? { ...r, backedUp: true } : r)));
+  toast(pick.length === 1 ? 'Report sent.' : `${pick.length} reports sent.`);
+  if (view.name === 'reports') render();
+}
+
+function deleteReport(id, sure) {
+  if (!sure) {
+    $('#sheet').innerHTML = `<div class="sheet-bg" data-act="sheet-close"><div class="sheet" role="dialog" aria-label="Delete report">
+      <div class="q">Delete this saved report?</div>
+      <div class="answers"><button class="ans" data-act="report-delete" data-id="${esc(id)}" data-sure="1" style="border-color:var(--high)">Delete it</button>
+      <button class="ans skip" data-act="sheet-close">Keep it</button></div></div></div>`;
+    return;
+  }
+  store.set(KEY_REPORTS, reports().filter((r) => r.id !== id));
+  closeSheet();
+  go('#/reports');
+}
+
+function reportsLink() {
+  const list = reports();
+  if (!list.length) return '';
+  const fresh = list.filter((r) => !r.backedUp).length;
+  return `<h2>Saved reports</h2><div class="results"><button class="res" data-act="go" data-href="#/reports"><span>${list.length} on this phone${fresh ? ` · <b>${fresh} not backed up</b>` : ' · all backed up'}</span><span class="k">open ›</span></button></div>`;
+}
+
+function viewReports() {
+  const list = reports();
+  const one = view.arg && list.find((r) => r.id === view.arg);
+  if (one) {
+    $('#main').innerHTML = `
+      <h1>${esc(one.title)}</h1>
+      <p class="lead">${new Date(one.when).toLocaleString()}${one.backedUp ? ' · backed up' : ' · not backed up yet'}</p>
+      <pre class="out" style="white-space:pre-wrap;font:15px/1.45 var(--mono)">${esc(one.text)}</pre>
+      <div style="display:grid;gap:10px">
+        <button class="cta" data-act="report-share" data-id="${esc(one.id)}">Share or save to Files</button>
+        <button class="cta ghost" data-act="report-delete" data-id="${esc(one.id)}">Delete this report</button>
+        <button class="cta ghost" data-act="go" data-href="#/reports">All reports</button>
+      </div>`;
+    helper('Share sends it as a text file: Save to Files, Drive, mail…');
+    return;
+  }
+  const fresh = list.filter((r) => !r.backedUp).length;
+  const rows = list.map((r) => `<button class="res" data-act="go" data-href="#/reports/${encodeURIComponent(r.id)}"><span>${esc(r.title)}</span><span class="k">${new Date(r.when).toLocaleDateString()}${r.backedUp ? ' ✓' : ' · new'}</span></button>`).join('');
+  $('#main').innerHTML = `
+    <h1>Saved reports</h1>
+    <p class="lead">Kept on this phone. When you have signal, back them up: the share sheet sends them as one text file to the Drive app or Save to Files.</p>
+    ${list.length ? `<button class="cta" data-act="backup">${fresh ? `Back up ${fresh} new report${fresh > 1 ? 's' : ''}` : `Back up ${list.length > 1 ? `all ${list.length} ` : ''}again`}</button>
+    <div class="results" style="margin-top:14px">${rows}</div>` : '<p class="muted">No saved reports yet. Finish a job and choose "Save the report".</p>'}`;
+  helper(fresh ? `${fresh} report${fresh > 1 ? 's' : ''} not backed up yet.` : 'Everything here is backed up.');
+}
+
 // ---------------------------------------------------------------- sheet: change a finding
 function openSheet(fid) {
   const f = kb.features.get(fid);
@@ -600,7 +734,13 @@ function onClick(e) {
       if (h) { if (job) archive(); job = h.job; save(); go('#/diag'); }
       break;
     }
-    case 'newjob': archive(); job = null; store.set(KEY_JOB, null); go('#/'); break;
+    case 'finish': finishSheet(); break;
+    case 'finish-save': saveReport(); archive(); job = null; store.set(KEY_JOB, null); closeSheet(); go('#/'); break;
+    case 'finish-delete': finishSheet(true); break;
+    case 'finish-delete-yes': job = null; store.set(KEY_JOB, null); closeSheet(); toast('Job deleted.'); go('#/'); break;
+    case 'report-share': shareReports([el.dataset.id]); break;
+    case 'report-delete': deleteReport(el.dataset.id, el.dataset.sure === '1'); break;
+    case 'backup': shareReports(null); break;
     case 'ctx': {
       const k = el.dataset.k, v = el.dataset.v;
       if (v === '') delete job.ctx[k]; else job.ctx[k] = v;
