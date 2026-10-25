@@ -451,3 +451,36 @@
   system: vc.ac
   findings: {vc.comp: running, vc.cap: bad, vc.comp_hot: 'yes', gen.output: weak, vc.cond_fan: running}
   expect: {top3: [vc.comp_cap]}
+
+# --- readings past a physical limit: which ones count (measure.js checkSanity) ----------------------------
+# Near the limit the warning shows and the readings still count; only well past it are they left out.
+- name: Readings — R-448A walk-in flooding, suction line between the bubble and dew points still counts
+  system: vc.walkin
+  ctx: {refrigerant: R-448A, metering: txv, sh_location: evap}
+  inputs: {vc.suction_psig: 43.9, vc.suction_line_f: 17}
+  findings: {vc.comp_sweat: 'yes'}
+  expect:
+    measured: {vc.superheat: low}
+    top3: [vc.txv_overfeed]
+
+- name: Readings — suction line far below the bubble point is a bad reading and is left out
+  system: vc.walkin
+  ctx: {refrigerant: R-448A, metering: txv, sh_location: evap}
+  inputs: {vc.suction_psig: 43.9, vc.suction_line_f: -2}
+  expect:
+    unmeasured: [vc.superheat, vc.evap_sat]
+
+- name: Readings — almost empty R-410A system, vapor leaving the condenser still counts
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv}
+  inputs: {vc.ambient_f: 95, vc.suction_psig: 60, vc.suction_line_f: 75, vc.liquid_psig: 150, vc.liquid_line_f: 93}
+  expect:
+    measured: {vc.subcool: low, vc.cond_sat: low, vc.superheat: high}
+    top3: [vc.undercharge]
+
+- name: Readings — condensing unit with the liquid-line probe in the sun, far over saturation, is left out
+  system: vc.ac
+  ctx: {refrigerant: R-410A, metering: txv}
+  inputs: {vc.ambient_f: 95, vc.suction_psig: 125, vc.suction_line_f: 52, vc.liquid_psig: 340, vc.liquid_line_f: 120}
+  expect:
+    unmeasured: [vc.subcool]

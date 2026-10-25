@@ -122,28 +122,44 @@ export function checkSanity(inputs, vals = {}) {
   if (db !== null && wb !== null && wb > db + 0.5) {
     w.push({ title: T, ids: ['vc.air_in_f', 'vc.air_in_wb'], msg: `Psychrometric check: wet-bulb (${f1(wb)} °F) cannot exceed dry-bulb (${f1(db)} °F) — check thermometer calibration or dry sock.${LEFT}` });
   }
-  // 2. Second Law at evaporator: suction line cannot be colder than boiling refrigerant, nor supply air colder than coil
+  // 2. Second Law at evaporator: suction line cannot be colder than boiling refrigerant, nor supply air colder than coil.
+  // A reading just past the line can be real: a flooding coil leaves the suction line at saturation, and on a blend
+  // with glide the refrigerant still boiling sits anywhere between the bubble and dew points. So near the line the
+  // warning shows and the readings still count (floodback is the finding); only past the bubble point by more than
+  // gauge + probe error (PAST °F) are they left out.
+  const PAST = 6;
   const evapSat = g('vc.evap_sat_t');
+  const evapBub = active.refrigerant ? calc.tsat(active.refrigerant, g('vc.suction_psig'), 'bubble') : null;
+  const evapLow = evapSat === null ? null : Math.min(evapSat, evapBub ?? evapSat);
+  const glideNote = evapLow !== null && evapSat - evapLow >= 1
+    ? ` ${active.refrigerant} is a blend: refrigerant still boiling reads ${f1(evapLow)}–${f1(evapSat)} °F here, so a line in that range is liquid reaching the suction line.` : '';
   const sucLine = g('vc.suction_line_f');
   if (evapSat !== null && sucLine !== null && sucLine < evapSat - 2.0) {
-    w.push({ title: T, ids: ['vc.suction_line_f', 'vc.suction_psig'], msg: `Thermodynamic check: suction line (${f1(sucLine)} °F) reads colder than evaporator saturation (${f1(evapSat)} °F) — check low-side gauge zero, pipe probe contact, or whether ${active.refrigerant || 'the selected refrigerant'} is right.${LEFT}` });
+    const out = sucLine < evapLow - PAST;
+    w.push({ title: T, ids: out ? ['vc.suction_line_f', 'vc.suction_psig'] : [], msg: `Thermodynamic check: suction line (${f1(sucLine)} °F) reads colder than evaporator saturation (${f1(evapSat)} °F) — check low-side gauge zero, pipe probe contact, or whether ${active.refrigerant || 'the selected refrigerant'} is right.${out ? LEFT : glideNote}` });
   }
   const airOut = g('vc.air_out_f');
-  if (evapSat !== null && airOut !== null && airOut < evapSat - 1.5) {
-    w.push({ title: T, ids: ['vc.air_out_f', 'vc.suction_psig'], msg: `Second-law check: supply air (${f1(airOut)} °F) cannot leave colder than the evaporator saturation (${f1(evapSat)} °F).${LEFT}` });
+  if (evapLow !== null && airOut !== null && airOut < evapLow - 1.5) {
+    const out = airOut < evapLow - PAST;
+    w.push({ title: T, ids: out ? ['vc.air_out_f', 'vc.suction_psig'] : [], msg: `Second-law check: supply air (${f1(airOut)} °F) cannot leave colder than the refrigerant boiling in the coil (${f1(evapLow)} °F).${out ? LEFT : ''}` });
   }
   // 3. Second Law at condenser: condensing saturation must be above ambient air to reject heat (or the
-  // compressor is off: shown, not left out), and liquid line cannot exceed condensing sat
+  // compressor is off, or the system is nearly empty: shown, not left out), and a liquid line hotter than
+  // condensing saturation means vapor at the condenser outlet. That is a bad reading while the unit condenses,
+  // but a real finding when saturation sits below the outdoor air (an almost empty system), so the readings
+  // are left out only when the unit is condensing and the line is past saturation by more than PAST °F.
   const condSat = g('vc.cond_sat_t');
   const amb = g('vc.ambient_f');
-  if (condSat !== null && amb !== null && condSat < amb - 1.5) {
-    w.push({ title: T, ids: [], msg: `Second-law check: condensing saturation (${f1(condSat)} °F) is below condenser inlet air (${f1(amb)} °F) — compressor not running, wrong refrigerant selected, or high-side gauge off.` });
+  const notCondensing = condSat !== null && amb !== null && condSat < amb - 1.5;
+  if (notCondensing) {
+    w.push({ title: T, ids: [], msg: `Second-law check: condensing saturation (${f1(condSat)} °F) is below condenser inlet air (${f1(amb)} °F) — compressor not running, an almost empty system, wrong refrigerant selected, or high-side gauge off.` });
   }
   const liqLine = g('vc.liquid_line_f');
   const condDew = active.refrigerant ? calc.tsat(active.refrigerant, g('vc.liquid_psig'), 'dew') : condSat;
   const condTop = Math.max(condSat ?? -999, condDew ?? -999);
   if (condTop > -500 && liqLine !== null && liqLine > condTop + 2.5) {
-    w.push({ title: T, ids: ['vc.liquid_line_f', 'vc.liquid_psig'], msg: `Thermodynamic check: liquid line (${f1(liqLine)} °F) reads hotter than condensing saturation (${f1(condTop)} °F) — shade the pipe probe from sun/discharge air or check high-side gauge.${LEFT}` });
+    const out = !notCondensing && liqLine > condTop + PAST;
+    w.push({ title: T, ids: out ? ['vc.liquid_line_f', 'vc.liquid_psig'] : [], msg: `Thermodynamic check: liquid line (${f1(liqLine)} °F) reads hotter than condensing saturation (${f1(condTop)} °F) — shade the pipe probe from sun/discharge air or check high-side gauge.${out ? LEFT : notCondensing ? ' With saturation below the outdoor air that is expected: vapor, not liquid, leaves the condenser.' : ''}` });
   }
   // 4. Mixing-box energy conservation (NIST APAR Rules 26-27): mixed air must lie between outdoor and return air
   const oa = g('ahu.oat_f'), ra = g('ahu.rat_f'), ma = g('ahu.mat_f');

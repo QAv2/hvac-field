@@ -208,13 +208,15 @@ for (const sys of [null, ...leaf]) {
     expect(JSON.stringify(ra.picks.map((p) => [p.f, p.s])) === JSON.stringify(rb.picks.map((p) => [p.f, p.s])), `${sys}: "${a}" and "${b}" read differently`);
   }
 }
-// long pastes stay fast: a voice-dictated paragraph, or the same words pasted many times
+// long pastes stay fast: a voice-dictated paragraph, or the same words pasted many times. The bar is a hang
+// guard (a quadratic split would take minutes here), not a speed target: the cloud box takes ~0.9 s on the
+// 20 000 commas, the 2019 dev laptop ~2.5 s.
 for (const [label, t] of [['50 000 chars of one word', 'a'.repeat(50000)], ['20 000 commas', 'x, '.repeat(20000)],
   ['8 000 real clauses', 'fan not running, coil iced, high head, '.repeat(2700)], ['one 30 000-char clause', 'coil iced '.repeat(3000)]]) {
   const t0 = Date.now();
   const r = tryRun(`search ${label}`, () => search.run(t, 'vc.walkin'));
   const ms = Date.now() - t0;
-  expect(r && ms < 1500, `search on ${label} took ${ms} ms`);
+  expect(r && ms < 4000, `search on ${label} took ${ms} ms`);
   say(`  ${label}: ${ms} ms, ${r?.picks.length} findings`);
 }
 
