@@ -72,7 +72,7 @@ async function boot() {
   setupHold();
   route();
   registerSW();
-  if (window.location.search.includes('dbg')) Object.assign(window, { __kb: kb, __search: search, __job: () => job, __eval: evaluate, __heard: voiceHeard, __vs: () => vs, __voiceDry: voiceDry });
+  if (window.location.search.includes('dbg')) Object.assign(window, { __kb: kb, __search: search, __job: () => job, __eval: evaluate, __heard: voiceHeard, __vs: () => vs, __voiceDry: voiceDry, __said: () => voice.spokenLog.splice(0) });
 }
 
 function registerSW() {
@@ -106,6 +106,7 @@ function newJob(system) {
   if (job && (Object.keys(job.f).length || Object.keys(job.inputs).length)) archive();
   job = { v: 1, id: Date.now().toString(36), t0: Date.now(), system, ctx: kb.defaultCtx(system), f: {}, inputs: {}, skip: [] };
   focusCheck = null;
+  vs.heard.clear(); // a caution heard on another job doesn't count here
   save();
 }
 
@@ -244,7 +245,7 @@ function guessSystem(text, r0) {
   return best && best[1] > 4 ? best[0] : null;
 }
 
-function startFromText(text, sys) {
+function startFromText(text, sys, src = 'text') {
   newJob(sys);
   const n = ` ${norm(text)} `;
   for (const c of kb.contextFor(sys)) {
@@ -252,7 +253,7 @@ function startFromText(text, sys) {
       if ((o.words || []).some((w) => n.includes(` ${norm(w)} `))) job.ctx[c.id] = String(o.id);
     }
   }
-  for (const p of search.run(text, sys).picks) job.f[p.f] = { s: p.s, src: 'text', t: Date.now() };
+  for (const p of search.run(text, sys).picks) job.f[p.f] = { s: p.s, src, t: Date.now() };
   save();
   go('#/diag');
 }
@@ -625,19 +626,25 @@ function linkUnit(id) {
   const u = unitOf(id);
   if (!u || !job || u.system !== job.system) return null;
   job.unit = u.id;
+  const changed = Object.keys(u.ctx).filter((k) => job.ctx[k] != null && job.ctx[k] !== u.ctx[k]);
   job.ctx = { ...job.ctx, ...u.ctx };
   touchUnit(u.id);
   save();
+  if (changed.length) {
+    const what = changed.map((k) => { const c = kb.contextFor(job.system).find((x) => x.id === k); const o = (c?.options || []).find((x) => String(x.id ?? x) === u.ctx[k]); return o?.label ?? u.ctx[k]; }).join(', ');
+    toast(`Using ${u.name}'s saved details: ${what}`);
+    if (vs.on) voice.say(`Using ${u.name}'s saved details: ${speakable(what)}.`);
+  }
   return u;
 }
 
-function startUnit(id, text = '') {
+function startUnit(id, text = '', src = 'text') {
   const u = unitOf(id);
   if (!u || !kb.systems.has(u.system)) return;
   newJob(u.system);
   job.unit = u.id;
   job.ctx = { ...job.ctx, ...u.ctx };
-  if (text.trim()) for (const p of search.run(text, u.system).picks) job.f[p.f] = { s: p.s, src: 'text', t: Date.now() };
+  if (text.trim()) for (const p of search.run(text, u.system).picks) job.f[p.f] = { s: p.s, src, t: Date.now() };
   touchUnit(u.id);
   save();
   go('#/diag');
@@ -908,11 +915,26 @@ function finishDelete() { job = null; store.set(KEY_JOB, null); closeSheet(); to
 
 // ---------------------------------------------------------------- voice
 // Hold the bar, talk, let go. dialog.js says what the words mean; this carries it out on the same screens a tap
-// would. Every answer is read back and can be undone; readings and deleting a job are confirmed with a yes.
-const vs = { on: false, mode: 'idle', turn: null, spokenFor: null, pending: null, misses: 0, reading: null, picks: null, naming: false, saving: false };
+// would. Rules (from the 10-25 safety review): a check's caution must finish playing before an answer counts; every
+// answer and every finding from a spoken complaint is read back and can be undone; readings, saving and deleting
+// are confirmed with a yes; a result that arrives after the screen changed is dropped, never applied to the new one.
+const vs = {
+  on: false, mode: 'idle', turn: null, spokenFor: null, pending: null, misses: 0, reading: null, picks: null,
+  naming: false, saving: false, busy: false, heard: new Set(), done: [],
+};
+
+function voiceReset() {
+  vs.pending = null; vs.naming = vs.saving = false; vs.misses = 0; vs.picks = null; vs.reading = null;
+}
 
 async function voiceToggle() {
-  if (vs.on) { voice.say('Voice off.'); setTimeout(() => voice.stop(), 900); vs.on = false; voiceChrome(); return; }
+  voiceReset();
+  if (vs.on) {
+    vs.on = false; voiceChrome();
+    voice.stopSpeaking();
+    voice.say('Voice off.').then(() => { if (!vs.on) voice.stop(); });
+    return;
+  }
   try {
     await voice.start((msg) => helper(msg));
     vs.on = true; vs.spokenFor = null;
@@ -925,7 +947,7 @@ async function voiceToggle() {
 }
 
 // ?dbg: drive the dialog with typed text, no microphone or voice pack
-function voiceDry() { vs.on = true; vs.spokenFor = null; voiceChrome(); render(); }
+function voiceDry() { voice.setDry(true); voiceReset(); vs.on = true; vs.spokenFor = null; voiceChrome(); render(); }
 
 function voiceChrome() {
   $('#micbtn').classList.toggle('on', vs.on);
@@ -933,25 +955,50 @@ function voiceChrome() {
   document.body.classList.toggle('voice-on', vs.on);
 }
 
+// what the screen was when the tech pressed: a result is only applied to that
+const stampNow = () => ({ mode: vs.mode, fid: vs.turn?.fid ?? null, pending: vs.pending, picks: vs.picks, input: vs.reading ? vs.reading.i : null });
+const stale = (st) => st && (st.mode !== vs.mode || st.fid !== (vs.turn?.fid ?? null) || st.pending !== vs.pending || st.picks !== vs.picks
+  || st.input !== (vs.reading ? vs.reading.i : null));
+
 function setupHold() {
   const b = $('#holdbtn');
-  let h = null;
+  let h = null, guard = null;
   b.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (!voice.isOn()) return;
+    if (vs.busy) { helper('Still working on the last one…'); return; }
     const names = knownUnits().map((u) => u.name);
-    const g = vs.mode === 'free' ? null : grammar(vs.mode === 'idle' || vs.mode === 'pick' ? 'check' : vs.mode, vs.mode === 'pick' ? vs.picks.options : vs.turn?.options || [], names);
-    h = voice.press(g, (text) => voiceHeard(text));
-    if (h) { b.classList.add('down'); b.textContent = 'Listening… let go when done'; }
+    const mode = vs.mode === 'idle' || vs.mode === 'pick' ? 'check' : vs.mode;
+    const g = vs.mode === 'free' ? null : grammar(mode, vs.mode === 'pick' ? vs.picks.options : vs.turn?.options || [], names);
+    const st = stampNow();
+    h = voice.press(g, (text) => { vs.busy = false; clearTimeout(guard); voiceHeard(text, st); });
+    if (h) {
+      vs.busy = true;
+      guard = setTimeout(() => { vs.busy = false; }, 15000); // never leave the bar dead
+      b.classList.add('down'); b.textContent = 'Listening… let go when done';
+    }
   });
   const up = () => { if (!h) return; h.release(); h = null; b.classList.remove('down'); b.textContent = 'Hold to talk'; };
   ['pointerup', 'pointercancel', 'pointerleave'].forEach((t) => b.addEventListener(t, up));
   b.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
+// speak the current check; its caution counts as heard only when it played to the end
+function speakTurn() {
+  const turn = vs.turn;
+  if (!turn?.fid) return;
+  vs.spokenFor = turn.fid;
+  voice.say(turn.lines).then((played) => {
+    if (turn.caution && played[0]) vs.heard.add(turn.fid);
+    if (played.some((x) => !x) && vs.spokenFor === turn.fid) vs.spokenFor = null; // cut off: say it again next time
+  });
+}
+
 // after every render: set what the voice listens for, and speak a new check once
 function voiceView() {
   if (vs.pending || vs.naming || vs.saving) return;
+  if (view.name === 'readings' && vs.reading) { vs.mode = 'number'; return; }
+  if (vs.mode === 'pick' && view.name === 'diag') return;
   vs.turn = null; vs.picks = null;
   if (view.name === 'home') {
     vs.mode = 'free';
@@ -963,14 +1010,13 @@ function voiceView() {
     vs.mode = 'check';
     if (!n) {
       vs.turn = { fid: null, options: [], lines: [] };
-      if (vs.spokenFor !== '-') { vs.spokenFor = '-'; voice.say("No check left that would change the picture. Say what's leading, or save report."); }
+      if (vs.spokenFor !== '-') { vs.spokenFor = '-'; voice.say("No check left that would change the picture. Say what's leading, or save as, and a name."); }
       return;
     }
     vs.turn = checkTurn(kb, job.system, n.feature);
-    if (vs.spokenFor !== n.id) { vs.spokenFor = n.id; voice.say(vs.turn.lines); }
+    if (vs.spokenFor !== n.id) speakTurn();
     return;
   }
-  if (view.name === 'readings' && vs.reading) { vs.mode = 'number'; return; }
   vs.mode = 'idle';
 }
 
@@ -980,7 +1026,11 @@ function askPending(prompt, onYes, onNo) {
   voice.say(prompt);
 }
 
-function voiceHeard(text) {
+const jobOf = () => job?.id;
+function remember(entry) { vs.done.push({ ...entry, job: jobOf() }); if (vs.done.length > 50) vs.done.shift(); }
+
+function voiceHeard(text, st = null) {
+  if (stale(st)) { helper('The screen changed. Say that again.'); voice.say('The screen changed. Say that again.'); return; }
   if (vs.saving && !vs.pending) {
     vs.saving = false;
     const name = cleanName(numberWordsToDigits(String(text || '').replace(/\[unk\]/g, '')));
@@ -1000,13 +1050,14 @@ function voiceHeard(text) {
     const c = interpret('check', text, { turn: { fid: null, options: [] } });
     if (c.do === 'command') { helper(`Heard: “${text}”`); voiceCommand(c.id); return; }
   }
-  const mode = vs.mode === 'idle' ? 'check' : vs.mode === 'pick' ? 'check' : vs.mode;
+  const mode = vs.mode === 'idle' || vs.mode === 'pick' ? 'check' : vs.mode;
   const turn = vs.mode === 'pick' ? vs.picks : vs.turn || { fid: null, options: [] };
   const a = interpret(mode, text, { turn, unit: vs.reading?.unit });
   helper(text ? `Heard: “${text.replace(/\[unk\]/g, '…')}”` : 'Heard nothing.');
   if (a.do === 'unclear') {
     vs.misses++;
     if (vs.pending) voice.say(`Say yes or no. ${vs.pending.prompt}`);
+    else if (vs.mode === 'check' && turn.caution && !vs.heard.has(turn.fid)) speakTurn(); // the caution was cut off: play it again
     else if (vs.misses >= 2 && turn.lines?.length) voice.say(['Say the number of the answer.', turn.lines[turn.lines.length - 1]]);
     else voice.say('Say again?');
     return;
@@ -1022,7 +1073,9 @@ function voiceHeard(text) {
   switch (a.do) {
     case 'text': return voiceComplaint(a.text);
     case 'answer':
-      if (vs.mode === 'pick') { focusCheck = a.state; vs.spokenFor = null; render(); return; }
+      if (vs.mode === 'pick') { focusCheck = a.state; vs.mode = 'check'; vs.picks = null; vs.spokenFor = null; render(); return; }
+      if (turn.caution && !vs.heard.has(a.fid)) { voice.say('Hear the caution first.'); speakTurn(); return; }
+      remember({ type: 'answer', fid: a.fid, prev: job.f[a.fid] });
       setFinding(a.fid, a.state, 'voice');
       voice.say(a.readback);
       render();
@@ -1034,53 +1087,118 @@ function voiceHeard(text) {
   }
 }
 
+// a spoken complaint: a hazard's caution first, then the equipment and every finding the words gave, for one yes
+function complaintPicks(text, sys) {
+  const picks = search.run(text, sys).picks;
+  const hazard = picks.map((p) => [p, kb.features.get(p.f)]).find(([p, f]) => f?.caution && p.s !== f.normal);
+  const said = picks.map((p) => speakable(kb.label(p.f, p.s, sys)));
+  return { picks, hazard: hazard && `Safety first: ${speakable(kb.fill(hazard[1].caution, sys))}`, line: said.length ? ` I have: ${said.join('; ')}.` : '' };
+}
+
 function voiceComplaint(text, skipUnit = false) {
   const box = $('#homeq');
   if (box) { box.value = text; homeSearch(); }
   const hit = !skipUnit && matchUnit(text);
   if (hit) {
-    askPending(`${hit.unit.name}. Start a job on it? Yes or no.`, () => startUnit(hit.unit.id, hit.rest), () => voiceComplaint(text, true));
+    const c = complaintPicks(hit.rest, hit.unit.system);
+    if (c.hazard) voice.say(c.hazard);
+    askPending(`${hit.unit.name}.${c.line} Start a job on it? Yes or no.`,
+      () => { startUnit(hit.unit.id, hit.rest, 'voice'); rememberStart(); }, () => voiceComplaint(text, true));
     return;
   }
   const sys = guessSystem(text, search.run(text, null));
-  if (!sys) { voice.say("I couldn't tell which equipment. Say it again with the equipment's name, or pick it on the screen."); return; }
-  askPending(`Sounds like ${kb.systems.get(sys).name}. Start? Yes or no.`,
-    () => startFromText(text, sys),
+  if (!sys) {
+    const c = complaintPicks(text, null);
+    voice.say([c.hazard, "I couldn't tell which equipment. Say it again with the equipment's name, or pick it on the screen."]);
+    return;
+  }
+  const c = complaintPicks(text, sys);
+  if (c.hazard) voice.say(c.hazard);
+  askPending(`Sounds like ${kb.systems.get(sys).name}.${c.line} Start? Yes or no.`,
+    () => { startFromText(text, sys, 'voice'); rememberStart(); },
     () => voice.say('Pick the equipment on the screen, or describe it again.'));
+}
+
+// the findings a spoken complaint set can be undone one by one
+function rememberStart() {
+  for (const [fid] of Object.entries(job?.f || {}).sort((x, y) => (x[1].t || 0) - (y[1].t || 0))) remember({ type: 'answer', fid, prev: undefined });
+}
+
+function voiceUndo() {
+  const inFlow = vs.mode === 'number' && vs.reading;
+  let e = null;
+  while (vs.done.length) {
+    const top = vs.done[vs.done.length - 1];
+    if (top.job !== jobOf()) { vs.done.pop(); continue; }
+    if (inFlow && top.type !== 'reading') break;
+    e = vs.done.pop();
+    break;
+  }
+  if (!e && inFlow) { voice.say('Nothing to undo in these readings.'); return; }
+  if (!e) {
+    // nothing done by voice: the newest finding, however it was entered
+    const last = Object.entries(job.f).sort((x, y) => (y[1].t || 0) - (x[1].t || 0))[0];
+    if (!last) { voice.say('Nothing to undo.'); return; }
+    e = { type: 'answer', fid: last[0], prev: undefined };
+  }
+  if (e.type === 'reading') {
+    if (e.prev === undefined) delete job.inputs[e.id]; else job.inputs[e.id] = e.prev;
+    save();
+    const r = vs.reading;
+    if (r && r.ids.includes(e.id)) { r.i = r.ids.indexOf(e.id) - 1; voice.say(`Undone: ${speakable(kb.inputs.get(e.id).name)}.`); if (view.name === 'readings') render(); voiceNextInput(); return; }
+    voice.say(`Undone: ${speakable(kb.inputs.get(e.id).name)}.`);
+    render();
+    return;
+  }
+  if (e.type === 'skip') {
+    job.skip = job.skip.filter((x) => x !== e.fid); save();
+    focusCheck = e.fid; vs.spokenFor = null;
+    voice.say('Skip undone.');
+    if (view.name === 'diag') render(); else go('#/diag');
+    return;
+  }
+  const cur = job.f[e.fid];
+  const label = cur ? speakable(kb.label(e.fid, cur.s, job.system)) : speakable(kb.features.get(e.fid)?.name || e.fid);
+  if (e.prev === undefined) delete job.f[e.fid]; else job.f[e.fid] = e.prev;
+  save();
+  focusCheck = e.fid; vs.spokenFor = null;
+  voice.say(`Undone: ${label}.`);
+  if (view.name === 'diag') render(); else go('#/diag');
 }
 
 function voiceCommand(id) {
   const fid = vs.turn?.fid;
   switch (id) {
-    case 'repeat': vs.spokenFor = null; voiceView(); return;
+    case 'repeat':
+      if (vs.mode === 'pick' && vs.picks) { voice.say(vs.picks.prompt); return; }
+      if (vs.mode === 'number' && vs.reading?.prompt) { voice.say(vs.reading.prompt); return; }
+      vs.spokenFor = null; voiceView();
+      return;
     case 'how': voice.say(vs.turn?.how || 'No how-to for this one.'); return;
     case 'skip':
       if (vs.mode === 'number') { voiceNextInput(); return; }
-      if (job && fid && !job.skip.includes(fid)) { job.skip.push(fid); focusCheck = null; save(); voice.say('Skipped.'); render(); }
+      if (job && fid && !job.skip.includes(fid)) {
+        remember({ type: 'skip', fid });
+        job.skip.push(fid); focusCheck = null; save(); voice.say('Skipped.'); render();
+      }
       return;
-    case 'undo': {
-      if (!job) return;
-      const last = Object.entries(job.f).filter(([, r]) => r.src === 'voice').sort((x, y) => (y[1].t || 0) - (x[1].t || 0))[0];
-      if (!last) { voice.say('Nothing to undo.'); return; }
-      const label = speakable(kb.label(last[0], last[1].s, job.system));
-      delete job.f[last[0]]; save();
-      focusCheck = last[0]; vs.spokenFor = null;
-      voice.say(`Undone: ${label}.`);
-      if (view.name === 'diag') render(); else go('#/diag');
-      return;
-    }
+    case 'undo': if (job) voiceUndo(); return;
     case 'leading': {
       if (!job || !lastRes) { voice.say('No job open.'); return; }
       const top = lastRes.post.slice(0, 3);
       const lines = [];
       if (top[0]?.cause.safety) lines.push(`Safety first: ${speakable(top[0].cause.safety)}`);
       lines.push(top.map((r) => `${speakable(r.cause.name.split(' — ')[0])}, ${pct(r.p)} percent.`).join(' '));
+      if (top.slice(1).some((r) => r.cause.safety)) lines.push('The others have safety notes on the screen.');
       voice.say(lines);
       return;
     }
     case 'numbers': {
-      const ids = (fid ? focusInputs(fid) : []).filter((id) => { const i = kb.inputs.get(id); return kb.inSystem(i, job.system) && kb.requireFactor(i, job.ctx) > 0; });
+      const ids = (fid ? focusInputs(fid) : []).filter((x) => { const i = kb.inputs.get(x); return kb.inSystem(i, job.system) && kb.requireFactor(i, job.ctx) > 0; });
       if (!ids.length) { voice.say('This check has no numbers to enter.'); return; }
+      const needsRef = kb.contextFor(job.system).some((c) => c.kind === 'refrigerant') && !job.ctx.refrigerant
+        && ids.some((x) => /psi/.test(kb.inputs.get(x).unit || ''));
+      if (needsRef) { go(`#/readings?f=${encodeURIComponent(fid)}`); voice.say('These numbers need the refrigerant. Pick it at the top of this screen, then say numbers again.'); return; }
       vs.reading = { ids, i: -1, back: fid };
       go(`#/readings?f=${encodeURIComponent(fid)}`);
       voiceNextInput();
@@ -1089,33 +1207,35 @@ function voiceCommand(id) {
     case 'other': {
       const alts = (lastRes?.next || []).filter((x) => x.id !== fid).slice(0, 3);
       if (!alts.length) { voice.say('No other checks.'); return; }
-      vs.picks = { fid: null, options: alts.map((x) => ({ id: x.id, label: x.feature.name, keys: [] })) };
+      const prompt = `Other checks. ${alts.map((x, i) => `${['one', 'two', 'three'][i]}: ${speakable(kb.fill(x.feature.name, job.system))}.`).join(' ')} Say the number.`;
+      vs.picks = { fid: null, prompt, options: alts.map((x) => ({ id: x.id, label: x.feature.name, keys: [] })) };
       vs.mode = 'pick';
-      voice.say(`Other checks. ${alts.map((x, i) => `${['one', 'two', 'three'][i]}: ${speakable(kb.fill(x.feature.name, job.system))}.`).join(' ')} Say the number.`);
+      voice.say(prompt);
       return;
     }
     case 'stop': voiceToggle(); return;
-    case 'name':
-      if (!job) { voice.say('No job open.'); return; }
-      vs.naming = true; vs.mode = 'free';
-      voice.say('Say the name.');
-      return;
     case 'save': {
       if (!job) { voice.say('No job open.'); return; }
       const name = unitOf(job.unit)?.name;
-      finishSave(); voice.say(name ? `Saved as ${name}.` : 'Report saved on the phone.');
+      const empty = !Object.keys(job.f).length && !Object.keys(job.inputs).length;
+      askPending(`${empty ? 'Nothing entered yet. ' : ''}${name ? `Save as ${name}?` : 'Save the report?'} Yes or no.`,
+        () => { finishSave(); voice.say(name ? `Saved as ${name}.` : 'Report saved on the phone.'); }, () => voice.say('Not saved.'));
       return;
     }
     case 'delete':
       if (!job) { voice.say('No job open.'); return; }
       askPending('Delete this job? Nothing is saved. Say yes to delete.', () => { finishDelete(); voice.say('Deleted.'); }, () => voice.say('Kept.'));
       return;
+    case 'name':
+      if (!job) { voice.say('No job open.'); return; }
+      vs.naming = true; vs.mode = 'free';
+      voice.say('Say the name.');
+      return;
     default:
   }
 }
 
-// "save as <name>": the name the recognizer caught, or ask for it. The job's own unit name saves straight away;
-// any other name is read back for a yes first, since it files the report under that unit.
+// "save as <name>": the name the recognizer caught, or ask for it; always read back for a yes
 function voiceSaveAs(heardName) {
   if (!job) { voice.say('No job open.'); return; }
   if (!heardName) { vs.saving = true; vs.mode = 'free'; voice.say('Save as what? Say the name.'); return; }
@@ -1125,25 +1245,36 @@ function voiceSaveAs(heardName) {
 function askSaveAs(name) {
   const known = knownUnits().find((u) => u.system === job.system && norm(u.name) === norm(name));
   const label = known?.name || name;
-  if (job.unit && known?.id === job.unit) { finishSave(); voice.say(`Saved as ${label}.`); return; }
   askPending(`Save as ${label}? Yes or no.`, () => { finishSave(label); voice.say(`Saved as ${label}.`); }, () => voice.say('Not saved. Say save as, and the name.'));
 }
 
-// readings by voice: one input at a time, each read back and confirmed before it's entered
+// readings by voice: one input at a time, each read back with its name and confirmed before it's entered
+const sayNum = (v) => (v < 0 ? `minus ${fmt(-v, 3)}` : fmt(v, 3));
+
 function voiceNextInput() {
   const r = vs.reading;
   if (!r) return;
   r.i++;
   if (r.i >= r.ids.length) {
     vs.reading = null; vs.spokenFor = null;
-    voice.say('Done. Back to the diagnosis.');
+    const { m } = evaluate();
+    const got = m.findings[r.back];
+    const blocked = m.sanity.find((w) => (w.ids || []).some((x) => r.ids.includes(x)));
+    const lines = [];
+    if (got) lines.push(`From the numbers: ${speakable(kb.label(r.back, got.s, job.system))}.`);
+    else lines.push(`The numbers didn't settle this check.${blocked ? ` ${speakable(blocked.msg)}` : ''}`);
+    lines.push('Back to the diagnosis.');
+    voice.say(lines);
     go('#/diag');
     return;
   }
   const inp = kb.inputs.get(r.ids[r.i]);
   r.unit = inp.unit || '';
   vs.mode = 'number';
-  voice.say(`Say the ${speakable(inp.name)}${inp.unit ? `, in ${speakable(inp.unit)}` : ''}. Or say skip.`);
+  const choices = Array.isArray(inp.choices) && inp.choices.length
+    ? ` Choices: ${inp.choices.map((c) => speakable(String(typeof c === 'object' ? c.label ?? c.value ?? c.id : c))).join(', ')}.` : '';
+  r.prompt = `Say the ${speakable(inp.name)}${inp.unit ? `, in ${speakable(inp.unit)}` : ''}.${choices} Or say skip.`;
+  voice.say(r.prompt);
 }
 
 function voiceReading(text) {
@@ -1152,8 +1283,16 @@ function voiceReading(text) {
   const inp = kb.inputs.get(r.ids[r.i]);
   const got = calc.readValue(text, inp.unit || '');
   if (got.v == null) { voice.say(`That didn't read as a number${got.note ? `: ${speakable(got.note)}` : ''}. Say it again.`); return; }
-  askPending(`${fmt(got.v, 2)} ${speakable(inp.unit || '')}. Right?`, () => {
-    job.inputs[inp.id] = String(got.v); save();
+  let store = text;
+  if (Array.isArray(inp.choices) && inp.choices.length) {
+    const c = inp.choices.find((x) => Number(typeof x === 'object' ? x.value ?? x.id : x) === got.v);
+    if (!c) { voice.say("That's not one of the choices. Pick it on the screen, or say skip."); return; }
+    store = String(typeof c === 'object' ? c.value ?? c.id : c);
+  }
+  const old = job.inputs[inp.id];
+  askPending(`${old != null ? `Replacing ${old}. ` : ''}${speakable(inp.name)}: ${sayNum(got.v)} ${speakable(inp.unit || '')}. Right?`, () => {
+    remember({ type: 'reading', id: inp.id, prev: old });
+    job.inputs[inp.id] = store; save();
     if (view.name === 'readings') render();
     voiceNextInput();
   }, () => { r.i--; voiceNextInput(); });
@@ -1178,6 +1317,7 @@ function onClick(e) {
   if (!el) return;
   const a = el.dataset.act;
   if (a === 'sheet-close' && e.target !== el) return; // clicks inside the sheet
+  if (a !== 'voice' && (vs.pending || vs.naming || vs.saving || vs.reading)) voiceReset(); // a tap takes over from a voice question
   switch (a) {
     case 'home': go('#/'); break;
     case 'setup': if (job) { closeSheet(); go('#/setup'); } break;

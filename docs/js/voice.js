@@ -54,6 +54,7 @@ export const isOn = () => model != null;
 // The recognizer answers every audio chunk with one event and the final request with one result, so the count says when it's done.
 export function press(grammar, onText) {
   if (!model || !ctx) return null;
+  if (ctx.state !== 'running') ctx.resume().catch(() => {}); // after a call or Siri the audio can sit suspended
   stopSpeaking(); // talking over the app cuts it off
   const rec = grammar ? new model.KaldiRecognizer(ctx.sampleRate, JSON.stringify(grammar)) : new model.KaldiRecognizer(ctx.sampleRate);
   const st = { sent: 0, seen: 0, texts: [], released: false };
@@ -67,21 +68,39 @@ export function press(grammar, onText) {
 }
 
 // ---------- speaking ----------
+// say() resolves to one flag per line: true = it played to the end (or there's no voice to play it on — the screen
+// shows the text), false = it was cut off. Cutting off (stopSpeaking) also drops lines queued behind it.
 let speakQueue = Promise.resolve();
+let gen = 0, dry = false;
+const live = new Set(); // resolvers of lines in flight, settled at once when speech is cut off
 function primeSpeech() { try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch { /* no speech output */ } }
-export function stopSpeaking() { try { speechSynthesis.cancel(); } catch { /* none */ } }
+export const spokenLog = []; // dry mode: what would have been said
+export function setDry(on) { dry = on; } // tests: everything "plays" instantly, nothing is spoken
 
-// lines spoken in order; resolves when done (or right away where there's no speech output)
+export function stopSpeaking() {
+  gen++;
+  for (const r of live) r(false);
+  live.clear();
+  try { speechSynthesis.cancel(); } catch { /* none */ }
+}
+
 export function say(lines) {
   const list = (Array.isArray(lines) ? lines : [lines]).filter(Boolean);
-  if (!list.length || !('speechSynthesis' in window)) return Promise.resolve();
-  speakQueue = speakQueue.then(() => Promise.all(list.map((text) => new Promise((resolve) => {
+  if (dry) spokenLog.push(...list);
+  if (dry || !list.length || !('speechSynthesis' in window)) return Promise.resolve(list.map(() => true));
+  const g = gen;
+  const run = () => (g !== gen ? Promise.resolve(list.map(() => false)) : Promise.all(list.map((text) => new Promise((resolve) => {
+    let settled = false;
+    const done = (ok) => { if (settled) return; settled = true; clearTimeout(cap); live.delete(done); resolve(ok); };
+    live.add(done);
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 0.95;
-    // a cap per line: some phones never fire onend for a cancelled utterance
-    const cap = setTimeout(resolve, 2000 + text.length * 90);
-    u.onend = u.onerror = () => { clearTimeout(cap); resolve(); };
+    // some phones never fire onend: after a generous wait, a line that wasn't cut off counts as played
+    const cap = setTimeout(() => done(g === gen), 4000 + text.length * 90);
+    u.onend = () => done(g === gen);
+    u.onerror = (e) => done(e.error === 'interrupted' || e.error === 'canceled' ? false : g === gen); // a voice that can't speak: the screen has it
     speechSynthesis.speak(u);
   }))));
+  speakQueue = speakQueue.then(run, run);
   return speakQueue;
 }

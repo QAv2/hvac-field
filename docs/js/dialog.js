@@ -4,7 +4,7 @@
 import { matchAnswer, spokenReading, COMMANDS } from './spoken.js';
 
 export const JOB_COMMANDS = {
-  save: ['save report', 'save the report', 'save it'], // "save as <name>" is handled in interpret()
+  save: ['save report', 'save the report'], // "save as <name>" is handled in interpret(); not "save it" ("it" is a filler: "save" alone would save)
   delete: ['delete job', 'delete the job', 'delete it'],
   name: ['name this unit', 'name the unit'],
 };
@@ -18,20 +18,35 @@ const NUM_WORDS = ('zero oh one two three four five six seven eight nine ten ele
   + 'below and a half pounds psi degrees fahrenheit celsius inches of water mercury amps volts hertz ohms kilo micro farads '
   + 'percent feet minutes').split(' ');
 
-// text the phone's voice reads well: units spelled out, asides dropped
-export function speakable(text) {
-  return String(text ?? '')
-    .replace(/\s*\([^()]*\)/g, '').replace(/[()]/g, '')
-    .replace(/\s*°F\b/g, ' degrees').replace(/\s*°C\b/g, ' degrees Celsius').replace(/°/g, ' degrees')
+// text the phone's voice reads well: units and symbols spelled out. Asides in parentheses are spoken (they carry
+// thresholds, negations and scope: "not under 5 minutes", "not the duct static the BAS shows"); only a bare
+// abbreviation like (TXV) is dropped. head: an answer label read as an option — the part before its dash.
+const ABBR = /^[A-Z][A-Z/+.\s]{0,7}$/;
+export function speakable(text, head = false) {
+  let t = String(text ?? '')
+    .replace(/\(\+\)/g, ' plus').replace(/\([−-]\)/g, ' minus')
+    .replace(/\s*\(([^()]*)\)/g, (m, inner) => (ABBR.test(inner.trim()) ? '' : /[−÷×=]/.test(inner) ? ` ${inner.trim()} ` : `, ${inner.trim()},`))
+    .replace(/[()]/g, '')
+    .replace(/\s[−-]\s/g, ' minus ').replace(/\s*÷\s*/g, ' divided by ').replace(/\s*×\s*/g, ' times ').replace(/\s*=\s*/g, ' equals ');
+  if (head) t = t.split(' — ')[0];
+  return t
+    .replace(/(^|[\s,:;])[−-](?=\d)/g, '$1minus ')
+    .replace(/(\d)\s*°F\b/g, '$1 degrees').replace(/(\d)\s*°C\b/g, '$1 degrees Celsius')
+    .replace(/°F\b/g, 'Fahrenheit').replace(/°C\b/g, 'Celsius').replace(/°/g, ' degrees')
     .replace(/(\d)\s*–\s*(\d)/g, '$1 to $2').replace(/(\d)\s*%/g, '$1 percent').replace(/%/g, ' percent')
     .replace(/\bpsig\b/g, 'P S I').replace(/\bpsi\b/g, 'P S I').replace(/\bΔT\b/g, 'temperature difference').replace(/Δ/g, 'delta ')
     .replace(/\bin\. w\.c\./g, 'inches of water').replace(/\bin\. Hg\b/g, 'inches of mercury')
-    .replace(/µF/g, 'microfarads').replace(/µ/g, 'micro').replace(/kΩ/g, 'kilohms').replace(/Ω/g, 'ohms').replace(/≈/g, 'about ')
-    .replace(/∞/g, 'infinite').replace(/\s+—\s+/g, ', ').replace(/\s{2,}/g, ' ').trim();
+    .replace(/µF/g, 'microfarads').replace(/µ/g, 'micro').replace(/kΩ/g, 'kilohms').replace(/Ω/g, 'ohms')
+    .replace(/(\d)\s*kW\b/g, '$1 kilowatts').replace(/(\d)\s*V\b/g, '$1 volts').replace(/(\d)\s*A\b/g, '$1 amps')
+    .replace(/(\d)\s*Hz\b/g, '$1 hertz').replace(/(\d)\s*ft\b/g, '$1 feet').replace(/(\d)\s*min\b/g, '$1 minutes')
+    .replace(/±/g, ' plus or minus ').replace(/≈|~/g, 'about ').replace(/≥/g, 'at least ').replace(/≤/g, 'at most ')
+    .replace(/>/g, 'more than ').replace(/</g, 'less than ').replace(/∞/g, 'infinite')
+    .replace(/\s+—\s+/g, ', ').replace(/\s+,/g, ',').replace(/,\s*([,.;:!?])/g, '$1').replace(/,\s*$/, '')
+    .replace(/\s{2,}/g, ' ').trim();
 }
 
-// an answer label read as an option: the part before the dash
-const shortLabel = (label) => speakable(String(label).replace(/\s*\([^()]*\)/g, '').split(' — ')[0]);
+// an answer label read as an option
+const shortLabel = (label) => speakable(label, true);
 
 // The current check as speech + the answers it takes. Options keep the KB's state order (= the spoken numbers).
 // A state's own spoken keys come from `say:` in the KB when authored; numbers always work.
@@ -43,7 +58,7 @@ export function checkTurn(kb, sys, feature) {
   if (f.caution) lines.push(`Before you do this: ${speakable(kb.fill(f.caution, sys))}`);
   lines.push(speakable(kb.ask(f, sys)));
   lines.push(options.map((o, i) => `${SAY_NUM[i] ?? i + 1}: ${shortLabel(o.label)}.`).join(' '));
-  return { fid: f.id, lines, options, how: f.how ? speakable(kb.fill(f.how, sys)) : null };
+  return { fid: f.id, lines, options, caution: Boolean(f.caution), how: f.how ? speakable(kb.fill(f.how, sys)) : null };
 }
 
 const phrasesOf = (cmds) => Object.values(cmds).flat().map((p) => p.replace(/\bcant\b/, "can't").replace(/\bwhats\b/, "what's"));

@@ -41,8 +41,10 @@ for (const f of kb.features.values()) {
     ok(!bad, `${f.id}: speech keeps "${bad?.[0]}" in: ${line.slice(0, 90)}`);
   }
   // authored spoken keys (when they exist) must not collide with each other or with a command
-  const cmd = new Set(Object.values({ ...COMMANDS, ...JOB_COMMANDS }).flat());
-  const keys = turn.options.flatMap((o) => o.keys.map((k) => [k, o.id]));
+  const cl = (x) => String(x).toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9\s]/g, ' ').split(/\s+/)
+    .filter((w) => w && !'uh um er ah okay ok so well its it is the a answer option number say i got'.split(' ').includes(w)).join(' ');
+  const cmd = new Set(Object.values({ ...COMMANDS, ...JOB_COMMANDS }).flat().map(cl));
+  const keys = turn.options.flatMap((o) => o.keys.map((k) => [cl(k), o.id]));
   for (const [k, id] of keys) {
     ok(!cmd.has(k), `${f.id}: key "${k}" is also a command`);
     ok(keys.filter(([k2, id2]) => k2 === k && id2 !== id).length === 0, `${f.id}: key "${k}" names two answers`);
@@ -73,7 +75,23 @@ ok(JSON.stringify(numberWords(155)) === JSON.stringify(['one', 'hundred', 'fifty
 ok(nameWords(['Dorm 155 reach-in']).includes('fifty') && nameWords(['Galley walk-in']).includes('walk'), 'nameWords');
 ok(grammar('check', anyTurn.options, ['Galley walk-in']).includes('galley'), 'check grammar carries known unit names');
 ok(speakable('Superheat 8–12 °F (TXV) — low') === 'Superheat 8 to 12 degrees, low', `speakable: ${speakable('Superheat 8–12 °F (TXV) — low')}`);
-ok(speakable('62 °F') === '62 degrees' && speakable('°F') === 'degrees', `speakable unit alone: "${speakable('°F')}"`);
+ok(speakable('62 °F') === '62 degrees' && speakable('°F') === 'Fahrenheit', `speakable unit alone: "${speakable('°F')}"`);
+ok(speakable('wait the maker\'s time (not under 5 minutes)').includes('not under 5 minutes'), 'a negation in parentheses is spoken');
+ok(speakable('Below −20 °F') === 'Below minus 20 degrees', `minus sign: ${speakable('Below −20 °F')}`);
+ok(speakable('P(+)–N(−) bus') === 'P plus–N minus bus' || /plus.*minus/.test(speakable('P(+)–N(−) bus')), `bus polarity: ${speakable('P(+)–N(−) bus')}`);
+// speech fidelity over the whole KB: no aside carrying a negation, scope or number is dropped; no raw symbols left
+const ABBR = /^[A-Z][A-Z/+.\s]{0,7}$/;
+for (const f of kb.features.values()) {
+  const sys = leaves.find((x) => kb.inSystem(f, x.id))?.id;
+  if (!sys) continue;
+  for (const src of [kb.ask(f, sys), f.caution && kb.fill(f.caution, sys), f.how && kb.fill(f.how, sys), ...f.stateIds.map((x) => kb.fill(String(f.states[x]), sys))].filter(Boolean)) {
+    for (const m of src.matchAll(/\(([^()]*)\)/g)) {
+      if (ABBR.test(m[1].trim())) ok(!/\bnot\b|never|only|other than|\d/i.test(m[1]), `${f.id}: dropped aside "${m[1]}"`);
+    }
+    const spoken = speakable(src);
+    ok(!/[−~±<>≈()]/.test(spoken), `${f.id}: raw symbol left in "${spoken.slice(0, 80)}"`);
+  }
+}
 for (const inp of kb.inputs.values()) {
   const t = speakable(inp.unit || '');
   ok(!/[°%ΔΩµ]/.test(t), `unit "${inp.unit}" speaks as "${t}"`);

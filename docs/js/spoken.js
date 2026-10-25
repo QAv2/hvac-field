@@ -83,6 +83,7 @@ function parseNumber(ws, i) {
       const v = ONES[w];
       const last = groups[groups.length - 1];
       if ((w === 'oh' || w === 'o') && !any && ws[i + 1] !== 'point') break; // "oh" alone isn't a reading
+      if ((w === 'oh' || w === 'o') && any && !(ONES[ws[i + 1]] > 0)) break;  // a trailing "oh" ("sixty two oh") isn't a zero
       if (last && last.tens && v > 0 && !last.closed) { last.s = String(Number(last.s) + v); last.closed = true; cur += v; continue; }
       if (v === 0 && (w === 'oh' || w === 'o') && ws[i + 1] in ONES && ONES[ws[i + 1]] > 0) {
         groups.push({ s: `0${ONES[ws[i + 1]]}` }); i++; any = true; continue;
@@ -115,7 +116,9 @@ export function spokenReading(text) {
     const n = parseNumber(ws, i);
     if (!n) continue;
     const u = unitAt(ws, n.end);
-    return u ? `${fmt(n.v)} ${u.u}` : fmt(n.v);
+    let v = n.v;
+    if (u && ws[u.end] === 'below' && v > 0) v = -v; // "ten degrees below zero"
+    return u ? `${fmt(v)} ${u.u}` : fmt(v);
   }
   return null;
 }

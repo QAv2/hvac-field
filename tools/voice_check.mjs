@@ -21,6 +21,8 @@ const READINGS = [
   ['118', 'psig', 118], ['-10', '°F', -10], ['1,200 volts', 'V', 1200], ['zero', 'A', 0], ['oh point five', 'A', 0.5],
   ['five degrees celsius', '°F', null], ['sixty two amps', 'psig', null], ['twenty', 'psig', 20], ['twenty twenty', 'V', 2020],
   ['four point two kilo ohms', 'Ω', 4200], ['ten kilopascals', 'psig', 1.45], ['three hundred fifty', '°F', 350],
+  ['ten degrees below zero', '°F', -10], ['five degrees below', '°F', -5], ['minus ten degrees fahrenheit', '°F', -10],
+  ['sixty two oh', 'psig', 62], ['twenty below zero', '°F', -20],
 ];
 for (const [heard, unit, want] of READINGS) {
   const text = spokenReading(heard);
