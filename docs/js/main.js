@@ -125,8 +125,7 @@ function evaluate() {
   const findings = {};
   for (const [fid, r] of Object.entries(m.findings)) findings[fid] = r.s;
   for (const [fid, r] of Object.entries(job.f)) findings[fid] = r.s;
-  const res = diagnose(kb, { system: job.system, ctx: job.ctx, findings }, { limit: 16 });
-  res.next = res.next.filter((n) => !job.skip.includes(n.id));
+  const res = diagnose(kb, { system: job.system, ctx: job.ctx, findings }, { limit: 16, skip: job.skip });
   return { m, findings, res };
 }
 
@@ -289,7 +288,7 @@ function viewDiag() {
     <div id="nextcard">${nextCard(res, m)}</div>
     <h2>Likely causes</h2>
     ${fitNote(res, m)}
-    <div class="causes">${res.post.slice(0, 6).map((r, i) => causeRow(r, i === 0)).join('')}</div>
+    <div class="causes">${res.post.slice(0, 6).map((r, i) => causeRow(r, i === 0, i === 0 && poorFit(res))).join('')}</div>
     <h2>Readings</h2>
     <button class="res" data-act="go" data-href="#/readings"><span>${vitalsSummary(m)}</span><span class="k">enter ›</span></button>
     <h2>Notes</h2>
@@ -301,7 +300,8 @@ function viewDiag() {
     </div>`;
   const top = res.post[0];
   const n = currentCheck(res);
-  if (top && top.p >= 0.75 && top.id !== '_ok') helper(`Likely: ${top.cause.name}. Confirm it, then fix.`);
+  if (poorFit(res)) helper('No one cause explains everything entered. Recheck the odd findings, or look for a second fault.');
+  else if (top && top.p >= 0.75 && top.id !== '_ok') helper(`Likely: ${top.cause.name}. Confirm it, then fix.`);
   else if (n) helper(`Next: ${shortAsk(n.feature)}`);
   else helper('Add what you see, or enter readings.');
 }
@@ -364,8 +364,12 @@ function nextCard(res, m) {
   </div>`;
 }
 
-function causeRow(r, lead) {
-  const label = r.p >= 0.6 ? 'Strong lead' : r.p >= 0.3 ? 'Contender' : r.p >= 0.1 ? 'Possible' : 'Long shot';
+// The percentages always add up to 100, so a cause can lead strongly on findings it doesn't explain
+// (contradictory readings, or two faults at once). Then it isn't called a strong lead.
+const poorFit = (res) => Boolean(res.fit && !res.fit.ok && res.post[0] && res.post[0].id !== '_ok');
+
+function causeRow(r, lead, poor = false) {
+  const label = poor ? 'Leads, but doesn\'t explain everything' : r.p >= 0.6 ? 'Strong lead' : r.p >= 0.3 ? 'Contender' : r.p >= 0.1 ? 'Possible' : 'Long shot';
   return `<button class="cause ${lead ? 'lead' : ''}" data-act="cause" data-id="${esc(r.id)}">
     <span class="n">${esc(r.cause.name)}</span><span class="p">${pct(r.p)}%</span>
     <span class="bar"><i style="width:${Math.max(2, Math.round(r.p * 100))}%"></i></span>
@@ -377,7 +381,7 @@ function fitNote(res, m) {
   if (m?.sanity?.length) {
     html += m.sanity.map((w) => `<div class="safety"><b>${esc(w.title || 'Thermodynamic sanity check.')}</b> ${esc(w.msg || w)}</div>`).join('');
   }
-  if (res.fit && !res.fit.ok && res.post[0] && res.post[0].id !== '_ok') {
+  if (poorFit(res)) {
     const misses = res.fit.misses.slice(0, 3).map((x) => esc(x.label)).join(', ');
     html += `<div class="warnbox">The leading cause doesn't explain everything (${misses}). There may be two faults, or a reading is off — recheck it.</div>`;
   }
@@ -489,7 +493,7 @@ function viewCause() {
   // the check that best separates this cause from the strongest other one
   const rival = res.post.find((r) => r.id !== id);
   $('#main').innerHTML = `
-    <p class="muted" style="margin:6px 0 0">${row ? `${pct(row.p)}% · ${row.p >= 0.6 ? 'Strong lead' : row.p >= 0.3 ? 'Contender' : row.p >= 0.1 ? 'Possible' : 'Long shot'}` : ''}</p>
+    <p class="muted" style="margin:6px 0 0">${row ? `${pct(row.p)}% · ${row === res.post[0] && poorFit(res) ? 'Leads, but doesn\'t explain everything' : row.p >= 0.6 ? 'Strong lead' : row.p >= 0.3 ? 'Contender' : row.p >= 0.1 ? 'Possible' : 'Long shot'}` : ''}</p>
     <h1>${esc(c.name)}</h1>
     ${ev ? `<h2>Why</h2><ul class="ev">${ev}</ul>` : ''}
     ${c.confirm ? `<h2>Confirm it</h2><div class="prose"><p>${esc(kb.fill(c.confirm, sys))}</p></div>` : ''}

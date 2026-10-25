@@ -133,8 +133,9 @@ export function fit(model, findings, causeId) {
   return { misses, ok: misses.length < 2 };
 }
 
-function askable(model, f, F) {
+function askable(model, f, F, skip) {
   if (F[f.id] !== undefined) return false;
+  if (skip?.has(f.id)) return false; // the tech said they can't check it now
   if (f.ask === false) return false;
   for (const [fid, states] of Object.entries(f.ask_if || {})) {
     const have = F[fid];
@@ -161,7 +162,8 @@ function effort(model, f, F) {
 }
 
 // Rank the checks you haven't made by information gained per unit of effort.
-// opts.limit: how many to return. Each result lists, per answer, how likely it is and which cause
+// opts.limit: how many to return. opts.skip: checks the tech can't make now (left out before the limit,
+// so skipping many never empties the list while useful checks remain). Each result lists, per answer, how likely it is and which cause
 // it would point to, so the card can say "if it's high → restriction; if normal → …".
 export function nextChecks(model, findings, post, opts = {}) {
   const F = asMap(findings);
@@ -171,8 +173,9 @@ export function nextChecks(model, findings, post, opts = {}) {
   const C = post.map((r) => byId.get(r.id));
   const H0 = entropy(P);
   const out = [];
+  const skip = opts.skip ? new Set(opts.skip) : null;
   for (const f of model.feats) {
-    if (!askable(model, f, F)) continue;
+    if (!askable(model, f, F, skip)) continue;
     const n = f.stateIds.length;
     const pk = new Float64Array(n);
     const lk = C.map((c) => distFor(c, f));
