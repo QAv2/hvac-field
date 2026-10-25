@@ -180,6 +180,7 @@ for (const c of raw.causes) {
 // common calls (a terminal-unit synonym once sent "ac not blowing cold air" to the unit-heater system).
 const ROUTES = [
   ['ac not blowing cold air', 'vc.ac'], ['walk in cooler not blowing cold air', 'vc.walkin'],
+  ['air handler fan not running', 'ahu'], ['air handler fan is off', 'ahu'],
   ['furnace blowing cold air', 'fuel.furnace'], ['ahu supply air blowing cold', 'ahu'],
   ['heat pump blowing cold air in heat mode', 'vc.hp'], ['walk in freezer warm', 'vc.walkin'],
   ['boiler wont fire', 'fuel.boiler'], ['unit heater blowing cold', 'terminal'], ['fan coil not heating', 'terminal'],

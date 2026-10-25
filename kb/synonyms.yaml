@@ -21,7 +21,7 @@ synonyms:
   - [overload, ol, thermal overload]
   - [thermostat, tstat, t stat, stat]
   - [controller, control board, board, control]
-  - [blower, indoor fan, air handler fan, furnace fan]
+  - [blower, indoor fan, furnace fan]   # not 'air handler fan': at McMurdo that's the AHU's supply fan (it routed to furnace)
   - [solenoid, solenoid valve, liquid line solenoid, lls]
   - [lps, low pressure switch, low pressure control]
   - [hps, high pressure switch, high pressure control]

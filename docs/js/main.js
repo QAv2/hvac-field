@@ -167,7 +167,7 @@ function route() {
 function render() {
   const sysEl = $('#sysname');
   sysEl.textContent = job ? `${unitOf(job.unit)?.name || kb.systems.get(job.system)?.short || kb.systems.get(job.system)?.name} ▾` : '';
-  sysEl.title = job ? 'Unit details' : '';
+  sysEl.title = job ? 'This job: details, switch equipment, finish' : '';
   const views = { home: viewHome, setup: viewSetup, diag: viewDiag, readings: viewReadings, cause: viewCause, tools: viewTools, tool: viewTool, about: viewAbout, reports: viewReports, units: viewUnits };
   (views[view.name] || viewHome)();
   if (vs.on) voiceView();
@@ -860,6 +860,46 @@ function viewReports() {
   helper(fresh ? `${fresh} report${fresh > 1 ? 's' : ''} not backed up yet.` : 'Everything here is backed up.');
 }
 
+// the job menu under the top-bar name: open it, its details, switch equipment, finish
+function jobMenu() {
+  const sys = kb.systems.get(job.system);
+  const named = unitOf(job.unit);
+  const others = [...kb.systems.values()].filter((x) => !x.abstract && x.id !== job.system)
+    .map((x) => `<button class="opt" data-act="switch-sys" data-id="${esc(x.id)}">${esc(x.short || x.name)}</button>`).join('');
+  $('#sheet').innerHTML = `<div class="sheet-bg" data-act="sheet-close"><div class="sheet" role="dialog" aria-label="This job" style="max-height:85vh;overflow:auto">
+    <div class="q">${esc(named?.name || sys.name)}${named ? ` <span class="muted" style="font-weight:400">${esc(sys.name)}</span>` : ''}</div>
+    <div class="results">
+      <button class="res" data-act="open-job"><span>Back to the diagnosis</span><span class="k">›</span></button>
+      <button class="res" data-act="setup"><span>Unit details: refrigerant, metering, name…</span><span class="k">›</span></button>
+    </div>
+    <div class="grp" style="margin:14px 2px 6px;font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint)">Wrong equipment? Switch this job to</div>
+    <div class="opts">${others}</div>
+    <div style="margin-top:16px;display:grid;gap:10px">
+      <button class="cta ghost" data-act="finish">Finish this job: save or delete</button>
+      <button class="cta ghost" data-act="sheet-close">Close</button>
+    </div></div></div>`;
+}
+
+// same job, other equipment: findings that the new equipment also asks about carry over, the rest are dropped
+function switchSystem(id) {
+  const to = kb.systems.get(id);
+  if (!job || !to || to.abstract) return;
+  const kept = {}, dropped = [];
+  for (const [fid, r] of Object.entries(job.f)) {
+    const f = kb.features.get(fid);
+    if (f && kb.inSystem(f, id)) kept[fid] = r; else dropped.push(fid);
+  }
+  const ctx = kb.defaultCtx(id);
+  for (const c of kb.contextFor(id)) if (job.ctx[c.id] != null) ctx[c.id] = job.ctx[c.id];
+  if (job.unit && unitOf(job.unit)?.system !== id) delete job.unit;
+  Object.assign(job, { system: id, f: kept, ctx, skip: [] });
+  focusCheck = null;
+  save();
+  closeSheet();
+  toast(`Switched to ${to.name}${dropped.length ? ` · ${dropped.length} finding${dropped.length > 1 ? 's' : ''} didn't apply` : ''}.`);
+  go('#/diag');
+}
+
 function finishSave(saveAsName = null) {
   if (saveAsName && cleanName(saveAsName) && norm(saveAsName) !== norm(unitOf(job.unit)?.name || '')) nameUnit(saveAsName, false);
   saveReport(); archive(); job = null; store.set(KEY_JOB, null); closeSheet(); go('#/');
@@ -1140,7 +1180,10 @@ function onClick(e) {
   if (a === 'sheet-close' && e.target !== el) return; // clicks inside the sheet
   switch (a) {
     case 'home': go('#/'); break;
-    case 'setup': if (job) go('#/setup'); break;
+    case 'setup': if (job) { closeSheet(); go('#/setup'); } break;
+    case 'jobmenu': if (job) jobMenu(); break;
+    case 'switch-sys': switchSystem(el.dataset.id); break;
+    case 'open-job': closeSheet(); go('#/diag'); break;
     case 'tools': go('#/tools'); break;
     case 'tool': go(`#/tool/${el.dataset.id}`); break;
     case 'theme': {
@@ -1174,7 +1217,7 @@ function onClick(e) {
       if (h) { if (job) archive(); job = h.job; save(); go('#/diag'); }
       break;
     }
-    case 'finish': finishSheet(); break;
+    case 'finish': closeSheet(); finishSheet(); break;
     case 'finish-save': finishSave($('#saveas')?.value || null); break;
     case 'finish-delete': finishSheet(true); break;
     case 'finish-delete-yes': finishDelete(); break;
