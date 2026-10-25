@@ -241,8 +241,8 @@ features:
     cost: 2
     needs: meter
     phrases:
-      open: [pressure switch open at normal pressure, switch reads open, safety switch failed open, bad pressure
-        switch, pressure switch bad, switch open with normal pressure]
+      open: [pressure switch open at normal pressure, bad pressure switch, pressure switch bad, switch open with
+        normal pressure]
 
   - id: ctl.trip_reason
     name: Why the rollout or spill switch tripped
@@ -473,8 +473,8 @@ features:
     how: Meter the call terminal to C at the thermostat sub-base (24 V means the thermostat is calling), then the
       same terminal to C at the equipment's terminal board. Use C at each end, not a ground.
     caution: At the unit, line voltage sits beside the terminal board; keep the probes on the 24 V terminals. If the
-      thermostat has no R and C terminals, or is wired to 120 or 240 V, it is a line-voltage thermostat. Lock out,
-      and don't meter or jumper it as a 24 V circuit.
+      thermostat has no R and C terminals, or is wired to 120, 208, 240 or 277 V, treat it as line voltage until
+      you have proved otherwise. Lock out, and don't meter or jumper it as a 24 V circuit.
     systems: [vc.ac, vc.hp, fuel, hydronic, terminal]
     states:
       reaches_unit: 24 V at the thermostat and at the unit
@@ -498,8 +498,8 @@ features:
       take the jumper off. A compressor may hold off 3–5 minutes; if it ran in the last 5 minutes, wait out the
       delay before you call it a no-start.
     caution: Jumper R to one call terminal only, never to C (a dead short), and leave every safety in the
-      circuit. If the thermostat has no R and C terminals, or is wired to 120 or 240 V, it is a line-voltage
-      thermostat. Lock out, and don't jumper it as a 24 V circuit.
+      circuit. If the thermostat has no R and C terminals, or is wired to 120, 208, 240 or 277 V, treat it as line
+      voltage until you have proved otherwise. Lock out, and don't jumper it as a 24 V circuit.
     systems: [vc.ac, vc.hp, hydronic, terminal]
     states:
       starts: Starts on the jumper
@@ -555,7 +555,7 @@ features:
     how: Pull the thermostat off and look for a wire on C, then confirm it is landed on C at the equipment too.
       24 V from R to C at the sub-base proves it.
     systems: [vc.ac, vc.hp, fuel, hydronic, terminal]
-    requires: {controls: [stat_digital]}
+    requires: {controls: [stat_digital], hp_unit: [ducted, inverter]}
     states:
       connected: Connected (or the thermostat doesn't need one)
       missing: Needed, but not connected — the thermostat steals power
@@ -571,6 +571,7 @@ features:
     how: Trace each conductor color from the thermostat to the equipment terminal board. Check the jumper between
       the two R terminals, Rh and Rc (in with one transformer, out with two), and that C is not on R.
     systems: [vc.ac, vc.hp, fuel, hydronic, terminal]
+    requires: {hp_unit: [ducted, inverter]}   # a ductless head has no thermostat wiring
     states:
       matches: Matches
       wrong: Miswired
@@ -584,6 +585,7 @@ features:
     name: Thermostat changed recently
     ask: Was the thermostat replaced, moved or rewired recently?
     systems: [vc.ac, vc.hp, fuel, hydronic, terminal]
+    requires: {hp_unit: [ducted, inverter]}   # a ductless head has no thermostat wiring
     situational: true
     chip: state
     states:
@@ -601,8 +603,11 @@ features:
       the wall, wrap the W wire 10 turns through the clamp, put a heat call on (jumper R to W at the sub-base),
       read the amps once the burner or valve is on, divide by 10, then take the jumper off. Digital thermostat —
       check the cycles-per-hour setting in the installer menu against the equipment type.
+    caution: You are jumpering R to W, so the heat will fire. Keep the probes and clamp on the 24 V wiring only. If
+      the thermostat has no R and C terminals, or is wired to 120, 208, 240 or 277 V, treat it as line voltage —
+      lock out and don't jumper it.
     systems: [vc.ac, vc.hp, fuel, hydronic]
-    requires: {controls: [stat_mech, stat_digital]}
+    requires: {controls: [stat_mech, stat_digital], hp_unit: [ducted, inverter]}
     states:
       ok: Set right
       too_fast: Set for too many cycles (short cycles)
@@ -671,12 +676,13 @@ features:
   - id: ctl.sensor_ohms
     name: Sensor resistance vs its curve
     ask: If it is a 10 kΩ NTC sensor, does its resistance (one lead lifted) match the chart at the temperature it sits in?
-    how: Lift one sensor lead at the controller, so the input's own voltage is off the sensor, and ohm the sensor
+    how: Power the controller off, then lift one sensor lead at the controller, so the input's own voltage is off the sensor, and ohm the sensor
       (this also tests the wire run). Read the temperature at the sensor with a thermometer. A 10 kΩ Type II sensor
       reads about 336 kΩ at −40 °F, 85 kΩ at 0 °F, 32.6 kΩ at 32 °F, 12.5 kΩ at 68 °F, 10.0 kΩ at 77 °F and 5.8 kΩ
       at 100 °F. A Type III reads lower in the cold (240 kΩ at −40 °F, 29.5 kΩ at 32 °F). Enter both numbers and
-      the app checks them against both tables. Other sensor types (1 kΩ platinum, 20 kΩ and others) go to the
-      maker's chart.
+      the app checks them against both tables. In the cold the two curves sit far apart, so "on a curve" is loose
+      there; if you know the sensor's type, compare with that column only. Other sensor types (1 kΩ platinum, 20 kΩ
+      and others) go to the maker's chart.
     caution: On an inverter unit the board holds 300–400 V DC after power-off. Wait the maker's time and confirm
       under 10 V DC before you unplug a sensor.
     systems: [vc.ac, vc.hp, fuel, hydronic]
@@ -850,7 +856,8 @@ features:
     caution: Some outputs switch line voltage through a separate relay; meter its load side with insulated probes
       only. Read 4–20 mA only in series, on the meter's mA jack and range, never across the terminals, and move
       the lead back to V before the next reading. A solid-state output with nothing connected can show a false
-      voltage; meter it with the load connected.
+      voltage; meter it with the load connected. Opening a 4–20 mA loop to put the meter in series makes the device
+      see 0 mA, and a valve or damper may drive to its fail position, so know what it will do first.
     systems: [vc.ac, vc.hp, vc.walkin, fuel, hydronic, steam]
     requires: {controls: [bas]}
     states:
@@ -867,14 +874,14 @@ features:
         signal at the actuator but there is at the controller]
 
 inputs:
-  - {id: ctl.sensor_f, name: Temperature at the sensor, unit: °F, systems: ['*'], hint: "A reference thermometer at the sensor (or in the well beside it). For a 10 kΩ NTC sensor only"}
-  - {id: ctl.sensor_kohm, name: 10 kΩ NTC sensor resistance, unit: kΩ, systems: ['*'], hint: "10 kΩ NTC sensors only; other types go to the maker's chart. One lead lifted. Enter in kΩ (10.2, not 10200), 9999 for OL."}
+  - {id: ctl.sensor_f, name: Temperature at the sensor, unit: °F, systems: [vc.ac, vc.hp, fuel, hydronic], hint: "A reference thermometer at the sensor (or in the well beside it). For a 10 kΩ NTC sensor only"}
+  - {id: ctl.sensor_kohm, name: 10 kΩ NTC sensor resistance, unit: kΩ, systems: [vc.ac, vc.hp, fuel, hydronic], hint: "10 kΩ NTC sensors only; other types go to the maker's chart. One lead lifted. Enter in kΩ (10.2, not 10200), 9999 for OL."}
 
 measures:
   - id: ctl.ntc_expected
     name: 10 kΩ Type II table value at that temperature
     unit: kΩ
-    systems: ['*']
+    systems: [vc.ac, vc.hp, fuel, hydronic]
     note: Steinhart–Hart fit to the published 10 kΩ Type II rows (336.1 kΩ at −40 °C, 32.65 kΩ at 0 °C, 10.0 kΩ at
       25 °C, 3.60 kΩ at 50 °C). For a close call use the sensor maker's chart.
     let:
@@ -883,7 +890,7 @@ measures:
   - id: ctl.ntc_expected3
     name: 10 kΩ Type III table value at that temperature
     unit: kΩ
-    systems: ['*']
+    systems: [vc.ac, vc.hp, fuel, hydronic]
     note: Steinhart–Hart fit to the published 10 kΩ Type III rows (239.8 kΩ at −40 °C, 29.49 kΩ at 0 °C, 10.0 kΩ at
       25 °C, 0.817 kΩ at 100 °C). For a close call use the sensor maker's chart.
     let:
@@ -892,7 +899,7 @@ measures:
   - id: ctl.ntc_ratio
     name: Sensor resistance vs the nearer 10 kΩ table
     unit: kΩ
-    systems: ['*']
+    systems: [vc.ac, vc.hp, fuel, hydronic]
     let:
       d2: abs(ctl.sensor_kohm / ctl.ntc_expected * 100 - 100)
       d3: abs(ctl.sensor_kohm / ctl.ntc_expected3 * 100 - 100)
@@ -1001,6 +1008,7 @@ causes:
       ahu.fan: off?
       hyd.circ: off
       tu.fan: 'off'
+      tu.fan_volts: missing
       tu.heat_amps: zero
     confirm: Line voltage at the unit's disconnect or power terminals, none at the transformer primary leads.
     fix: |
@@ -1221,11 +1229,10 @@ causes:
     signs:
       blr.spill_switch: tripped!
       ctl.trip_reason: none_found!
-      ctl.switch_cont: open?
       blr.start: nothing?
       gen.output: none?
     confirm: A full inspection finds the draft, flue, passages, combustion air and light-off all good, and the
-      switch reads open when cool, or trips again with every reading normal.
+      after one reset and a cool-down it trips again on the next start with every reading still normal.
     fix: |
       A rollout or spill switch that trips is nearly always telling the truth. Prove the draft, flue and
       combustion air once more with an analyzer before you blame the switch. Then replace it with one of the same
@@ -1450,7 +1457,7 @@ causes:
   - id: ctl.stat_config_wrong
     name: Thermostat set up wrong for the equipment — system type, stages, fan in heat
     systems: [vc.ac, vc.hp, fuel, hydronic]
-    requires: {controls: [stat_digital]}
+    requires: {controls: [stat_digital], hp_unit: [ducted, inverter]}
     prior: occasional
     keywords: [thermostat configured wrong, installer settings, wrong system type, new thermostat]
     signs:
@@ -1536,7 +1543,7 @@ causes:
   - id: ctl.no_c_wire
     name: No C wire — the thermostat steals power and browns out (blank or restarting display, chatter)
     systems: [vc.ac, vc.hp, fuel, hydronic, terminal]
-    requires: {controls: [stat_digital]}
+    requires: {controls: [stat_digital], hp_unit: [ducted, inverter]}
     prior: occasional
     keywords: [no c wire, power stealing, wifi thermostat, smart thermostat keeps rebooting]
     signs:
@@ -1557,6 +1564,7 @@ causes:
   - id: ctl.stat_miswired
     name: Thermostat miswired — wires on the wrong letters, R and C crossed, or the R-terminal jumper wrong
     systems: [vc.ac, vc.hp, fuel, hydronic, terminal]
+    requires: {hp_unit: [ducted, inverter]}   # a ductless head has no thermostat wiring
     prior: occasional
     keywords: [thermostat miswired, wired wrong, wrong terminal, new thermostat wired wrong, y and g swapped]
     signs:
@@ -1577,7 +1585,7 @@ causes:
   - id: ctl.anticipator
     name: Heat anticipator or cycle rate set wrong — short cycles, or long cycles with big swings
     systems: [vc.ac, vc.hp, fuel, hydronic]
-    requires: {controls: [stat_mech, stat_digital]}
+    requires: {controls: [stat_mech, stat_digital], hp_unit: [ducted, inverter]}
     prior: occasional
     keywords: [heat anticipator, anticipator, cycles per hour, cycle rate, cph]
     signs:

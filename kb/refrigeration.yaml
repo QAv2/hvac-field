@@ -1375,6 +1375,7 @@ causes:
       rf.lpc_setting: wrong_tight!
       gen.short_cycle: yes!
       vc.lps_trip: yes!
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       rf.box_temp: high
       gen.output: weak
     confirm: Gauges show the low-pressure control cutting the compressor out while box temperature is still above
@@ -1592,6 +1593,7 @@ causes:
       vc.cond_sat: high!
       vc.cond_fan: off!
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.discharge_temp: high
       vc.comp_amps: high?
       gen.output: weak|none
@@ -1615,6 +1617,7 @@ causes:
       rf.water_flow: low_hot!
       vc.cond_sat: high!
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.discharge_temp: high
       vc.comp_amps: high?
       gen.output: weak|none
@@ -1661,6 +1664,7 @@ causes:
       rf.water_flow: normal
       rf.wrv_state: normal?
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.discharge_temp: high
       gen.output: weak
     confirm: Water is flowing normally (the leaving water sits well below condensing temperature and the water-regulating valve is
@@ -1683,6 +1687,7 @@ causes:
       vc.cond_sat: high!
       rf.wrv_state: normal
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.discharge_temp: high
       vc.comp_amps: high?
       gen.output: weak|none
@@ -2042,6 +2047,7 @@ causes:
       vc.sight_glass: bubbles?
       vc.evap_frost: partial|heavy
       vc.lps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       gen.output: weak
     confirm: Head pressure follows the outdoor air — condensing temperature only 10–20 °F over ambient and far below ~85 °F (about 180
       psig on R-404A) — and the unit has no flooding valve, fan-cycling switch or variable-speed fan. The liquid line flashes and the

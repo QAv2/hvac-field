@@ -101,7 +101,7 @@
 
 - name: Boiler spill switch tripped, full inspection finds nothing — draft normal, switch reads open cold
   system: fuel.boiler
-  findings: {gen.output: none, blr.start: nothing, blr.spill_switch: tripped, blr.draft_br: normal, ctl.trip_reason: none_found, ctl.switch_cont: open}
+  findings: {gen.output: none, blr.start: nothing, blr.spill_switch: tripped, blr.draft_br: normal, ctl.trip_reason: none_found}
   expect: {top: ctl.rollout_failed}
 
 - name: Boiler spill switch tripped and the burner dead — heat-exchanger passages heavily sooted
@@ -322,7 +322,7 @@
   inputs: {ctl.sensor_f: 32, ctl.sensor_kohm: 29.5}
   expect: {measured: {ctl.sensor_ohms: ok}}
 
-- name: A sensor 6 °F off at 32 °F is off both 10 kΩ tables (24 kΩ)
+- name: A sensor about 10 °F off at 32 °F is off both 10 kΩ tables (24 kΩ)
   system: hydronic
   inputs: {ctl.sensor_f: 32, ctl.sensor_kohm: 24}
   expect: {measured: {ctl.sensor_ohms: 'off'}}
@@ -466,3 +466,22 @@
   # "switch failed" stays a distant second until the tech answers that the full inspection found nothing
   expect:
     top: blr.flue_blocked
+
+# --- coverage audit (.lane/qc/controls-audit-2.md) -------------------------------------------------------
+- name: Audit N2 — boiler spill switch tripped, burner dead, no heat, nothing inspected yet — a real spill cause leads
+  system: fuel.boiler
+  findings: {blr.spill_switch: tripped, blr.start: nothing, gen.output: none}
+  expect:
+    top3: [blr.hx_sooted, blr.flue_blocked]
+    not_top: [ctl.rollout_failed]
+
+- name: Audit N3 — heat pump off on its high-pressure switch in heat mode — the indoor airflow side leads
+  system: vc.hp
+  findings: {vc.hps_trip: 'yes', vc.comp: 'off', gen.output: none}
+  expect: {not_top: [ctl.hps_failed]}
+
+- name: Audit N3 — water-cooled walk-in off on its high-pressure switch — the water side leads
+  system: vc.walkin
+  ctx: {condenser: water}
+  findings: {vc.hps_trip: 'yes', vc.comp: 'off', rf.box_temp: high}
+  expect: {top3: [rf.water_reg_valve_closed], not_top: [ctl.hps_failed]}

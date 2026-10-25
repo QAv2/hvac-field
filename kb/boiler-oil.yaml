@@ -2501,6 +2501,7 @@ causes:
     keywords: [blocked chimney, blocked flue, chimney plugged, frost on the chimney, chimney iced, snow on the vent,
       bird nest]
     signs:
+      gen.output: {none: 0.4, weak: 0.4, normal: 0.2}   # no heat once the spill switch trips
       blr.flue: restricted!
       blr.draft_br: weak!
       blr.draft_of: none_positive!
@@ -2531,6 +2532,7 @@ causes:
     prior: occasional
     keywords: [poor draft, no draft, downdraft, cold chimney, barometric damper, draft regulator]
     signs:
+      gen.output: {none: 0.4, weak: 0.4, normal: 0.2}   # no heat once the spill switch trips
       blr.draft_br: weak!
       blr.draft_of: none_positive
       blr.flue: clear
@@ -2588,6 +2590,7 @@ causes:
     prior: occasional
     keywords: [combustion air, no makeup air, intake blocked, snow in the intake, room negative]
     signs:
+      gen.output: {none: 0.4, weak: 0.4, normal: 0.2}   # no heat once the spill switch trips
       blr.combustion_air: restricted!
       blr.o2: low
       blr.smoke: high|heavy
@@ -2675,7 +2678,7 @@ causes:
       blr.soot_hx: heavy!
       blr.stack_temp: high!
       blr.draft_of: none_positive?
-      gen.output: weak
+      gen.output: {none: 0.4, weak: 0.4, normal: 0.2}   # no heat once the spill switch trips
       gen.runs_constantly: yes?
       blr.smoke: high?
       blr.co_room: yes?

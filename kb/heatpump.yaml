@@ -1260,6 +1260,7 @@ causes:
       hp.outdoor_coil_ice: none
       vc.cond_sat: high?
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       hp.cooling_mode_ok: yes?
     confirm: |
       All ice melts off within a few minutes and the outdoor coil is steaming hot, yet the unit stays in
@@ -1524,6 +1525,7 @@ causes:
       hp.heat_rise: low
       vc.cond_sat: low?
       vc.lps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
     confirm: |
       In heating mode suction pressure dives and outdoor-coil superheat is very high, but when the outdoor air is
       warm enough to run it, switching the unit into cooling brings pressures, superheat, and subcooling right
@@ -1615,6 +1617,7 @@ causes:
       hp.heat_rise: {high: 0.6, normal: 0.38, low: 0.02}
       vc.cond_sat: {high: 0.6, normal: 0.38, low: 0.02}
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.evap_sat: normal?
       vc.discharge_temp: high?
       vc.comp_amps: high?
@@ -1650,6 +1653,7 @@ causes:
       vc.filter: clean?
       vc.static: low?
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.cond_sat: high?
       hp.heat_rise: high?
     confirm: |

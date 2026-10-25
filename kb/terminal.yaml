@@ -304,7 +304,7 @@ features:
     name: Drop across the coil
     ask: With the unit calling (and its fan on, if it has one), how does the pipe leaving the coil compare with the
       pipe feeding it?
-    how: Read both pipes at the unit — the supply ahead of the valve and the return (or the condensate line ahead
+    how: Read both pipes at the unit (the heating coil on a 4-pipe unit) — the supply ahead of the valve and the return (or the condensate line ahead
       of the trap on steam). A hot-water coil normally drops about 10–30 °F. A steam coil's outlet ahead of the
       trap stays close to steam temperature.
     caution: Steam and hot-water pipes burn on contact. Read them with a thermometer.
@@ -321,7 +321,7 @@ features:
     phrases:
       wide: [return pipe cold, return cold supply hot, supply hot return cold, outlet pipe cold, coil outlet cold,
         no flow through coil, leaving pipe cold]
-      none: [return as hot as supply, return pipe hot, no drop across coil, no delta t across coil]
+      none: [hot water return as hot as supply, no drop across coil, no delta t across coil]
 
   - id: tu.coil_pattern
     name: Heat spread across the coil
@@ -403,6 +403,7 @@ features:
     name: Chilled-water side (4-pipe fan coil)
     ask: With the unit heating, feel the chilled-water coil's pipes after its valve (the coil side or its return) —
       is that side shut off? The pipe ahead of a shut valve is always cold.
+    caution: The heating pipes beside the chilled-water coil burn on contact; use a thermometer.
     systems: [terminal]
     requires: {tu_type: [fcu4]}
     cost: 1
@@ -532,7 +533,7 @@ features:
   - id: tu.heat_amps
     name: Heater current
     ask: With the heater called, what current does it draw compared with its nameplate?
-    how: Clamp one supply leg. Nameplate watts ÷ volts gives the expected amps on a single-phase heater; on a
+    how: Clamp one supply leg (each leg on a three-phase heater). Nameplate watts ÷ volts gives the expected amps on a single-phase heater; on a
       three-phase heater, watts ÷ (volts × 1.73) on each leg — one leg low or zero means a blown fuse, a dead
       contactor pole or a lost phase.
     caution: Live conductors. Open only the cover you need, clamp with a rated meter and PPE, and keep clear of the
@@ -545,9 +546,11 @@ features:
       normal: Close to nameplate
       low: Well under nameplate (an element out, or a low supply voltage)
       zero: Nothing — no current to the elements
+      one_leg: One leg low or zero on a three-phase heater, the others normal
     normal: normal
     phrases:
       zero: [zero amps, no amps, heater draws nothing, no current, element not drawing]
+      one_leg: [one leg low, one phase dead, lost a phase, one leg zero amps, unbalanced amps on heater]
       low: [low amps, heater draws low, half the amps, amps low on heater]
       normal: [amps normal, full amps, draws nameplate]
 
@@ -673,7 +676,7 @@ inputs:
   - {id: tu.lvg_air_f, name: Air leaving the unit, unit: °F, systems: [terminal], probe: air,
       hint: 'In the discharge, after 10 minutes of running'}
   - {id: tu.supply_f, name: Supply pipe at the unit, unit: °F, systems: [terminal], probe: pipe,
-      hint: 'Ahead of the control valve. Use the steam temperature on a steam unit.'}
+      hint: 'Ahead of the control valve (the heating supply on a 4-pipe fan coil). Use the steam temperature on a steam unit.'}
   - {id: tu.return_f, name: Return pipe at the unit, unit: °F, systems: [terminal], probe: pipe,
       hint: 'Leaving the coil (ahead of the trap on steam)'}
   - {id: tu.design_dt, name: Design water drop across the unit, unit: °F, systems: [terminal],
@@ -708,7 +711,7 @@ measures:
       - [wide, 'v > (has(t) ? t + 20 : 40)']
       # a steam coil's outlet ahead of the trap stays near steam temperature, good coil or trap blowing through
       - [none, "coalesce(ctx.tu_heat, 'x') != 'steam' && v < 3"]
-      - [normal, 'true']
+      - [normal, "coalesce(ctx.tu_heat, 'x') != 'steam' || v >= 3"]
 
   - id: tu.air_rise
     name: Air temperature rise across the unit
@@ -720,13 +723,13 @@ measures:
     # temperature; with no pipe temperature, steam units run about 60 °F of rise and electric ones about 40.
     target: "has(tu.supply_f) ? 0.45 * (tu.supply_f - tu.ent_air_f) : (ctx.tu_heat == 'steam' ? 60 : (ctx.tu_heat == 'electric' ? 40 : null))"
     sets: tu.air_rise
-    # a supply less than about 55 °F above the room (t under 25) can't tell a weak coil from a cool loop: the
+    # a supply less than about 45 °F above the room (t under 20) can't tell a weak coil from a cool loop: the
     # supply-pipe check carries that, and only "none" still reads here
     states:
       - [none, v < 5]
-      - [low, 't >= 25 && v < t * 0.55']
-      - [high, 't >= 25 && v > t * 1.4']
-      - [normal, 't >= 25']
+      - [low, 't >= 20 && v < t * 0.55']
+      - [high, 't >= 20 && v > t * 1.4']
+      - [normal, 't >= 20']
 
 causes:
   # ==================== NO HOT WATER OR STEAM AT THE UNIT ====================
@@ -997,13 +1000,13 @@ causes:
       gen.call: calling
       hyd.scope: one_zone
     confirm: The control signal reaches the actuator, but it doesn't move. Opening the valve by hand (manual lever or
-      override) brings heat.
+      override) brings heat on hot water or glycol; on steam, crack it open slowly and listen for hammer.
     fix: |
       Check the actuator's own fuse or end stop if it has one, then replace the motor head or actuator to match the
       valve body (same stroke, signal and spring-return direction). On a zone valve with a removable head, change
       the head only. Make sure the manual lever is released afterwards.
-    safety: Most zone valve heads come off live, but never open the valve body or bonnet under pressure; on steam,
-      cool and confirm 0 psig.
+    safety: Lock out the head's power before you pull it. Most heads come off without draining the line, but never
+      open the valve body or bonnet under pressure; on steam, cool and confirm 0 psig.
     refs: [practice]
 
   - id: tu.valve_seized
@@ -1064,12 +1067,15 @@ causes:
       gen.output: none
       gen.control_v: present
     confirm: The thermostat or controller calls for heat, but no 24 V or modulating signal arrives at the actuator.
-      Powering the actuator directly at its rated voltage (read its label first; some zone valve heads are 120 V)
-      opens the valve and brings heat.
+      On hot water or glycol, powering the actuator directly at the voltage on its label (some zone valve heads are
+      120 V) opens the valve and brings heat. On steam, don't power it open onto a cold coil; the missing signal is
+      the finding.
     fix: |
       Trace back from the actuator: the controller's output terminal, the wiring, any relay between them. On a
       building automation point, check that it isn't left in manual or overridden closed. Repair the wire or
       replace the output relay or controller.
+    safety: A 120 V zone valve head is line voltage; lock out before you touch its wiring. On steam, never power a
+      valve open onto a cold coil.
     refs: [practice]
 
   # ==================== CONTROLS ====================
@@ -1600,6 +1606,44 @@ causes:
     safety: Lock out and tag, and verify dead on every leg before you touch the element terminals.
     refs: [practice]
 
+  - id: tu.element_grounded
+    name: Electric heating element shorted to its sheath or cabinet (shock and fire hazard)
+    systems: [terminal]
+    requires: {tu_heat: [electric]}
+    prior: occasional
+    keywords: [element grounded, element shorted to ground, heater shocks, heater trips gfci, element leaking to ground]
+    signs:
+      tu.element: grounded!
+      gen.breaker: {retrips: 0.35, tripped: 0.15, ok: 0.5}
+      gen.output: none
+      gen.burnt_smell: yes?
+    confirm: With power locked out and a lead lifted, an element reads a low resistance to its sheath or the cabinet.
+    fix: |
+      Take the heater out of service and replace the element or the heater section with one of the same voltage and
+      wattage. Look for moisture, a rubbed lead or a cracked element seal that let it ground.
+    safety: A grounded element can energize the cabinet. Keep the breaker off and tagged until it is replaced.
+    refs: [practice]
+
+  - id: tu.phase_lost
+    name: Three-phase electric heater with one leg out (a blown fuse, a dead contactor pole or a lost phase)
+    systems: [terminal]
+    requires: {tu_heat: [electric]}
+    prior: uncommon
+    keywords: [one leg dead, lost a phase, blown fuse heater, three phase heater weak, single phasing heater]
+    signs:
+      tu.heat_amps: one_leg!
+      gen.output: weak
+      tu.element: ok
+      tu.limit: closed
+    confirm: On a three-phase heater one supply leg reads low or zero amps while the other two are normal, and the
+      elements ohm good.
+    fix: |
+      Lock out and check the heater's fuses, then each contactor pole (voltage in and out on every leg with it pulled
+      in), then the supply at the disconnect. Replace a blown fuse with the same rating only after finding why it
+      blew (a grounded element, loose lug or failing pole).
+    safety: Lock out and tag, and verify dead on all three legs before you touch fuses or contactor terminals.
+    refs: [practice]
+
   - id: tu.limit_tripping
     name: Electric heater overheating and cycling on its high limit (fan weak or stopped, or the heater blocked)
     systems: [terminal]
@@ -1664,8 +1708,8 @@ causes:
     fix: |
       Check the coil voltage and resistance. Replace a contactor with an open coil or burnt contacts, rated for the
       heater's current (resistive load). Look at its wire terminals for heat damage and re-terminate.
-    safety: Lock out and tag, and verify dead on every leg before you touch the contactor; its line side stays
-      live with the call off.
+    safety: Lock out and tag, and verify dead on every leg before you touch the contactor; turning the call off does
+      not kill its line side.
     refs: [practice]
 
   - id: tu.contactor_welded

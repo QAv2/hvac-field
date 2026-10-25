@@ -484,7 +484,8 @@
   inputs: {tu.supply_f: 227, tu.return_f: 225}   # a steam coil's outlet ahead of the trap: no drop is normal here
   findings: {hyd.trap_check: failed_open}
   expect:
-    measured: {tu.supply_pipe: hot, tu.coil_dt: normal}
+    measured: {tu.supply_pipe: hot}
+    unmeasured: [tu.coil_dt]
     top: tu.trap_open
 
 - name: Steam radiator cold at the far end, vent never hisses
@@ -767,3 +768,33 @@
   ctx: {tu_heat: water, tu_type: fcu2}
   findings: {gen.output: weak, tu.fan: running, tu.airflow: weak, tu.rotation: backwards, gen.recent_work: 'yes'}
   expect: {top: tu.fan_rotation}
+
+# --- coverage audit (.lane/qc/terminal-audit.md) ---------------------------------------------------------
+- name: Audit NP4 — electric baseboard dead, an element reads to ground, the breaker holds
+  system: terminal
+  ctx: {tu_heat: electric, tu_type: baseboard}
+  findings: {gen.output: none, tu.element: grounded, gen.breaker: ok}
+  expect: {top: tu.element_grounded}
+
+- name: Audit NP7 — three-phase electric unit heater weak, one leg reads zero amps, elements good
+  system: terminal
+  ctx: {tu_heat: electric, tu_type: unit_heater}
+  findings: {gen.output: weak, tu.heat_amps: one_leg, tu.element: ok}
+  expect: {top: tu.phase_lost}
+
+- name: Audit NP8 — typed "unit heater blowing cold" gives the air-rise chip alone; the water side leads
+  system: terminal
+  ctx: {tu_heat: water, tu_type: unit_heater}
+  findings: {tu.air_rise: none}
+  expect:
+    top3: [tu.actuator]
+    not_top3: [tu.fan_motor, tu.fan_cap]
+
+- name: Audit NP1 — steam unit heater with the fan dead and steam readings entered — the fan still leads
+  system: terminal
+  ctx: {tu_heat: steam, tu_type: unit_heater}
+  inputs: {tu.supply_f: 227, tu.return_f: 225}
+  findings: {gen.output: none, tu.fan: 'off', tu.fan_volts: present, tu.fan_spin: free, tu.fan_cap: ok}
+  expect:
+    top: tu.fan_motor
+    unmeasured: [tu.coil_dt]
