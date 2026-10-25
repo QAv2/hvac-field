@@ -175,14 +175,19 @@ export class KB {
 
   // 0 when a known context answer rules the item out; otherwise a prior factor. For an answer
   // we don't know yet, the factor is the share of units that would qualify when the options
-  // carry shares (`p`: e.g. most split systems are ducted), else a flat UNKNOWN_REQUIRE.
-  requireFactor(item, ctx) {
+  // carry shares (`p`: e.g. most split systems are ducted), else a flat UNKNOWN_REQUIRE. With `system`, a
+  // question that system never asks (the heat-pump type on a furnace) doesn't weigh at all.
+  requireFactor(item, ctx, system) {
     if (!item.requires) return 1;
     let f = 1;
     for (const [k, want] of Object.entries(item.requires)) {
       const list = (Array.isArray(want) ? want : [want]).map(String);
       const have = ctx[k];
-      if (have === undefined || have === null || have === 'unknown') { f *= this.unknownShare(k, list); continue; }
+      if (have === undefined || have === null || have === 'unknown') {
+        if (system && !this.asks(k, system)) continue;
+        f *= this.unknownShare(k, list);
+        continue;
+      }
       if (!list.includes(String(have))) return 0;
     }
     return f;
@@ -194,6 +199,12 @@ export class KB {
     if (!opts.length || tot <= 0) return UNKNOWN_REQUIRE;
     const got = opts.filter((o) => list.includes(String(o.id))).reduce((a, o) => a + o.p, 0);
     return Math.max(0.05, got / tot);
+  }
+
+  // whether a system asks context question k at all
+  asks(k, sysId) {
+    const c = this.context.get(k);
+    return Boolean(c && this.inSystem(c, sysId));
   }
 
   // context questions that matter for a system

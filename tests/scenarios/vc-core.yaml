@@ -495,3 +495,16 @@
   system: vc.walkin
   findings: {gen.recent_work: 'yes', vc.receiver_level: full, vc.cond_sat: high}
   expect: {top: vc.overcharge}
+
+# --- a pressure-switch trip leaves the compressor off; the real trip causes lead, not "switch failed" -------
+- name: A/C off on its high-pressure switch, nothing else known — the condenser side leads, not a failed switch
+  system: vc.ac
+  findings: {vc.hps_trip: 'yes', vc.comp: 'off', gen.output: none}
+  expect:
+    top3: [vc.cond_fan_failed, vc.dirty_condenser]
+    not_top: [ctl.hps_failed]
+
+- name: A/C off on its low-pressure switch, nothing else known — a feed or airflow cause leads, not a failed switch
+  system: vc.ac
+  findings: {vc.lps_trip: 'yes', vc.comp: 'off', gen.output: none}
+  expect: {not_top: [ctl.lps_failed]}

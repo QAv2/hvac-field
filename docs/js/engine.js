@@ -32,7 +32,7 @@ export function prepare(kb, system, ctx = {}) {
   const causes = [];
   for (const c of kb.causes) {
     if (!kb.inSystem(c, system)) continue;
-    const rf = kb.requireFactor(c, ctx);
+    const rf = kb.requireFactor(c, ctx, system);
     if (rf === 0) continue;
     const signs = kb.signsFor(c, ctx);
     const dist = new Map();

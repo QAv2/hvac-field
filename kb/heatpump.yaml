@@ -1087,6 +1087,7 @@ causes:
   - id: hp.rv_internal_leak
     name: Reversing valve stuck mid-position or leaking internally (hot discharge gas bypassing into suction)
     systems: [vc.ac, vc.hp]
+    requires: {rev_valve: ['yes']}   # asked on A/C only; a heat-pump job never asks it, so it doesn't weigh there
     prior: occasional
     keywords: [reversing valve leaking through, 4 way valve bypass, reversing valve stuck mid position, hot gas bypass
       in 4 way valve]

@@ -909,6 +909,7 @@ causes:
       vc.leak_found: yes
       vc.evap_frost: partial?
       vc.lps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       gen.short_cycle: yes?
       vc.standing: {matches: 0.72, low: 0.25, high: 0.03}
       vc.comp_hot: yes?
@@ -956,6 +957,7 @@ causes:
       vc.comp_sweat: yes?
       vc.standing: matches
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       gen.short_cycle: yes?
     when:
       - if: {metering: [txv, eev]}
@@ -996,6 +998,7 @@ causes:
       vc.cond_split: normal?
       vc.cond_dirty: no?
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       gen.short_cycle: yes?
     confirm: With the system off and equalized at a known temperature, the standing pressure is well above the PT
       chart for that temperature.
@@ -1054,6 +1057,7 @@ causes:
       vc.liquid_cold_spot: yes?
       vc.sight_glass: bubbles?
       vc.lps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       gen.short_cycle: yes?
     when:
       - if: {metering: [txv, eev]}
@@ -1091,6 +1095,7 @@ causes:
       vc.discharge_temp: high?
       gen.recent_work: yes?
       vc.lps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
     confirm: Suction at the compressor is lower than at a gauge on the evaporator side of the suspect point (more than
       2–3 psi on medium-temp, about 1 psi on low-temp), or a cold or frosted spot at a service valve or kink. Common
       right after the system was opened.
@@ -1116,6 +1121,7 @@ causes:
       vc.evap_frost: partial?
       vc.sight_glass: clear?
       vc.lps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       gen.short_cycle: yes?
     confirm: High superheat and high subcooling with no drop across the drier, and the valve doesn't open when its
       bulb is warmed.
@@ -1331,6 +1337,7 @@ causes:
       vc.evap_frost: heavy
       vc.comp_sweat: yes?
       vc.lps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
     when:
       - if: {metering: [txv, eev]}
         signs:
@@ -1413,6 +1420,7 @@ causes:
       vc.comp_amps: {normal: 0.5, high: 0.5}
       vc.cond_split: high?
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.comp_hot: yes?
       gen.short_cycle: yes?
       gen.output: weak?
@@ -1440,6 +1448,7 @@ causes:
       vc.comp_amps: {normal: 0.5, high: 0.5}
       vc.evap_split: low?
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.subcool: low|normal
       gen.short_cycle: yes?
     confirm: The air going into the condenser is warmer than the outdoor air, or the coil is boxed in or drifted
@@ -1457,6 +1466,7 @@ causes:
       vc.cond_fan: off!
       vc.cond_sat: high!
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       vc.comp_hot: yes?
       vc.comp_amps: high
       vc.discharge_temp: high
@@ -1575,6 +1585,7 @@ causes:
       vc.cond_sat: high
       vc.comp_hot: yes?
       vc.hps_trip: yes?
+      vc.comp: {running: 0.7, 'off': 0.27, hums: 0.03}   # off once its pressure switch trips
       gen.short_cycle: yes?
     confirm: Fan hums but doesn't spin (or starts only when pushed); the FAN–C side tests low.
     fix: Replace with matching µF and voltage. If the fan was running hot for a while, check the motor bearings

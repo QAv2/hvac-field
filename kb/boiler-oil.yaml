@@ -2501,7 +2501,7 @@ causes:
       blr.co: high|very_high?
       blr.co_room: yes?
       blr.spill_switch: tripped?
-      blr.start: {normal: 0.45, flame_lost: 0.25, delayed: 0.2, no_flame: 0.05, nothing: 0.05}
+      blr.start: {normal: 0.35, flame_lost: 0.2, delayed: 0.15, no_flame: 0.05, nothing: 0.25}   # dead once the spill switch trips
       blr.flame_look: pulsing|smoky?
       gen.burnt_smell: yes?
     confirm: No draft at the breech, pressure over the fire, smoke and soot at the draft regulator and inspection door;
@@ -2527,7 +2527,7 @@ causes:
       blr.draft_of: none_positive
       blr.flue: clear
       blr.flame_look: pulsing
-      blr.start: delayed?
+      blr.start: {delayed: 0.35, normal: 0.3, nothing: 0.2, flame_lost: 0.1, no_flame: 0.05}   # dead once the spill switch trips
       blr.soot_outside: yes?
       blr.oil_smell: yes?
       blr.smoke: high?
@@ -2588,6 +2588,7 @@ causes:
       blr.draft_of: none_positive?
       blr.co_room: yes?
       blr.spill_switch: tripped?
+      blr.start: {normal: 0.4, flame_lost: 0.2, delayed: 0.15, nothing: 0.2, no_flame: 0.05}   # dead once the spill switch trips
       blr.soot_outside: yes?
       gen.intermittent: yes?
     confirm: Intake louvers closed or drifted full of snow, a sealed-up boiler room, or exhaust fans that pull the
@@ -2671,6 +2672,7 @@ causes:
       blr.smoke: high?
       blr.co_room: yes?
       blr.spill_switch: tripped?
+      blr.start: {normal: 0.55, delayed: 0.15, flame_lost: 0.1, nothing: 0.2}   # dead once the spill switch trips
       blr.soot_outside: yes?
       blr.o2: normal|low
     confirm: Stack temperature high for the firing rate, passages narrowed with soot at the cleanout, draft falling off

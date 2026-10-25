@@ -563,3 +563,9 @@
   findings: {gen.output: weak}
   expect:
     next_any: [hp.inverter_code, hp.heat_rise, hp.outdoor_coil_ice, vc.comp]
+
+- name: A/C answered "cooling only" can't have a leaking reversing valve
+  system: vc.ac
+  ctx: {rev_valve: 'no'}
+  findings: {gen.output: weak, vc.evap_sat: high, vc.cond_sat: low}
+  expect: {not_top3: [hp.rv_internal_leak]}

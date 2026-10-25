@@ -126,6 +126,10 @@ for (const sc of scen) {
     if (!c) problems.push(`scenario "${sc.name}": unknown context ${k}`);
     else if (!(c.options || []).some((o) => String(o?.id ?? o) === String(v))) problems.push(`scenario "${sc.name}": context ${k} has no option "${v}"`);
   }
+  for (const k of ['top3', 'not_top', 'not_top3', 'next_any', 'next_not', 'unmeasured', 'tied']) {
+    const v = (sc.expect || {})[k];
+    if (v !== undefined && !Array.isArray(v)) problems.push(`scenario "${sc.name}": expect.${k} must be a list, got ${JSON.stringify(v)}`);
+  }
   const ctx = { ...kb.defaultCtx(sc.system), ...(sc.ctx || {}) };
   const measured = computeMeasures(kb, sc.system, ctx, sc.inputs || {});
   const findings = { ...Object.fromEntries(Object.entries(measured.findings).map(([k, v]) => [k, v.s])), ...(sc.findings || {}) };
