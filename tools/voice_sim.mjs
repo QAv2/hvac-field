@@ -7,7 +7,7 @@ import { dirname, join } from 'node:path';
 import { KB } from '../docs/js/kb.js';
 import { diagnose, reading } from '../docs/js/engine.js';
 import { Search } from '../docs/js/search.js';
-import { checkTurn, interpret, grammar, speakable, JOB_COMMANDS } from '../docs/js/dialog.js';
+import { checkTurn, interpret, grammar, speakable, JOB_COMMANDS, numberWords, nameWords } from '../docs/js/dialog.js';
 import { COMMANDS } from '../docs/js/spoken.js';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -65,6 +65,13 @@ for (const [mode, heard, want] of CASES) {
   const got = a.do === 'command' ? `command:${a.id}` : a.do === 'reading' ? `reading:${a.text}` : a.do === 'text' ? `text:${a.text}` : a.do;
   ok(got === want, `${mode} "${heard}" → ${got}, want ${want}`);
 }
+for (const [heard, want] of [['save as galley walk in', 'galley walk in'], ['save as [unk] [unk]', null], ['save as', null], ['save as dorm one fifty five', 'dorm one fifty five'], ['save as galley [unk]', null]]) {
+  const a = interpret('check', heard, { turn: anyTurn });
+  ok(a.do === 'saveas' && a.name === want, `"${heard}" → ${JSON.stringify(a)}, want saveas ${want}`);
+}
+ok(JSON.stringify(numberWords(155)) === JSON.stringify(['one', 'hundred', 'fifty', 'five', 'one', 'oh']), `numberWords(155): ${numberWords(155)}`);
+ok(nameWords(['Dorm 155 reach-in']).includes('fifty') && nameWords(['Galley walk-in']).includes('walk'), 'nameWords');
+ok(grammar('check', anyTurn.options, ['Galley walk-in']).includes('galley'), 'check grammar carries known unit names');
 ok(speakable('Superheat 8–12 °F (TXV) — low') === 'Superheat 8 to 12 degrees, low', `speakable: ${speakable('Superheat 8–12 °F (TXV) — low')}`);
 ok(speakable('62 °F') === '62 degrees' && speakable('°F') === 'degrees', `speakable unit alone: "${speakable('°F')}"`);
 for (const inp of kb.inputs.values()) {

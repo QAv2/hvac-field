@@ -11,12 +11,15 @@ Everything runs on the device — built for McMurdo, where the connection can't 
 **Phone:** open https://qav2.github.io/hvac-field/ once in Safari, then Share → Add to Home Screen. The service
 worker caches everything; after that it works with no connection, and it updates itself the next time it is
 opened online.
+**Named units:** optional. Name a unit on its details screen, or save a report "as" a name ("galley walk-in"). A named
+unit keeps its equipment type and details, sits on the home screen under Your units, and collects its reports; typing
+or saying its name ("galley walk-in is warm") starts a job on it.
 **Saved reports:** Finish → "Save the report" keeps a plain-text job report on the phone; Saved reports → "Back up"
 sends the new ones as one text file through the share sheet (Save to Files, or the Drive app when there's signal).
 **Voice (in testing):** the mic button in the top bar turns it on (the first time downloads a 47 MB offline voice
 pack). Hold the bar at the bottom and talk: describe the problem, answer a check by its number ("two"), or say
-"repeat", "how", "skip", "undo", "what's leading", "numbers", "other check", "save report", "delete job", "stop
-listening". Answers are read back and can be undone; readings and deleting a job are confirmed with a yes.
+"repeat", "how", "skip", "undo", "what's leading", "numbers", "other check", "save as <name>" (e.g. "save as galley
+walk-in"; a new name is asked for and read back), "delete job", "name this unit", "stop listening". Answers are read back and can be undone; readings and deleting a job are confirmed with a yes.
 `docs/voice/lab.html` (linked from About) tests the phone. Design and bench results: `research/voice-design.md`.
 
 ## Coverage (420 causes · 391 checks · 74 calculations · 729 scenarios · 11 systems)

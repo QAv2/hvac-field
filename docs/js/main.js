@@ -8,6 +8,7 @@ import * as calc from './calcs.js';
 import { Search, norm } from './search.js';
 import { TOOL_LIST, renderTool, updateTool, numBox } from './tools.js';
 import { checkTurn, interpret, grammar, speakable } from './dialog.js';
+import { numberWordsToDigits } from './spoken.js';
 import * as voice from './voice.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
@@ -15,7 +16,7 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const pct = (p) => (p >= 0.995 ? '99' : p < 0.01 ? '<1' : String(Math.round(p * 100)));
 const fmt = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : (Math.round(v * 10 ** d) / 10 ** d).toFixed(d).replace(/\.0+$/, ''));
 
-const KEY_JOB = 'fdx.job', KEY_HIST = 'fdx.history', KEY_THEME = 'fdx.theme', KEY_REPORTS = 'fdx.reports';
+const KEY_JOB = 'fdx.job', KEY_HIST = 'fdx.history', KEY_THEME = 'fdx.theme', KEY_REPORTS = 'fdx.reports', KEY_UNITS = 'fdx.units';
 const store = {
   get(k, d) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* private mode: work without saving */ } },
@@ -116,7 +117,14 @@ function archive() {
   store.set(KEY_HIST, hist.slice(0, 20));
 }
 
-function save() { store.set(KEY_JOB, job); }
+function save() {
+  store.set(KEY_JOB, job);
+  // a named unit keeps the facts entered on it (refrigerant, metering…) for next time
+  if (job?.unit) {
+    const list = units(), u = list.find((x) => x.id === job.unit);
+    if (u && JSON.stringify(u.ctx) !== JSON.stringify(job.ctx)) { u.ctx = { ...job.ctx }; store.set(KEY_UNITS, list); }
+  }
+}
 
 function setFinding(fid, s, src = 'answer') {
   job.f[fid] = { s, src, t: Date.now() };
@@ -141,6 +149,12 @@ function go(hash) {
 }
 
 function route() {
+  // a voice question belongs to the screen it was asked on: leaving the screen drops it, so a later "yes" can't
+  // answer it (voice flows clear their own question before they navigate)
+  if (vs.pending || vs.naming || vs.saving) {
+    vs.pending = null; vs.naming = vs.saving = false; vs.misses = 0;
+    if (vs.on) voice.stopSpeaking();
+  }
   const h = location.hash.replace(/^#\/?/, '');
   const [path, qs] = h.split('?');
   const parts = path.split('/').filter(Boolean);
@@ -152,9 +166,9 @@ function route() {
 
 function render() {
   const sysEl = $('#sysname');
-  sysEl.textContent = job ? `${kb.systems.get(job.system)?.short || kb.systems.get(job.system)?.name} ▾` : '';
+  sysEl.textContent = job ? `${unitOf(job.unit)?.name || kb.systems.get(job.system)?.short || kb.systems.get(job.system)?.name} ▾` : '';
   sysEl.title = job ? 'Unit details' : '';
-  const views = { home: viewHome, setup: viewSetup, diag: viewDiag, readings: viewReadings, cause: viewCause, tools: viewTools, tool: viewTool, about: viewAbout, reports: viewReports };
+  const views = { home: viewHome, setup: viewSetup, diag: viewDiag, readings: viewReadings, cause: viewCause, tools: viewTools, tool: viewTool, about: viewAbout, reports: viewReports, units: viewUnits };
   (views[view.name] || viewHome)();
   if (vs.on) voiceView();
 }
@@ -167,13 +181,17 @@ function viewHome() {
     .map((s) => `<button class="tile" data-act="sys" data-id="${esc(s.id)}"><span class="ic">${icon(s.icon)}</span>${esc(s.name)}</button>`).join('');
   const hist = store.get(KEY_HIST, []);
   const resume = job ? `<button class="res" data-act="resume"><b>Back to: ${esc(kb.systems.get(job.system)?.name)}</b><span class="k">${Object.keys(job.f).length + Object.keys(job.inputs).length} entered</span></button>` : '';
-  const recent = hist.slice(0, 4).map((h, i) => `<button class="res" data-act="reopen" data-i="${i}"><span>${esc(kb.systems.get(h.job.system)?.short || h.job.system)}${h.top ? ` — ${esc(h.top.name)}` : ''}</span><span class="k">${new Date(h.when).toLocaleDateString()}</span></button>`).join('');
+  const recent = hist.slice(0, 4).map((h, i) => `<button class="res" data-act="reopen" data-i="${i}"><span>${esc(unitOf(h.job.unit)?.name || kb.systems.get(h.job.system)?.short || h.job.system)}${h.top ? ` — ${esc(h.top.name)}` : ''}</span><span class="k">${new Date(h.when).toLocaleDateString()}</span></button>`).join('');
+  const us = knownUnits();
+  const unitRows = us.slice(0, 6).map((u) => `<button class="res" data-act="unit-start" data-id="${esc(u.id)}"><span><b>${esc(u.name)}</b> <span class="muted">${esc(kb.systems.get(u.system).short || kb.systems.get(u.system).name)}</span></span><span class="k">start ›</span></button>`).join('')
+    + (us.length ? `<button class="res" data-act="go" data-href="#/units"><span>${us.length > 6 ? `All ${us.length} units` : 'Units'}: history and reports</span><span class="k">›</span></button>` : '');
   $('#main').innerHTML = `
     <h1>What's wrong?</h1>
     <p class="lead">Describe it the way you'd say it, or pick the equipment.</p>
     <div class="search"><input id="homeq" type="search" autocomplete="off" enterkeyhint="go" placeholder="e.g. walk-in freezer warm, coil iced, fans running" value="${esc(view.q.text || '')}"></div>
     <div id="homeres"></div>
     ${resume ? `<h2>Current job</h2><div class="results">${resume}</div>` : ''}
+    ${unitRows ? `<h2>Your units</h2><div class="results">${unitRows}</div>` : ''}
     <h2>Equipment</h2>
     <div class="tiles">${tiles}</div>
     <h2>Calculators</h2>
@@ -195,6 +213,8 @@ function homeSearch() {
   const sys = guessSystem(text, r0);
   const r = sys ? search.run(text, sys) : r0;
   let html = '';
+  const hit = matchUnit(text);
+  if (hit) html += `<div class="results"><div class="grp">Known unit</div><button class="res" data-act="unit-start" data-id="${esc(hit.unit.id)}" data-text="${esc(hit.rest)}"><b>${esc(hit.unit.name)}</b><span class="k">start ›</span></button></div>`;
   if (sys) {
     html += `<div class="results"><div class="grp">Looks like</div>
       <button class="res" data-act="start-text"><b>${esc(kb.systems.get(sys).name)}</b><span class="k">start ›</span></button></div>`;
@@ -259,8 +279,18 @@ function viewSetup() {
     opts += `<button class="opt dk ${cur == null ? 'on' : ''}" data-act="ctx" data-k="${esc(c.id)}" data-v="">Don't know</button>`;
     return `<div class="qrow"><div class="ql">${esc(c.ask)}</div>${c.hint ? `<div class="qh">${esc(c.hint)}</div>` : ''}<div class="opts">${opts}</div></div>`;
   }).join('');
+  const named = unitOf(job.unit);
+  const same = knownUnits().filter((u) => u.system === job.system && u.id !== job.unit);
+  const nameRow = `<div class="qrow"><div class="ql">Name this unit (optional)</div>
+    <div class="qh">e.g. galley walk-in, dorm 155 boiler. A named unit stays on the home screen with these details filled in.</div>
+    <div class="opts"><input id="unitname" type="text" autocomplete="off" enterkeyhint="done" maxlength="60" placeholder="Unit name" value="${esc(named?.name || '')}"
+      style="flex:1;min-width:180px;height:48px;border-radius:12px;border:2px solid var(--line);background:var(--panel);padding:0 12px;font-size:17px">
+      <button class="opt" data-act="unit-name">${named ? 'Rename' : 'Save name'}</button></div>
+    ${same.length ? `<div class="opts" style="margin-top:8px"><span class="muted" style="align-self:center">Or it's one you've named:</span>${same.map((u) => `<button class="opt" data-act="unit-link" data-id="${esc(u.id)}">${esc(u.name)}</button>`).join('')}</div>` : ''}</div>`;
   $('#main').innerHTML = `
-    <h1>${esc(sys.name)}</h1>
+    <h1>${esc(named?.name || sys.name)}</h1>
+    ${named ? `<p class="muted" style="margin:-4px 0 8px">${esc(sys.name)}</p>` : ''}
+    ${nameRow}
     <p class="lead">${qs.length ? 'A few facts about this unit. Skip anything you don\'t know — you can come back here any time from the top bar.' : 'Nothing to set up for this one.'}</p>
     ${rows}
     <div style="margin-top:20px"><button class="cta" data-act="go" data-href="#/diag">Start diagnosing ›</button></div>
@@ -289,7 +319,7 @@ function viewDiag() {
     .map(([fid, r]) => `<button class="chip meas" data-act="go" data-href="#/readings">${esc(kb.label(fid, r.s, sysId))}</button>`);
   const chips = [...own, ...meas];
   $('#main').innerHTML = `
-    <button class="res" data-act="setup" style="margin-bottom:10px"><span>${ctxLine || 'Unit details: tap to add refrigerant, metering…'}</span><span class="k">edit</span></button>
+    <button class="res" data-act="setup" style="margin-bottom:10px"><span>${unitOf(job.unit) ? `<b>${esc(unitOf(job.unit).name)}</b>${ctxLine ? ` · ${ctxLine}` : ''}` : ctxLine || 'Unit details: tap to add refrigerant, metering… or name it'}</span><span class="k">edit</span></button>
     <div class="search"><input id="diagq" type="search" autocomplete="off" enterkeyhint="done" placeholder="Add a symptom or reading — e.g. coil iced, fan not running"></div>
     <div id="diagres"></div>
     ${chips.length ? `<div class="chips">${chips.join('')}</div>` : '<p class="muted">Nothing entered yet. Type what you see, or answer the check below.</p>'}
@@ -560,6 +590,139 @@ function viewAbout() {
   helper('Back to work: tap Field Dx at the top.');
 }
 
+// ---------------------------------------------------------------- named units
+// Optional. A unit the tech names ("galley walk-in") remembers its equipment type and facts; it's listed on the
+// home screen, and its saved reports collect on its page.
+const units = () => store.get(KEY_UNITS, []);
+const unitOf = (id) => (id ? units().find((u) => u.id === id) : null);
+const knownUnits = () => units().filter((u) => kb.systems.has(u.system)).sort((a, b) => (b.last || 0) - (a.last || 0));
+const cleanName = (name) => String(name || '').trim().replace(/\s+/g, ' ').slice(0, 60);
+
+function touchUnit(id) {
+  const list = units(), u = list.find((x) => x.id === id);
+  if (u) { u.last = Date.now(); store.set(KEY_UNITS, list); }
+}
+
+// name the job's unit: an existing name for this equipment type links to that unit, otherwise it's a new unit
+// (or, when the job already has one, a rename)
+function nameUnit(raw, rename = true) {
+  const name = cleanName(raw);
+  if (!job) return null;
+  if (!name) { delete job.unit; save(); return null; }
+  const list = units();
+  let u = list.find((x) => x.system === job.system && norm(x.name) === norm(name));
+  if (u) return linkUnit(u.id);
+  const cur = rename && job.unit && list.find((x) => x.id === job.unit);
+  if (cur) cur.name = name;
+  else { u = { id: `u${Date.now().toString(36)}`, name, system: job.system, ctx: { ...job.ctx }, created: Date.now(), last: Date.now() }; list.unshift(u); job.unit = u.id; }
+  store.set(KEY_UNITS, list);
+  save();
+  return cur || u;
+}
+
+// this job is on a unit named before: its facts fill in
+function linkUnit(id) {
+  const u = unitOf(id);
+  if (!u || !job || u.system !== job.system) return null;
+  job.unit = u.id;
+  job.ctx = { ...job.ctx, ...u.ctx };
+  touchUnit(u.id);
+  save();
+  return u;
+}
+
+function startUnit(id, text = '') {
+  const u = unitOf(id);
+  if (!u || !kb.systems.has(u.system)) return;
+  newJob(u.system);
+  job.unit = u.id;
+  job.ctx = { ...job.ctx, ...u.ctx };
+  if (text.trim()) for (const p of search.run(text, u.system).picks) job.f[p.f] = { s: p.s, src: 'text', t: Date.now() };
+  touchUnit(u.id);
+  save();
+  go('#/diag');
+}
+
+// a known unit named in typed or spoken text ("galley walk-in is warm", "dorm one fifty five boiler"): the longest
+// name wins, and the rest of the words are the complaint
+function matchUnit(text) {
+  const forms = [norm(text), norm(numberWordsToDigits(text))];
+  let best = null;
+  for (const u of knownUnits()) {
+    const n = norm(u.name);
+    if (!n) continue;
+    for (const f of forms) {
+      if (` ${f} `.includes(` ${n} `) && (!best || n.length > norm(best.unit.name).length)) best = { unit: u, rest: ` ${f} `.replace(` ${n} `, ' ').trim() };
+    }
+  }
+  return best;
+}
+
+function renameUnit(id, raw) {
+  const name = cleanName(raw);
+  const list = units(), u = list.find((x) => x.id === id);
+  if (!u || !name) return;
+  if (list.some((x) => x.id !== id && x.system === u.system && norm(x.name) === norm(name))) { toast('Another unit of this type already has that name.'); return; }
+  u.name = name;
+  store.set(KEY_UNITS, list);
+  toast('Renamed.');
+  render();
+}
+
+function forgetUnit(id, sure) {
+  if (!sure) {
+    $('#sheet').innerHTML = `<div class="sheet-bg" data-act="sheet-close"><div class="sheet" role="dialog" aria-label="Forget unit">
+      <div class="q">Forget this unit? Its saved reports stay.</div>
+      <div class="answers"><button class="ans" data-act="unit-forget" data-id="${esc(id)}" data-sure="1" style="border-color:var(--high)">Forget it</button>
+      <button class="ans skip" data-act="sheet-close">Keep it</button></div></div></div>`;
+    return;
+  }
+  store.set(KEY_UNITS, units().filter((u) => u.id !== id));
+  if (job?.unit === id) { delete job.unit; save(); }
+  closeSheet();
+  go('#/units');
+}
+
+function viewUnits() {
+  const list = knownUnits();
+  const u = view.arg && list.find((x) => x.id === view.arg);
+  const reps = reports();
+  if (u) {
+    const sys = kb.systems.get(u.system);
+    const facts = kb.contextFor(u.system).filter((c) => u.ctx[c.id] != null).map((c) => {
+      const o = (c.options || []).find((x) => String(x.id ?? x) === u.ctx[c.id]);
+      return `<li>${esc(c.ask)} <b>${esc(o?.label ?? u.ctx[c.id])}</b></li>`;
+    }).join('');
+    const mine = reps.filter((r) => r.unit === u.id);
+    $('#main').innerHTML = `
+      <h1>${esc(u.name)}</h1>
+      <p class="lead">${esc(sys.name)}</p>
+      <button class="cta" data-act="unit-start" data-id="${esc(u.id)}">Start a job on this unit</button>
+      ${facts ? `<h2>What's known about it</h2><ul class="ev">${facts}</ul>` : '<p class="muted">No details saved yet. They fill in as you answer the unit questions on a job.</p>'}
+      <h2>Saved reports</h2>
+      ${mine.length ? `<div class="results">${mine.map((r) => `<button class="res" data-act="go" data-href="#/reports/${encodeURIComponent(r.id)}"><span>${esc(r.title.replace(`${u.name} — `, ''))}</span><span class="k">${new Date(r.when).toLocaleDateString()}</span></button>`).join('')}</div>` : '<p class="muted">None yet.</p>'}
+      <h2>Rename</h2>
+      <div class="opts"><input id="unitrename" type="text" autocomplete="off" maxlength="60" value="${esc(u.name)}"
+        style="flex:1;min-width:180px;height:48px;border-radius:12px;border:2px solid var(--line);background:var(--panel);padding:0 12px;font-size:17px">
+        <button class="opt" data-act="unit-rename" data-id="${esc(u.id)}">Rename</button></div>
+      <div style="margin-top:24px;display:grid;gap:10px">
+        <button class="cta ghost" data-act="unit-forget" data-id="${esc(u.id)}">Forget this unit</button>
+        <button class="cta ghost" data-act="go" data-href="#/units">All units</button>
+      </div>`;
+    helper(mine.length ? `${mine.length} saved report${mine.length > 1 ? 's' : ''} on this unit.` : 'Start a job, or rename it.');
+    return;
+  }
+  const rows = list.map((x) => {
+    const n = reps.filter((r) => r.unit === x.id).length;
+    return `<button class="res" data-act="go" data-href="#/units/${encodeURIComponent(x.id)}"><span><b>${esc(x.name)}</b> <span class="muted">${esc(kb.systems.get(x.system).short || kb.systems.get(x.system).name)}</span></span><span class="k">${n ? `${n} report${n > 1 ? 's' : ''}` : ''}${x.last ? ` · ${new Date(x.last).toLocaleDateString()}` : ''}</span></button>`;
+  }).join('');
+  $('#main').innerHTML = `
+    <h1>Your units</h1>
+    <p class="lead">Name a unit on its details screen during a job ("galley walk-in"). It keeps its equipment type and details, and its saved reports collect here.</p>
+    ${rows ? `<div class="results">${rows}</div>` : '<p class="muted">No named units yet.</p>'}`;
+  helper(list.length ? 'Tap a unit for its history.' : 'Name a unit during a job: tap the unit details line.');
+}
+
 // ---------------------------------------------------------------- saved reports
 // A finished job is saved as a plain-text report on the phone (no connection needed). Backing up sends the new ones
 // as one text file through the share sheet: Save to Files, or the Drive app when there's signal.
@@ -571,7 +734,8 @@ function jobReport() {
   const when = (t) => new Date(t).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
   const clock = (t) => new Date(t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   const SRC = { answer: 'answered', text: 'typed', edit: 'changed', voice: 'said' };
-  const lines = [`FIELD DX JOB REPORT`, `${sys.name}`, `Started ${when(job.t0)} · finished ${when(Date.now())}`];
+  const named = unitOf(job.unit);
+  const lines = [`FIELD DX JOB REPORT`, named ? `${named.name} (${sys.name})` : `${sys.name}`, `Started ${when(job.t0)} · finished ${when(Date.now())}`];
   const unit = kb.contextFor(job.system).filter((c) => job.ctx[c.id] != null).map((c) => {
     const v = job.ctx[c.id];
     const o = (c.options || []).find((x) => String(x.id ?? x) === v);
@@ -590,13 +754,13 @@ function jobReport() {
   if (job.skip.length) lines.push('', `Checks skipped: ${job.skip.map((fid) => kb.features.get(fid)?.name || fid).join('; ')}`);
   if (job.notes) lines.push('', 'Notes:', job.notes);
   lines.push('', `Field Dx · knowledge base ${kb.raw.meta?.built || ''}`.trim());
-  return { text: lines.join('\n'), title: `${sys.short || sys.name}${res.post[0] ? ` — ${res.post[0].cause.name}` : ''}` };
+  return { text: lines.join('\n'), title: `${named?.name || sys.short || sys.name}${res.post[0] ? ` — ${res.post[0].cause.name}` : ''}` };
 }
 
 function saveReport() {
   const { text, title } = jobReport();
   const list = reports();
-  list.unshift({ id: job.id, when: Date.now(), title, text, backedUp: false });
+  list.unshift({ id: job.id, when: Date.now(), title, text, backedUp: false, unit: job.unit || null });
   store.set(KEY_REPORTS, list);
   navigator.storage?.persist?.().catch(() => {}); // ask the phone to keep the app's storage
   const fresh = list.filter((r) => !r.backedUp).length;
@@ -610,6 +774,9 @@ function finishSheet(confirmDelete = false) {
       <div class="answers"><button class="ans" data-act="finish-delete-yes" style="border-color:var(--high)">Delete it</button>
       <button class="ans skip" data-act="sheet-close">Keep it</button></div>`
     : `<div class="q">Finish this job</div>
+      <label class="muted" for="saveas" style="display:block;margin:-4px 0 6px">Save as (optional): a unit or job name, e.g. galley walk-in</label>
+      <input id="saveas" type="text" autocomplete="off" maxlength="60" value="${esc(unitOf(job?.unit)?.name || '')}" placeholder="Name"
+        style="width:100%;height:52px;border-radius:12px;border:2px solid var(--line);background:var(--panel2);padding:0 12px;font-size:18px;margin-bottom:10px">
       <div class="answers"><button class="ans" data-act="finish-save">Save the report</button>
       <button class="ans" data-act="finish-delete">Delete it</button>
       <button class="ans skip" data-act="sheet-close">Keep working</button></div>`}
@@ -693,13 +860,16 @@ function viewReports() {
   helper(fresh ? `${fresh} report${fresh > 1 ? 's' : ''} not backed up yet.` : 'Everything here is backed up.');
 }
 
-function finishSave() { saveReport(); archive(); job = null; store.set(KEY_JOB, null); closeSheet(); go('#/'); }
+function finishSave(saveAsName = null) {
+  if (saveAsName && cleanName(saveAsName) && norm(saveAsName) !== norm(unitOf(job.unit)?.name || '')) nameUnit(saveAsName, false);
+  saveReport(); archive(); job = null; store.set(KEY_JOB, null); closeSheet(); go('#/');
+}
 function finishDelete() { job = null; store.set(KEY_JOB, null); closeSheet(); toast('Job deleted.'); go('#/'); }
 
 // ---------------------------------------------------------------- voice
 // Hold the bar, talk, let go. dialog.js says what the words mean; this carries it out on the same screens a tap
 // would. Every answer is read back and can be undone; readings and deleting a job are confirmed with a yes.
-const vs = { on: false, mode: 'idle', turn: null, spokenFor: null, pending: null, misses: 0, reading: null, picks: null };
+const vs = { on: false, mode: 'idle', turn: null, spokenFor: null, pending: null, misses: 0, reading: null, picks: null, naming: false, saving: false };
 
 async function voiceToggle() {
   if (vs.on) { voice.say('Voice off.'); setTimeout(() => voice.stop(), 900); vs.on = false; voiceChrome(); return; }
@@ -729,7 +899,8 @@ function setupHold() {
   b.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (!voice.isOn()) return;
-    const g = vs.mode === 'free' ? null : grammar(vs.mode === 'idle' || vs.mode === 'pick' ? 'check' : vs.mode, vs.mode === 'pick' ? vs.picks.options : vs.turn?.options || []);
+    const names = knownUnits().map((u) => u.name);
+    const g = vs.mode === 'free' ? null : grammar(vs.mode === 'idle' || vs.mode === 'pick' ? 'check' : vs.mode, vs.mode === 'pick' ? vs.picks.options : vs.turn?.options || [], names);
     h = voice.press(g, (text) => voiceHeard(text));
     if (h) { b.classList.add('down'); b.textContent = 'Listening… let go when done'; }
   });
@@ -740,7 +911,7 @@ function setupHold() {
 
 // after every render: set what the voice listens for, and speak a new check once
 function voiceView() {
-  if (vs.pending) return;
+  if (vs.pending || vs.naming || vs.saving) return;
   vs.turn = null; vs.picks = null;
   if (view.name === 'home') {
     vs.mode = 'free';
@@ -770,6 +941,20 @@ function askPending(prompt, onYes, onNo) {
 }
 
 function voiceHeard(text) {
+  if (vs.saving && !vs.pending) {
+    vs.saving = false;
+    const name = cleanName(numberWordsToDigits(String(text || '').replace(/\[unk\]/g, '')));
+    if (!name) { voice.say('Not saved.'); render(); return; }
+    askSaveAs(name);
+    return;
+  }
+  if (vs.naming && !vs.pending) {
+    vs.naming = false;
+    const name = cleanName(numberWordsToDigits(String(text || '').replace(/\[unk\]/g, '')));
+    if (!name) { voice.say('Not named.'); render(); return; }
+    askPending(`Name it ${name}? Yes or no.`, () => { nameUnit(name); voice.say(`Named ${name}.`); render(); }, () => { voice.say('Not named.'); render(); });
+    return;
+  }
   if (vs.mode === 'free' && !vs.pending) {
     // a command still works on the home screen ("stop listening" isn't a complaint)
     const c = interpret('check', text, { turn: { fid: null, options: [] } });
@@ -803,14 +988,20 @@ function voiceHeard(text) {
       render();
       return;
     case 'reading': return voiceReading(a.text);
+    case 'saveas': return voiceSaveAs(a.name);
     case 'command': return voiceCommand(a.id);
     default:
   }
 }
 
-function voiceComplaint(text) {
+function voiceComplaint(text, skipUnit = false) {
   const box = $('#homeq');
   if (box) { box.value = text; homeSearch(); }
+  const hit = !skipUnit && matchUnit(text);
+  if (hit) {
+    askPending(`${hit.unit.name}. Start a job on it? Yes or no.`, () => startUnit(hit.unit.id, hit.rest), () => voiceComplaint(text, true));
+    return;
+  }
   const sys = guessSystem(text, search.run(text, null));
   if (!sys) { voice.say("I couldn't tell which equipment. Say it again with the equipment's name, or pick it on the screen."); return; }
   askPending(`Sounds like ${kb.systems.get(sys).name}. Start? Yes or no.`,
@@ -864,16 +1055,38 @@ function voiceCommand(id) {
       return;
     }
     case 'stop': voiceToggle(); return;
-    case 'save':
+    case 'name':
       if (!job) { voice.say('No job open.'); return; }
-      finishSave(); voice.say('Report saved on the phone.');
+      vs.naming = true; vs.mode = 'free';
+      voice.say('Say the name.');
       return;
+    case 'save': {
+      if (!job) { voice.say('No job open.'); return; }
+      const name = unitOf(job.unit)?.name;
+      finishSave(); voice.say(name ? `Saved as ${name}.` : 'Report saved on the phone.');
+      return;
+    }
     case 'delete':
       if (!job) { voice.say('No job open.'); return; }
       askPending('Delete this job? Nothing is saved. Say yes to delete.', () => { finishDelete(); voice.say('Deleted.'); }, () => voice.say('Kept.'));
       return;
     default:
   }
+}
+
+// "save as <name>": the name the recognizer caught, or ask for it. The job's own unit name saves straight away;
+// any other name is read back for a yes first, since it files the report under that unit.
+function voiceSaveAs(heardName) {
+  if (!job) { voice.say('No job open.'); return; }
+  if (!heardName) { vs.saving = true; vs.mode = 'free'; voice.say('Save as what? Say the name.'); return; }
+  askSaveAs(cleanName(numberWordsToDigits(heardName)));
+}
+
+function askSaveAs(name) {
+  const known = knownUnits().find((u) => u.system === job.system && norm(u.name) === norm(name));
+  const label = known?.name || name;
+  if (job.unit && known?.id === job.unit) { finishSave(); voice.say(`Saved as ${label}.`); return; }
+  askPending(`Save as ${label}? Yes or no.`, () => { finishSave(label); voice.say(`Saved as ${label}.`); }, () => voice.say('Not saved. Say save as, and the name.'));
 }
 
 // readings by voice: one input at a time, each read back and confirmed before it's entered
@@ -962,13 +1175,18 @@ function onClick(e) {
       break;
     }
     case 'finish': finishSheet(); break;
-    case 'finish-save': finishSave(); break;
+    case 'finish-save': finishSave($('#saveas')?.value || null); break;
     case 'finish-delete': finishSheet(true); break;
     case 'finish-delete-yes': finishDelete(); break;
     case 'voice': voiceToggle(); break;
     case 'report-share': shareReports([el.dataset.id]); break;
     case 'report-delete': deleteReport(el.dataset.id, el.dataset.sure === '1'); break;
     case 'backup': shareReports(null); break;
+    case 'unit-start': startUnit(el.dataset.id, el.dataset.text || ''); break;
+    case 'unit-name': nameUnit($('#unitname')?.value || ''); render(); break;
+    case 'unit-link': linkUnit(el.dataset.id); render(); break;
+    case 'unit-rename': renameUnit(el.dataset.id, $('#unitrename')?.value || ''); break;
+    case 'unit-forget': forgetUnit(el.dataset.id, el.dataset.sure === '1'); break;
     case 'ctx': {
       const k = el.dataset.k, v = el.dataset.v;
       if (v === '') delete job.ctx[k]; else job.ctx[k] = v;
@@ -1026,8 +1244,12 @@ function onKey(e) {
   if (e.key !== 'Enter') return;
   if (e.target.id === 'homeq') {
     const text = e.target.value;
+    const hit = matchUnit(text);
+    if (hit) { startUnit(hit.unit.id, hit.rest); return; }
     const sys = guessSystem(text, search.run(text, null));
     if (sys) startFromText(text, sys);
+  } else if (e.target.id === 'unitname') {
+    nameUnit(e.target.value); render();
   } else if (e.target.id === 'diagq') {
     const text = e.target.value;
     const picks = search.run(text, job.system).picks;

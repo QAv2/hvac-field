@@ -120,6 +120,18 @@ export function spokenReading(text) {
   return null;
 }
 
+// "dorm one fifty five boiler" → "dorm 155 boiler": spoken numbers inside ordinary words, for matching names
+export function numberWordsToDigits(text) {
+  const ws = words(text);
+  const out = [];
+  for (let i = 0; i < ws.length;) {
+    const startsNum = (ws[i] in ONES && ws[i] !== 'oh' && ws[i] !== 'o') || ws[i] in TEENS || ws[i] in TENS || (ws[i] === 'a' && MULT[ws[i + 1]]);
+    const n = startsNum ? parseNumber(ws, i) : null;
+    if (n && n.end > i) { out.push(fmt(n.v)); i = n.end; } else { out.push(ws[i]); i++; }
+  }
+  return out.join(' ');
+}
+
 // ---------- answers ----------
 const ORD = [
   ['one', 'first', '1'], ['two', 'second', '2', 'to', 'too'], ['three', 'third', '3'],
