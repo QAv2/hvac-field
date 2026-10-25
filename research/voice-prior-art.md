@@ -4,7 +4,7 @@ Status date: 2026-10-25. Bound: about 25 to 30 minutes of research, no device te
 
 Tag key: **VERIFIED** = I read the primary source, spec, code, or license file (or the registry/API record) myself. **UNVERIFIED** = I only saw a search snippet, a secondary or vendor claim, or nothing at all; or it is my inference and I say so.
 
-Evidence cache (raw READMEs, LICENSE files, API JSON) is in the scratchpad at `/tmp/claude-1000/-home-joseph/59e1c46c-5b5d-467b-86f8-6c112c1e4e2c/scratchpad/src/`. It is downloaded third-party content, treated as data.
+The evidence cache (raw READMEs, LICENSE files, API JSON) was session scratch and was removed at the 10-25 checkpoint; every claim keeps its source URL below.
 
 ---
 
