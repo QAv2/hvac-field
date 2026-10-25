@@ -27,7 +27,10 @@ opened online.
   before it becomes a diagnosis (`checkSanity`): wet bulb above dry bulb, suction line colder than evaporator
   saturation, supply air colder than evaporator saturation, condensing saturation below the air entering the
   condenser, liquid line hotter than condensing saturation, mixed air outside the outdoor-to-return range (NIST
-  APAR rules 26–27), and a draft entered with a plus sign.
+  APAR rules 26–27), a draft entered with a plus sign, and a pressure outside the refrigerant's PT table. Readings
+  that can't all be right are left out of the diagnosis until they agree. Typed readings are read in the box's own
+  unit: "8,1 bar" or "815 kPa" in a psig box is converted, "24,000" is twenty-four thousand, "4,5" is 4.5; °C in a
+  °F box, a unit that doesn't belong, or a value no instrument could show is refused with a note.
 - `docs/js/calcs.js` — refrigerant PT (22 baked CoolProp tables, plus a two-point Clausius–Clapeyron fit for a
   refrigerant that isn't in them), elevation correction for gauge readings, psychrometrics, charging targets
   (California ACM RD-2/RD-3), glycol freeze points, oil and gas combustion efficiency, fan and pump affinity laws,
@@ -40,16 +43,26 @@ opened online.
 ```
 python3 tools/build.py && node tools/check.mjs     # compile KB + standalone HTML, run every check and scenario
 node tools/coverage.mjs                            # verify per-system and per-module scenario coverage
+node tools/fuzz.mjs                                # odd input: search text, readings, calculators, engine
+node tools/offline_check.mjs                       # headless Chromium: precache, offline launch, updates, file://
+npm install && node tools/a11y_check.mjs           # axe-core, 44 px tap targets, no sideways scroll at 360 px, both themes
 node tools/dx.mjs --help                           # terminal CLI diagnostics & physics calculators
 python3 tools/check_pt.py                          # PT tables vs published manufacturer charts
-.venv/bin/python -I tools/bake_pt.py               # re-bake PT and glycol tables (needs CoolProp)
+node tools/physics_check.mjs                       # 44 calculator outputs vs independent published values
+.venv/bin/python -I tools/bake_pt.py               # re-bake PT (needs CoolProp) and glycol tables
 ```
 `build.py` compiles `docs/data/kb.json`, emits the self-contained single-file `docs/field-dx-standalone.html`, and stamps `docs/sw.js` with a content hash so phones pick up a new version on next launch.
+The browser checks need Playwright with Chromium (`npm i -g playwright && npx playwright install chromium`);
+`npm install` adds axe-core, the only dev dependency (the app itself has none).
+`offline_check.mjs` serves `docs/` locally, loads the app online, goes offline and diagnoses; ships a new build and
+checks the cache is replaced byte for byte; breaks an update halfway and checks the old version still works; and
+opens the standalone file from `file://` with the network blocked.
 
 ## Sources and rights
 Fault directions follow NIST SP 1087 and TN 1648 and the NIST APAR rules (NISTIR 6964) — US Government works —
 plus public-domain Army manuals (TM 5-642, TM 5-650) and general practice, written in our own words. Refrigerant
 properties from CoolProp (MIT). Charging targets from the California Energy Commission ACM manual (Tables RD-2,
-RD-3). Nothing is copied from proprietary diagnostic apps. Research notes are in `research/`.
+RD-3). Glycol freeze points from the Dow DOWTHERM SR-1 and DOWFROST HD product tables. Nothing is copied from
+proprietary diagnostic apps. Research notes are in `research/`.
 
 The probe link (UEi wireless probes over Bluetooth) is a separate track: `tools/ble_scan.py`, `tools/ble_capture.py`.

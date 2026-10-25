@@ -1,0 +1,74 @@
+# Engine edge cases: ties, findings no single cause explains, and the next-check card. These pin how the
+# ranking behaves when it's degenerate, not what's wrong with a unit. Extra keys (tools/check.mjs):
+#   skip: [checks the tech can't make now]   expect.tied: [causes that must tie, in KB order]
+#   expect.fit: good | poor                  expect.top_p_max / next_min / next_not
+# Every scenario (in every file) also checks that no answered, measured or skipped check is suggested.
+
+# --- ties ------------------------------------------------------------------------------------------------
+- name: Engine — nothing entered on an A/C, the most common causes tie and nothing leads
+  system: vc.ac
+  expect:
+    tied: [vc.dirty_filter, vc.dirty_condenser, vc.drain_clogged]
+    top_p_max: 0.1
+    fit: good
+    next_min: 3
+
+- name: Engine — nothing entered on a boiler, tied causes keep knowledge-base order
+  system: fuel.boiler
+  expect:
+    tied: [blr.nozzle_bad, blr.cad_cell_bad, blr.exp_tank_bad]
+    top_p_max: 0.1
+
+# --- findings no single cause explains -------------------------------------------------------------------
+- name: Engine — hum, hot shell, bad capacitor alone is a clean capacitor call
+  system: vc.walkin
+  findings: {vc.comp_hot: 'yes', vc.comp: hums, vc.cap: bad}
+  expect:
+    top: vc.comp_cap
+    fit: good
+
+- name: Engine — the same plus a stuck water valve and an open defrost limit leads but is a poor fit
+  system: vc.walkin
+  findings: {vc.comp_hot: 'yes', vc.comp: hums, vc.cap: bad, rf.wrv_state: stuck_open, rf.defrost_limit: open}
+  expect:
+    top: vc.comp_cap
+    fit: poor
+
+- name: Engine — no power plus a waterlogged tank and waxed fuel is a poor fit, not a confident no-power call
+  system: fuel.boiler
+  findings: {gen.power: missing, blr.exp_tank: waterlogged, blr.primary_line_in: missing, blr.fuel_sample: cloudy_wax}
+  expect:
+    top: gen.no_line_power
+    fit: poor
+
+- name: Engine — a typical walk-in complaint fits
+  system: vc.walkin
+  findings: {rf.box_temp: high, vc.evap_frost: heavy, vc.evap_fan: running}
+  expect:
+    fit: good
+
+# --- the next-check card ---------------------------------------------------------------------------------
+- name: Engine — twenty skipped checks still leave checks to suggest, and none of the skipped ones
+  system: vc.ac
+  findings: {gen.output: weak}
+  skip: [vc.evap_frost, vc.comp, vc.evap_fan, vc.filter, vc.superheat, vc.evap_split, vc.evap_sat, gen.short_cycle,
+    vc.cond_sat, vc.cond_dirty, vc.comp_hot, vc.subcool, gen.runs_constantly, vc.cond_fan, vc.drain, hp.inverter_code,
+    gen.water_leak, vc.cond_split, vc.discharge_temp, vc.hps_trip]
+  expect:
+    next_min: 3
+    next_not: [vc.evap_frost, vc.superheat, vc.hps_trip]
+
+- name: Engine — superheat measured from gauge and probe is not asked again
+  system: vc.ac
+  ctx: {refrigerant: R-410A}
+  findings: {gen.output: weak}
+  inputs: {vc.suction_psig: 118, vc.suction_line_f: 65}
+  expect:
+    measured: {vc.superheat: high}
+    next_not: [vc.superheat, vc.evap_sat]
+
+- name: Engine — after "cooling normal" the box-temperature check stays (it opens the box-too-cold branch)
+  system: vc.walkin
+  findings: {gen.output: normal}
+  expect:
+    next_any: [rf.box_temp]

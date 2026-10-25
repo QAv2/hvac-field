@@ -1,0 +1,9 @@
+{
+  "name": "field-dx-tools",
+  "private": true,
+  "description": "Dev-only dependencies for the browser checks in tools/. The app itself has no dependencies.",
+  "devDependencies": {
+    "axe-core": "4.10.2"
+  },
+  "type": "module"
+}

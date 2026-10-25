@@ -247,7 +247,7 @@
   system: hydronic
   ctx: {fluid: eg}
   findings: {hyd.glycol_cond: degraded, hyd.strainer: clogged}
-  inputs: {hyd.glycol_pct: 54, hyd.req_freeze_f: -40}
+  inputs: {hyd.glycol_pct: 56, hyd.req_freeze_f: -40}
   expect:
     top: hyd.glycol_degraded
     measured: {hyd.freeze_point: ok}
@@ -500,10 +500,10 @@
   expect:
     measured: {hyd.freeze_point: rich}
 
-- name: EG loop at 54 % against a -40 °F target still reads protected
+- name: EG loop at 56 % against a -40 °F target still reads protected
   system: hydronic
   ctx: {fluid: eg}
-  inputs: {hyd.glycol_pct: 54, hyd.req_freeze_f: -40}
+  inputs: {hyd.glycol_pct: 56, hyd.req_freeze_f: -40}
   expect:
     measured: {hyd.freeze_point: ok}
 

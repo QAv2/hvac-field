@@ -2,7 +2,7 @@
 import * as calc from './calcs.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-const num = (v) => { const n = parseFloat(String(v ?? '').replace(',', '.')); return Number.isFinite(n) ? n : null; };
+const num = (v) => calc.readNumber(v);
 const f1 = (v, d = 1) => (v == null || !Number.isFinite(v) ? '—' : (Math.round(v * 10 ** d) / 10 ** d).toFixed(d));
 
 export const TOOL_LIST = [
@@ -17,10 +17,22 @@ export const TOOL_LIST = [
   { id: 'elec', label: '3-phase unbalance & live capacitor test', help: 'Phase voltages/currents for motor derating, or start-winding amps & volts for live µF.' },
 ];
 
-const field = (tool, k, label, unit, val = '', hint = '') => `<div class="field"><label>${esc(label)} <span class="unit">${esc(unit)}</span></label>
-  <input data-tool="${tool}" data-k="${k}" type="text" inputmode="decimal" autocomplete="off" value="${esc(val)}">${hint ? `<span class="hint">${esc(hint)}</span>` : ''}</div>`;
-const select = (tool, k, label, options, cur) => `<div class="field"><label>${esc(label)}</label>
-  <select data-tool="${tool}" data-k="${k}">${options.map((o) => `<option value="${esc(o[0])}" ${o[0] === cur ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select></div>`;
+// Units whose readings can be below zero get a ± key next to the box: the phone's number pad has none.
+const SIGNED = new Set(['°F', 'psig', 'psi', 'in. w.c.', 'ft']);
+export const numBox = (input, unit) => (SIGNED.has(unit)
+  ? `<div class="inrow">${input}<button type="button" class="pm" data-act="negate" aria-label="Change sign (minus)">±</button></div>` : input);
+
+let fieldN = 0;
+const field = (tool, k, label, unit, val = '', hint = '') => {
+  const id = `tf-${tool}-${k}-${++fieldN}`;
+  return `<div class="field"><label for="${id}">${esc(label)} <span class="unit">${esc(unit)}</span></label>
+  ${numBox(`<input id="${id}" data-tool="${tool}" data-k="${k}" data-unit="${esc(unit)}" type="text" inputmode="decimal" autocomplete="off" value="${esc(val)}">`, unit)}${hint ? `<span class="hint">${esc(hint)}</span>` : ''}</div>`;
+};
+const select = (tool, k, label, options, cur) => {
+  const id = `tf-${tool}-${k}-${++fieldN}`;
+  return `<div class="field"><label for="${id}">${esc(label)}</label>
+  <select id="${id}" data-tool="${tool}" data-k="${k}">${options.map((o) => `<option value="${esc(o[0])}" ${o[0] === cur ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select></div>`;
+};
 
 export function renderTool(id, { ctx = {}, refrigerants = [] } = {}) {
   const t = TOOL_LIST.find((x) => x.id === id);
@@ -77,15 +89,23 @@ export function renderTool(id, { ctx = {}, refrigerants = [] } = {}) {
       body = '<p>Unknown calculator.</p>';
   }
   return `<h1>${esc(t?.label || 'Calculator')}</h1>${body}<div id="toolout" class="out"></div>
-    <div style="margin-top:16px"><a href="#/tools">‹ All calculators</a></div>`;
+    <div style="margin-top:16px"><a class="block" href="#/tools">‹ All calculators</a></div>`;
 }
 
 export function updateTool(id) {
   const out = document.getElementById('toolout');
   if (!out) return;
+  // typed boxes are read in their own unit ("8,1 bar" in a psig box, "24,000" Btu/h); a box that can't
+  // be read says so instead of being quietly ignored
   const v = {};
-  document.querySelectorAll(`[data-tool="${id}"]`).forEach((el) => { v[el.dataset.k] = el.value; });
-  out.innerHTML = compute(id, v);
+  const notes = [];
+  document.querySelectorAll(`[data-tool="${id}"]`).forEach((el) => {
+    if (el.tagName !== 'INPUT') { v[el.dataset.k] = el.value; return; }
+    const r = calc.readValue(el.value, el.dataset.unit || '');
+    v[el.dataset.k] = r.v;
+    if (r.note) notes.push(`${el.closest('.field')?.querySelector('label')?.firstChild?.textContent.trim() || el.dataset.k}: ${r.note}`);
+  });
+  out.innerHTML = notes.map((n) => `<p class="warnbox">${esc(n)}</p>`).join('') + compute(id, v);
 }
 
 const row = (label, value) => `<div class="row"><span>${esc(label)}</span><b>${value}</b></div>`;
@@ -95,7 +115,8 @@ function pressureText(p) {
   return p < 0 ? `${f1(calc.inHg(p))} in. Hg vac` : `${f1(p)} psig`;
 }
 
-function compute(id, v) {
+// exported for tools/fuzz.mjs
+export function compute(id, v) {
   const elev = num(v.elev) ?? 0;
   const patm = calc.patmFromElev(elev);
   switch (id) {
@@ -207,6 +228,7 @@ function compute(id, v) {
       if (stack == null || o2 == null) return '<p class="muted">Needs stack temperature and O2.</p>';
       if (o2 >= 20.9) return '<p class="warnbox">O2 at or above 20.9 % means the probe is reading room air.</p>';
       const r = calc.combustion({ stackF: stack, airF: air, o2, co });
+      if (!r) return '<p class="warnbox">The stack has to be hotter than the combustion air, and O2 between 0 and 20.9 %. Re-check the probe and the numbers.</p>';
       return `<div class="big">${f1(r.eff)} %</div>${row('Net stack temperature', `${f1(r.netStack, 0)} °F`)}${row('CO2 (calculated)', `${f1(r.co2)} %`)}
         ${row('Excess air', `${f1(r.excessAir, 0)} %`)}${co != null ? row('CO air-free', `${f1(r.coAirFree, 0)} ppm`) : ''}
         <p class="muted">Flue-loss (Siegert) efficiency on the higher heating value, light fuel oil. Doesn't count CO, smoke or jacket losses. Check smoke number before trusting a high O2 trim.</p>`;
@@ -254,7 +276,11 @@ function compute(id, v) {
   }
 }
 
+// (a centre far outside any table, e.g. 1e300 °F from a bad custom fit, would make t++ a no-op and the loop endless)
+const tableCenter = (c) => Number.isFinite(c) && Math.abs(c) < 1e4;
+
 function ptTable(ref, center, patm = calc.P_ATM) {
+  if (!tableCenter(center)) return '';
   const glide = calc.hasGlide(ref);
   let rows = '';
   for (let t = center - 5; t <= center + 5; t++) {
@@ -266,6 +292,7 @@ function ptTable(ref, center, patm = calc.P_ATM) {
 }
 
 function customPtTable(fit, center) {
+  if (!tableCenter(center)) return '';
   let rows = '';
   for (let t = center - 5; t <= center + 5; t++) {
     const d = calc.clausiusPsat(fit, t);

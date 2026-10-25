@@ -6,7 +6,7 @@ import { diagnose, explain } from './engine.js';
 import { computeMeasures } from './measure.js';
 import * as calc from './calcs.js';
 import { Search, norm } from './search.js';
-import { TOOL_LIST, renderTool, updateTool } from './tools.js';
+import { TOOL_LIST, renderTool, updateTool, numBox } from './tools.js';
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -125,8 +125,7 @@ function evaluate() {
   const findings = {};
   for (const [fid, r] of Object.entries(m.findings)) findings[fid] = r.s;
   for (const [fid, r] of Object.entries(job.f)) findings[fid] = r.s;
-  const res = diagnose(kb, { system: job.system, ctx: job.ctx, findings }, { limit: 16 });
-  res.next = res.next.filter((n) => !job.skip.includes(n.id));
+  const res = diagnose(kb, { system: job.system, ctx: job.ctx, findings }, { limit: 16, skip: job.skip });
   return { m, findings, res };
 }
 
@@ -175,7 +174,7 @@ function viewHome() {
     <div class="results">${TOOL_LIST.slice(0, 4).map((t) => `<button class="res" data-act="tool" data-id="${t.id}">${esc(t.label)}</button>`).join('')}
       <button class="res" data-act="tools"><span>All calculators</span><span class="k">›</span></button></div>
     ${recent ? `<h2>Recent jobs</h2><div class="results">${recent}</div>` : ''}
-    <p class="muted" style="margin-top:28px"><a href="#/about">About, sources and offline use</a></p>`;
+    <p class="muted" style="margin-top:28px"><a class="block" href="#/about">About, sources and offline use</a></p>`;
   helper('Pick the equipment — or describe the problem in the box.');
   if (view.q.text) homeSearch();
 }
@@ -289,7 +288,7 @@ function viewDiag() {
     <div id="nextcard">${nextCard(res, m)}</div>
     <h2>Likely causes</h2>
     ${fitNote(res, m)}
-    <div class="causes">${res.post.slice(0, 6).map((r, i) => causeRow(r, i === 0)).join('')}</div>
+    <div class="causes">${res.post.slice(0, 6).map((r, i) => causeRow(r, i === 0, i === 0 && poorFit(res))).join('')}</div>
     <h2>Readings</h2>
     <button class="res" data-act="go" data-href="#/readings"><span>${vitalsSummary(m)}</span><span class="k">enter ›</span></button>
     <h2>Notes</h2>
@@ -301,7 +300,8 @@ function viewDiag() {
     </div>`;
   const top = res.post[0];
   const n = currentCheck(res);
-  if (top && top.p >= 0.75 && top.id !== '_ok') helper(`Likely: ${top.cause.name}. Confirm it, then fix.`);
+  if (poorFit(res)) helper('No one cause explains everything entered. Recheck the odd findings, or look for a second fault.');
+  else if (top && top.p >= 0.75 && top.id !== '_ok') helper(`Likely: ${top.cause.name}. Confirm it, then fix.`);
   else if (n) helper(`Next: ${shortAsk(n.feature)}`);
   else helper('Add what you see, or enter readings.');
 }
@@ -364,8 +364,12 @@ function nextCard(res, m) {
   </div>`;
 }
 
-function causeRow(r, lead) {
-  const label = r.p >= 0.6 ? 'Strong lead' : r.p >= 0.3 ? 'Contender' : r.p >= 0.1 ? 'Possible' : 'Long shot';
+// The percentages always add up to 100, so a cause can lead strongly on findings it doesn't explain
+// (contradictory readings, or two faults at once). Then it isn't called a strong lead.
+const poorFit = (res) => Boolean(res.fit && !res.fit.ok && res.post[0] && res.post[0].id !== '_ok');
+
+function causeRow(r, lead, poor = false) {
+  const label = poor ? 'Leads, but doesn\'t explain everything' : r.p >= 0.6 ? 'Strong lead' : r.p >= 0.3 ? 'Contender' : r.p >= 0.1 ? 'Possible' : 'Long shot';
   return `<button class="cause ${lead ? 'lead' : ''}" data-act="cause" data-id="${esc(r.id)}">
     <span class="n">${esc(r.cause.name)}</span><span class="p">${pct(r.p)}%</span>
     <span class="bar"><i style="width:${Math.max(2, Math.round(r.p * 100))}%"></i></span>
@@ -375,9 +379,9 @@ function causeRow(r, lead) {
 function fitNote(res, m) {
   let html = '';
   if (m?.sanity?.length) {
-    html += m.sanity.map((w) => `<div class="safety"><b>Thermodynamic sanity check.</b> ${esc(w.msg || w)}</div>`).join('');
+    html += m.sanity.map((w) => `<div class="safety"><b>${esc(w.title || 'Thermodynamic sanity check.')}</b> ${esc(w.msg || w)}</div>`).join('');
   }
-  if (res.fit && !res.fit.ok && res.post[0] && res.post[0].id !== '_ok') {
+  if (poorFit(res)) {
     const misses = res.fit.misses.slice(0, 3).map((x) => esc(x.label)).join(', ');
     html += `<div class="warnbox">The leading cause doesn't explain everything (${misses}). There may be two faults, or a reading is off — recheck it.</div>`;
   }
@@ -421,9 +425,10 @@ function viewReadings() {
         const lab = typeof c === 'object' ? c.label ?? val : c;
         return `<option value="${esc(val)}" ${String(v) === String(val) ? 'selected' : ''}>${esc(lab)}</option>`;
       }).join('')}</select>`
-      : `<input id="in-${esc(i.id)}" data-in="${esc(i.id)}" type="text" inputmode="decimal" autocomplete="off" value="${esc(v)}" placeholder="${esc(ph)}">`;
+      : numBox(`<input id="in-${esc(i.id)}" data-in="${esc(i.id)}" type="text" inputmode="decimal" autocomplete="off" value="${esc(v)}" placeholder="${esc(ph)}">`, i.unit);
     return `<div class="field ${focusIds.has(i.id) ? 'focus' : ''}"><label for="in-${esc(i.id)}">${esc(i.name)} <span class="unit">${esc(i.unit || '')}</span></label>
       ${control}
+      <span class="hint readnote" aria-live="polite">${esc(calc.readValue(v, i.unit).note || '')}</span>
       ${i.hint ? `<span class="hint">${esc(i.hint)}</span>` : ''}</div>`;
   }).join('');
   $('#main').innerHTML = `
@@ -444,7 +449,7 @@ function refPicker() {
   const cur = job.ctx.refrigerant;
   const loc = job.ctx.sh_location;
   return `<div class="qrow"><div class="ql">Refrigerant</div><div class="opts">
-    <select class="opt" data-ctxsel="refrigerant" style="min-width:160px"><option value="">Pick one…</option>${calc.refrigerants().map((r) => `<option ${cur === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>
+    <select class="opt" data-ctxsel="refrigerant" aria-label="Refrigerant" style="min-width:160px"><option value="">Pick one…</option>${calc.refrigerants().map((r) => `<option ${cur === r ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select>
     <span class="seg"><button class="${loc === 'evap' ? 'on' : ''}" data-act="ctx" data-k="sh_location" data-v="evap">Suction temp at evaporator</button><button class="${loc === 'comp' ? 'on' : ''}" data-act="ctx" data-k="sh_location" data-v="comp">at condensing unit</button></span>
   </div></div>`;
 }
@@ -458,7 +463,7 @@ function vitalsHtml() {
     && Object.keys(job.inputs).some((k) => /psig/.test(k));
   let html = missingRef ? '<div class="warnbox">Pick the refrigerant to turn pressures into temperatures.</div>' : '';
   if (m.sanity?.length) {
-    html += m.sanity.map((w) => `<div class="safety"><b>Thermodynamic sanity check.</b> ${esc(w.msg || w)}</div>`).join('');
+    html += m.sanity.map((w) => `<div class="safety"><b>${esc(w.title || 'Thermodynamic sanity check.')}</b> ${esc(w.msg || w)}</div>`).join('');
   }
   if (!rows.length) return html + '<p class="muted">Results show up here as you enter numbers.</p>';
   html += `<div class="vitals">${rows.map((r) => {
@@ -488,7 +493,7 @@ function viewCause() {
   // the check that best separates this cause from the strongest other one
   const rival = res.post.find((r) => r.id !== id);
   $('#main').innerHTML = `
-    <p class="muted" style="margin:6px 0 0">${row ? `${pct(row.p)}% · ${row.p >= 0.6 ? 'Strong lead' : row.p >= 0.3 ? 'Contender' : row.p >= 0.1 ? 'Possible' : 'Long shot'}` : ''}</p>
+    <p class="muted" style="margin:6px 0 0">${row ? `${pct(row.p)}% · ${row === res.post[0] && poorFit(res) ? 'Leads, but doesn\'t explain everything' : row.p >= 0.6 ? 'Strong lead' : row.p >= 0.3 ? 'Contender' : row.p >= 0.1 ? 'Possible' : 'Long shot'}` : ''}</p>
     <h1>${esc(c.name)}</h1>
     ${ev ? `<h2>Why</h2><ul class="ev">${ev}</ul>` : ''}
     ${c.confirm ? `<h2>Confirm it</h2><div class="prose"><p>${esc(kb.fill(c.confirm, sys))}</p></div>` : ''}
@@ -569,6 +574,16 @@ function onClick(e) {
       break;
     }
     case 'go': go(el.dataset.href); break;
+    case 'negate': {
+      // the phone's number pad has no minus key: flip the sign of the box next to this button
+      const box = el.parentElement.querySelector('input');
+      if (!box) break;
+      const v = box.value.trim().replace(/^[\u2212\u2013]/, '-');
+      box.value = v.startsWith('-') ? v.slice(1) : `-${v}`;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+      box.focus();
+      break;
+    }
     case 'sys': newJob(el.dataset.id); go('#/setup'); break;
     case 'start-text': {
       const text = $('#homeq')?.value || '';
@@ -623,6 +638,8 @@ function onInput(e) {
     const v = t.value.trim();
     if (v === '') delete job.inputs[t.dataset.in]; else job.inputs[t.dataset.in] = v;
     save();
+    const note = t.closest('.field')?.querySelector('.readnote');
+    if (note) note.textContent = calc.readValue(v, kb.inputs.get(t.dataset.in)?.unit).note || '';
     $('#vitals').innerHTML = vitalsHtml();
     return;
   }

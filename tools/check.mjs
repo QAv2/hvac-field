@@ -85,7 +85,7 @@ const calcCases = [
   ['fixed-orifice target 62.5 WB / 85.5 OD (RD-2 bilinear)', calc.foTargetSh(62.5, 85.5), (8.5 + 10.3 + 7.8 + 9.6) / 4, 0.01],
   ['target split 80 DB / 67 WB (RD-3: 18.3)', calc.splitTarget(80, 67), 18.3, 0.01],
   ['fixed-orifice target outside table → formula', calc.foTargetSh(67, 120), (3 * 67 - 80 - 120) / 2 < 5 ? 5 : (3 * 67 - 80 - 120) / 2, 0.01],
-  ['EG 50 % freeze °F', calc.glycolFreeze(50, 'EG'), -32.8, 0.5],
+  ['EG 50 wt % freeze °F (Dow SR-1: −28.9)', calc.glycolFreeze(50, 'EG'), -28.9, 0.5],
   ['oil 400 net stack @ 4.7 % O2 eff (US chart ≈ 83.5)', calc.combustion({ stackF: 470, airF: 70, o2: 4.7 }).eff, 83.5, 1.0],
   ['patmFromElev(5280 ft Denver) psia', calc.patmFromElev(5280), 12.1, 0.1],
   ['Clausius-Clapeyron R-410A 0/100°F → 40°F psig', calc.clausiusPsat(calc.clausiusFit(0, 48.3, 100, 317.6), 40), 118.4, 2.5],
@@ -115,7 +115,7 @@ for (const sc of scen) {
   const measured = computeMeasures(kb, sc.system, ctx, sc.inputs || {});
   const findings = { ...Object.fromEntries(Object.entries(measured.findings).map(([k, v]) => [k, v.s])), ...(sc.findings || {}) };
   let res;
-  try { res = diagnose(kb, { system: sc.system, ctx, findings }); } catch (e) { problems.push(`scenario "${sc.name}": ${e.message}`); continue; }
+  try { res = diagnose(kb, { system: sc.system, ctx, findings }, { skip: sc.skip }); } catch (e) { problems.push(`scenario "${sc.name}": ${e.message}`); continue; }
   const ids = res.post.map((r) => r.id);
   const top3 = ids.slice(0, 3);
   const fails = [];
@@ -126,6 +126,19 @@ for (const sc of scen) {
   for (const id of ex.not_top3 || []) if (top3.includes(id)) fails.push(`${id} should not be in the top 3 (rank ${ids.indexOf(id) + 1})`);
   if (ex.next_any && !res.next.slice(0, 3).some((n) => ex.next_any.includes(n.id))) fails.push(`next checks ${res.next.slice(0, 3).map((n) => n.id).join(', ')} include none of ${ex.next_any.join(', ')}`);
   for (const fid of ex.unmeasured || []) if (measured.findings[fid]) fails.push(`measured ${fid} = ${measured.findings[fid].s}, want no verdict (a reference is blank)`);
+  // engine edge cases (tests/scenarios/engine.yaml)
+  for (const id of ex.next_not || []) if (res.next.some((n) => n.id === id)) fails.push(`next checks include ${id}`);
+  if (ex.next_min !== undefined && res.next.length < ex.next_min) fails.push(`only ${res.next.length} next check(s), want at least ${ex.next_min}`);
+  if (ex.fit && (res.fit?.ok ? 'good' : 'poor') !== ex.fit) fails.push(`fit is ${res.fit?.ok ? 'good' : 'poor'} (${(res.fit?.misses || []).map((x) => `${x.f}=${x.s}`).join(', ')}), want ${ex.fit}`);
+  if (ex.top_p_max !== undefined && res.post[0].p > ex.top_p_max) fails.push(`top at ${(res.post[0].p * 100).toFixed(0)}%, want at most ${ex.top_p_max * 100}%`);
+  if (ex.tied) {
+    const ps = ex.tied.map((id) => res.post.find((r) => r.id === id)?.p);
+    const at = ex.tied.map((id) => ids.indexOf(id));
+    if (ps.some((x) => x === undefined || Math.abs(x - ps[0]) > 1e-12)) fails.push(`${ex.tied.join(', ')} should tie, got ${ps.map((x) => x?.toFixed(4)).join(', ')}`);
+    else if (at.some((x, i) => i && x !== at[i - 1] + 1)) fails.push(`tied causes should sit together in knowledge-base order, got ranks ${at.map((x) => x + 1).join(', ')}`);
+  }
+  // always: never suggest a check that's answered (typed or measured) or that the tech skipped
+  for (const n of res.next) if (findings[n.id] !== undefined || (sc.skip || []).includes(n.id)) fails.push(`next check ${n.id} is already answered or skipped`);
   for (const [fid, s] of Object.entries(ex.measured || {})) {
     if (measured.findings[fid]?.s !== s) fails.push(`measured ${fid} = ${measured.findings[fid]?.s ?? 'nothing'} (value ${measured.findings[fid]?.v?.toFixed?.(1)}), want ${s}`);
   }
